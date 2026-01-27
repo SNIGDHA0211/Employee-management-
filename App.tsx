@@ -8,6 +8,7 @@ import api, {
   getBranch as apiGetBranch,
   logout as apiLogout
 } from './services/api';
+import { clearAuthData } from './services/utils/auth';
 import { Sidebar, Header, BirthdayBanner } from './components/Layout';
 import { TaskBoard } from './components/TaskBoard';
 import { ChatSystem } from './components/ChatSystem';
@@ -613,6 +614,45 @@ export default function App() {
   const [branches, setBranches] = useState<string[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
 
+  // Restore authenticated session & last active tab on page refresh
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const storedUser = window.localStorage.getItem('current_user');
+      const storedTab = window.localStorage.getItem('active_tab');
+
+      // Restore if we have a previously saved user
+      if (storedUser) {
+        const parsedUser: User = JSON.parse(storedUser);
+        setCurrentUser(parsedUser);
+
+        if (storedTab) {
+          setActiveTab(storedTab);
+        } else {
+          // Fallback: decide default tab by role if no tab stored
+          if (parsedUser.role === UserRole.ADMIN) {
+            setActiveTab('admin');
+          } else if (parsedUser.role === UserRole.MD) {
+            setActiveTab('dashboard');
+          } else {
+            setActiveTab('assignTask');
+          }
+        }
+      } else {
+        // No valid session – clear any stale stored data
+        window.localStorage.removeItem('current_user');
+        window.localStorage.removeItem('active_tab');
+        clearAuthData();
+      }
+    } catch (e) {
+      // If anything goes wrong parsing, clear and start fresh
+      window.localStorage.removeItem('current_user');
+      window.localStorage.removeItem('active_tab');
+      clearAuthData();
+    }
+  }, []);
+
   // Helper function to normalize branch names for comparison
   const normalizeBranchName = (branch: string): string => {
     return branch.toUpperCase().replace(/\s+/g, '_');
@@ -895,20 +935,40 @@ export default function App() {
     };
     
     setCurrentUser(finalUser);
-    
+
+    // Decide starting tab based on role and persist it
+    let nextTab = 'assignTask';
     if (finalUser.role === UserRole.ADMIN) {
-      setActiveTab('admin');
+      nextTab = 'admin';
     } else if (finalUser.role === UserRole.MD) {
-      setActiveTab('dashboard');
-    } else {
-      setActiveTab('assignTask');
+      nextTab = 'dashboard';
+    }
+
+    setActiveTab(nextTab);
+
+    // Persist logged-in user and active tab to survive page refresh
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('current_user', JSON.stringify(finalUser));
+      window.localStorage.setItem('active_tab', nextTab);
     }
   };
 
   const handleLogout = async () => {
     await apiLogout();
     setCurrentUser(null);
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('current_user');
+      window.localStorage.removeItem('active_tab');
+    }
+    clearAuthData();
   };
+
+  // Whenever active tab changes while logged in, keep it in localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!currentUser) return;
+    window.localStorage.setItem('active_tab', activeTab);
+  }, [activeTab, currentUser]);
   
   if (!currentUser) {
     return <LoginPage onLogin={handleLogin} />;
