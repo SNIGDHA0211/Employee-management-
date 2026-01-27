@@ -567,8 +567,16 @@ ${isDevelopment ? 'Note: Using Vite proxy (/api) to bypass CORS. Make sure:\n- B
  * Logout function
  */
 export const logout = async (): Promise<void> => {
-  clearAuthData();
-  return Promise.resolve();
+  try {
+    // Call backend logout endpoint to invalidate server-side session
+    await api.post("/accounts/Logout/");
+  } catch (error: any) {
+    // If network/server error, still clear local auth so user is signed out on frontend
+    console.error("❌ [LOGOUT] Error calling /accounts/Logout/ endpoint:", error);
+  } finally {
+    // Always clear local auth data
+    clearAuthData();
+  }
 };
 
 /**
