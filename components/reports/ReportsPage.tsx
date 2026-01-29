@@ -167,10 +167,13 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
           console.log('✅ [REPORTS] User ID (Employee_id):', employeeId);
         }
 
-        // Detect role (MD vs others)
+        // Detect role (MD vs others) – support "MD", "Managing Director", etc.
         const apiRole = employeeData?.['Role'] || employeeData?.['role'] || employeeData?.ROLE;
-        const normalizedRole = apiRole ? String(apiRole).trim().toUpperCase() : '';
-        const userIsMD = normalizedRole === 'MD';
+        const normalizedRole = apiRole ? String(apiRole).trim().toUpperCase().replace(/\s+/g, ' ') : '';
+        const userIsMD = normalizedRole === 'MD' ||
+          normalizedRole === 'MANAGING DIRECTOR' ||
+          normalizedRole === 'MANAGING_DIRECTOR' ||
+          /^MD\b/.test(normalizedRole);
         setIsMD(userIsMD);
         
         // Try multiple possible field names for department
@@ -717,7 +720,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     if (!row) {
       console.warn('⚠️ [REPORTS] Cannot change status: Implementation row not found');
       return;
-    }
+    }   
 
     if (!row.entry_id) {
       console.warn('⚠️ [REPORTS] Cannot change status: entry_id not available. Entry may need to be saved first.');
@@ -1189,28 +1192,28 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
               <p className="text-sm text-gray-500">Daily Entry & Strategic Review System</p>
             </div>
           </div>
+          {!isMD && (
+            <div className="no-print flex items-center gap-2">
+              <button
+                onClick={handlePrint}
+                className="px-4 py-2 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-all flex items-center"
+              >
+                <Printer className="w-4 h-4 mr-1" />
+                PDF
+              </button>
+              <button
+                onClick={handleSubmit}
+                className="px-6 py-2 bg-brand-600 text-white text-xs font-black rounded-lg hover:bg-brand-700 transition-all flex items-center shadow-lg shadow-brand-100 uppercase tracking-widest"
+              >
+                <Send className="w-4 h-4 mr-1" />
+                SAVE REPORT
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Main Form Container */}
         <div className="bg-white shadow-xl rounded-2xl overflow-hidden border border-gray-200 relative">
-          
-          {/* Top Right Actions */}
-          <div className="absolute top-6 right-6 no-print flex space-x-2 z-10">
-            <button 
-                onClick={handlePrint}
-                className="px-4 py-2 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-all flex items-center"
-            >
-                <Printer className="w-4 h-4 mr-1" />
-                PDF
-            </button>
-            <button 
-                onClick={handleSubmit}
-                className="px-6 py-2 bg-brand-600 text-white text-xs font-black rounded-lg hover:bg-brand-700 transition-all flex items-center shadow-lg shadow-brand-100 uppercase tracking-widest"
-            >
-                <Send className="w-4 h-4 mr-1" />
-                SUBMIT REPORT
-            </button>
-          </div>
 
           {/* Internal Doc Header */}
           <div className="bg-white p-10 border-b border-gray-100 text-center">
@@ -1333,23 +1336,27 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                   <UserIcon className="w-3 h-3 mr-1" />
                   Reporting Officer / Attendee
                 </span>
-                {isLoadingEmployees ? (
-                  <span className="text-slate-500 font-semibold p-2 no-print">Loading...</span>
+                {isMD ? (
+                  isLoadingEmployees ? (
+                    <span className="text-slate-500 font-semibold p-2 no-print">Loading...</span>
+                  ) : (
+                    <select
+                      value={attendee}
+                      onChange={(e) => setAttendee(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-md px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
+                    >
+                      <option value="">Select reporting officer / attendee</option>
+                      {filteredEmployeesByDept.map((emp) => (
+                        <option key={emp.id} value={emp.name}>
+                          {emp.name}
+                        </option>
+                      ))}
+                    </select>
+                  )
                 ) : (
-                  <select
-                    value={attendee}
-                    onChange={(e) => setAttendee(e.target.value)}
-                    className="bg-white border border-slate-200 rounded-md px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
-                  >
-                    <option value="">Select reporting officer / attendee</option>
-                    {filteredEmployeesByDept.map((emp) => (
-                      <option key={emp.id} value={emp.name}>
-                        {emp.name}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="text-slate-800 font-semibold mt-1 no-print">{currentUserName || '—'}</span>
                 )}
-                <span className="hidden print:block text-slate-800 font-semibold border-b border-slate-200 py-2">{attendee || '____________________'}</span>
+                <span className="hidden print:block text-slate-800 font-semibold border-b border-slate-200 py-2">{isMD ? (attendee || '____________________') : (currentUserName || '____________________')}</span>
               </div>
             </div>
           </div>
