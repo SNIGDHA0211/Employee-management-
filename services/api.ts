@@ -21,6 +21,7 @@ const API_BASE_URL = isDevelopment
   ? '/api'  // Use Vite proxy in development (bypasses CORS)
   : 'https://employee-management-system-tmrl.onrender.com';  // Direct URL in production
 
+  
 // Create axios instance for authenticated requests
 const api = axios.create({
   baseURL: API_BASE_URL,
