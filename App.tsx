@@ -18,7 +18,13 @@ import { AttendanceTours } from './components/AttendanceTours';
 import { ReportsPage } from './components/reports';
 import { MDDashboardPage } from './components/MDDashboard';
 import { NMRHIPage } from './components/NMRHI';
+import AdminDashboard from './components/AdminOps/AdminDashboard';
+import AssetManager from './components/AdminOps/AssetManager';
+import VendorManager from './components/AdminOps/VendorManager';
+import ExpenseManager from './components/AdminOps/ExpenseManager';
+import BillsManager from './components/AdminOps/BillsManager';
 import { Users, Briefcase, CheckSquare, AlertTriangle, ShieldCheck, Activity, Lock, User as UserIcon, ArrowRight, Clock, CheckCircle2, XCircle, Leaf, Building2, Cpu, Database, Fingerprint, X, Mail, Calendar, Briefcase as BriefcaseIcon, Eye, EyeOff, Shield } from 'lucide-react';
+import { Asset, Bill, Expense, Vendor } from './types';
 
 // Helper function to convert Photo_link to absolute URL with /media/ prefix for Django
 const convertPhotoLinkToUrl = (photoLink: string | null | undefined): string => {
@@ -605,6 +611,10 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(MOCK_ATTENDANCE);
   const [tours, setTours] = useState<Tour[]>(MOCK_TOURS);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [bills, setBills] = useState<Bill[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<User | null>(null); // For employee detail modal
   const [showFilteredUsersModal, setShowFilteredUsersModal] = useState(false);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
@@ -811,6 +821,10 @@ export default function App() {
           const joinDate = emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0];
           const birthDate = emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01';
           const photoLink = emp['Photo_link'] || emp['Profile Picture'] || emp.avatar || emp.profilePicture || '';
+          // New backend field: human-readable label like "1 years 27 days"
+          const numberOfDaysFromJoining = emp['Number_of_days_from_joining'] !== undefined && emp['Number_of_days_from_joining'] !== null
+            ? String(emp['Number_of_days_from_joining']).trim()
+            : undefined;
           
           const existingUser = users.find(u => 
             u.id === employeeId || 
@@ -839,6 +853,7 @@ export default function App() {
               joinDate: joinDate || existingUser.joinDate,
               avatar: convertPhotoLinkToUrl(photoLink) || existingUser.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
               branch: (branch || existingUser.branch) as any,
+              numberOfDaysFromJoining: numberOfDaysFromJoining !== undefined ? numberOfDaysFromJoining : existingUser.numberOfDaysFromJoining,
               // Preserve original Employee_id field from API for reference
               ...(emp['Employee_id'] !== undefined && { Employee_id: String(emp['Employee_id']).trim() }),
             };
@@ -860,6 +875,7 @@ export default function App() {
               score: 0,
               branch: branch as any,
               password: emp['Initial Password'] || emp.password,
+              numberOfDaysFromJoining: numberOfDaysFromJoining,
               // Preserve original Employee_id field from API for reference
               ...(emp['Employee_id'] !== undefined && { Employee_id: String(emp['Employee_id']).trim() }),
             };
@@ -875,6 +891,23 @@ export default function App() {
           }
           return u;
         });
+
+        // If we have a logged-in user, also update their numberOfDaysFromJoining from the API data
+        if (currentUser) {
+          const match = finalUsers.find(u =>
+            u.id === currentUser.id ||
+            u.email === currentUser.email ||
+            u.name.toLowerCase() === currentUser.name.toLowerCase()
+          );
+
+          if (match && match.numberOfDaysFromJoining !== undefined && match.numberOfDaysFromJoining !== null) {
+            setCurrentUser(prev =>
+              prev
+                ? { ...prev, numberOfDaysFromJoining: match.numberOfDaysFromJoining }
+                : prev
+            );
+          }
+        }
         
         // Set users to API data only (replace all mock data)
         setUsers(finalUsers);
@@ -1479,6 +1512,26 @@ export default function App() {
     switch (activeTab) {
       case 'dashboard':
         return renderDashboard();
+
+      case 'admin-dashboard':
+        if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
+        return <AdminDashboard assets={assets} bills={bills} expenses={expenses} vendors={vendors} />;
+
+      case 'admin-assets':
+        if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
+        return <AssetManager assets={assets} setAssets={setAssets} />;
+
+      case 'admin-vendors':
+        if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
+        return <VendorManager vendors={vendors} setVendors={setVendors} />;
+
+      case 'admin-expenses':
+        if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
+        return <ExpenseManager expenses={expenses} setExpenses={setExpenses} />;
+
+      case 'admin-bills':
+        if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
+        return <BillsManager bills={bills} setBills={setBills} />;
       
       case 'assignTask':
         // Assign Task Page → /tasks/viewAssignedTasks/ (for MD and all users)
@@ -1668,25 +1721,37 @@ export default function App() {
                      </div>
                    </div>
 
-                   <div className="flex items-center space-x-3">
-                     <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center">
-                       <Calendar className="text-green-600" size={20} />
-                     </div>
-                     <div>
-                       <p className="text-xs text-gray-500 uppercase tracking-wider font-bold">Joining Date</p>
-                       <p className="text-sm font-bold text-gray-800">{new Date(selectedEmployee.joinDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                     </div>
-                   </div>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center">
+                      <Calendar className="text-green-600" size={20} />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 uppercase tracking-wider font-bold">Joining Date</p>
+                      <p className="text-sm font-bold text-gray-800">{new Date(selectedEmployee.joinDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                    </div>
+                  </div>
 
-                   <div className="flex items-center space-x-3">
-                     <div className="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center">
-                       <Calendar className="text-purple-600" size={20} />
-                     </div>
-                     <div>
-                       <p className="text-xs text-gray-500 uppercase tracking-wider font-bold">Birthdate</p>
-                       <p className="text-sm font-bold text-gray-800">{new Date(selectedEmployee.birthDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                     </div>
-                   </div>
+                  {(selectedEmployee.numberOfDaysFromJoining !== undefined && selectedEmployee.numberOfDaysFromJoining !== null && selectedEmployee.numberOfDaysFromJoining !== '') && (
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
+                        <Clock className="text-indigo-600" size={20} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider font-bold">Days From Joining</p>
+                        <p className="text-sm font-bold text-gray-800">{selectedEmployee.numberOfDaysFromJoining}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center">
+                      <Calendar className="text-purple-600" size={20} />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 uppercase tracking-wider font-bold">Birthdate</p>
+                      <p className="text-sm font-bold text-gray-800">{new Date(selectedEmployee.birthDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                    </div>
+                  </div>
 
                    <div className="flex items-center space-x-3">
                      <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center">
@@ -1937,6 +2002,19 @@ export default function App() {
                     </p>
                   </div>
                 </div>
+
+                {/* Days From Joining */}
+                {(currentUser.numberOfDaysFromJoining !== undefined && currentUser.numberOfDaysFromJoining !== null && currentUser.numberOfDaysFromJoining !== '') && (
+                  <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-xl">
+                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
+                      <Clock className="text-indigo-600" size={20} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Days From Joining</p>
+                      <p className="text-lg font-semibold text-gray-800 mt-1">{currentUser.numberOfDaysFromJoining}</p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Birthdate */}
                 <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-xl">

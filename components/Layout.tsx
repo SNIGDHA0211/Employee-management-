@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2 } from 'lucide-react';
 import { getMotivationalQuote } from '../services/gemini';
 
 interface SidebarProps {
@@ -19,7 +19,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
   const [expandedNMRHI, setExpandedNMRHI] = useState(false);
   
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.MD, UserRole.ADMIN, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
+    // Non-admin dashboard (existing)
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
+
+    // Admin-only dashboard + modules
+    { id: 'admin-dashboard', label: 'Admin Dashboard', icon: LayoutDashboard, roles: [UserRole.ADMIN] },
+    { id: 'admin-assets', label: 'Assets', icon: Package, roles: [UserRole.ADMIN] },
+    { id: 'admin-vendors', label: 'Vendors', icon: Building2, roles: [UserRole.ADMIN] },
+    { id: 'admin-expenses', label: 'Expenses', icon: Wallet, roles: [UserRole.ADMIN] },
+    { id: 'admin-bills', label: 'Bills', icon: Receipt, roles: [UserRole.ADMIN] },
+
     { id: 'attendance', label: 'Attendance & Tours', icon: CalendarDays, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN, UserRole.ADMIN] },
     { id: 'tasks', label: 'Tasks', icon: FolderKanban, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN], hasSubmenu: user.role === UserRole.MD || user.role === UserRole.EMPLOYEE || user.role === UserRole.INTERN || user.role === UserRole.TEAM_LEADER },
     { id: 'reports', label: 'Reports', icon: FileText, roles: [UserRole.MD, UserRole.ADMIN, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
