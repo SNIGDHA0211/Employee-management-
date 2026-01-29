@@ -19,7 +19,7 @@ const isDevelopment = typeof window !== 'undefined' &&
 
 const API_BASE_URL = isDevelopment
   ? '/api'  // Use Vite proxy in development (bypasses CORS)
-  : 'https://192.168.41.97:8000';  // Direct URL in production
+  : 'https://employee-management-system-tmrl.onrender.com';  // Direct URL in production
 
 // Create axios instance for authenticated requests
 const api = axios.create({
