@@ -5,7 +5,15 @@ import { MONTH_TO_MEETING_MAP } from './constants';
 import ReviewTable from './ReviewTable';
 import ImplementationTable from './ImplementationTable';
 import SalesOpsTable from './SalesOpsTable';
-import { getEmployeeDashboard, getMonthlySchedule, addDayEntries, changeEntryStatus, getUserEntries } from '../../services/api';
+import { 
+  getEmployeeDashboard, 
+  getMonthlySchedule, 
+  addDayEntries, 
+  changeEntryStatus, 
+  getUserEntries,
+  getDepartmentsandFunctions,
+  getEmployees,
+} from '../../services/api';
 
 interface ReportsPageProps {
   currentUserName: string;
@@ -17,7 +25,11 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   const [selectedDept, setSelectedDept] = useState<Department>(
     currentUserDepartment ? (currentUserDepartment as Department) : Department.SALES
   );
-  // Month will be derived from currentSchedule, no need for separate state
+  const [availableDepartments, setAvailableDepartments] = useState<string[]>([]);
+  const [isLoadingDeptList, setIsLoadingDeptList] = useState(false);
+  const [isMD, setIsMD] = useState(false);
+  const [selectedQuarter, setSelectedQuarter] = useState<number | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null); // 1-12
   const [view, setView] = useState<ViewType>('Review');
   const [attendee, setAttendee] = useState(currentUserName || '');
   const [businessName] = useState('Planeteye AI');
@@ -26,6 +38,8 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   const [monthlySchedule, setMonthlySchedule] = useState<any[]>([]);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(false);
   const [currentSchedule, setCurrentSchedule] = useState<any | null>(null);
+  const [allEmployees, setAllEmployees] = useState<Array<{ id: string; name: string; department?: string }>>([]);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
   
   // Refs to prevent duplicate fetches
   const hasFetchedEntries = useRef(false);
@@ -33,6 +47,21 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
 
   // Memoize the schedule month to prevent unnecessary re-renders
   const scheduleMonth = useMemo(() => currentSchedule?.month, [currentSchedule?.month]);
+
+  // Helper: map quarter number to months (financial year: Q4 = Jan–Mar, Q1 = Apr–Jun, etc.)
+  const getMonthsForQuarter = (quarterNum: number): number[] => {
+    switch (quarterNum) {
+      case 1:
+        return [4, 5, 6]; // April, May, June
+      case 2:
+        return [7, 8, 9]; // July, August, September
+      case 3:
+        return [10, 11, 12]; // October, November, December
+      case 4:
+      default:
+        return [1, 2, 3]; // January, February, March
+    }
+  };
 
   // Helper function to map API department string to Department enum
   const mapApiDepartmentToEnum = (apiDept: string | null | undefined): Department => {
@@ -72,7 +101,55 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     return Department.SALES;
   };
 
-  // Fetch department and user ID from API when component mounts
+  // Fetch departments list for MD role (used for dropdown)
+  const fetchDepartmentsForMD = async () => {
+    setIsLoadingDeptList(true);
+    try {
+      const data = await getDepartmentsandFunctions('MD');
+      const validDepartments = Array.isArray(data.departments)
+        ? data.departments.filter(d => d != null && typeof d === 'string' && d.trim() !== '')
+        : [];
+      setAvailableDepartments(validDepartments);
+    } catch (error) {
+      console.error('❌ [REPORTS] Error fetching departments list for MD:', error);
+      setAvailableDepartments([]);
+    } finally {
+      setIsLoadingDeptList(false);
+    }
+  };
+
+  // Ensure departments list is fetched whenever user is MD
+  useEffect(() => {
+    if (isMD) {
+      fetchDepartmentsForMD();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMD]);
+
+  // Fetch all employees for attendee dropdown
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      setIsLoadingEmployees(true);
+      try {
+        const employees = await getEmployees();
+        const mapped = employees.map((emp: any) => ({
+          id: String(emp['Employee_id'] || emp['Employee ID'] || emp.id || ''),
+          name: String(emp['Name'] || emp['Full Name'] || emp.name || 'Unknown'),
+          department: String(emp['Department'] || emp['department'] || '').trim() || undefined,
+        }));
+        setAllEmployees(mapped);
+      } catch (error) {
+        console.error('❌ [REPORTS] Error fetching employees for attendee dropdown:', error);
+        setAllEmployees([]);
+      } finally {
+        setIsLoadingEmployees(false);
+      }
+    };
+
+    fetchEmployees();
+  }, []);
+
+  // Fetch department, role and user ID from API when component mounts
   useEffect(() => {
     const fetchUserData = async () => {
       setIsLoadingDept(true);
@@ -89,6 +166,12 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
           setUserId(String(employeeId));
           console.log('✅ [REPORTS] User ID (Employee_id):', employeeId);
         }
+
+        // Detect role (MD vs others)
+        const apiRole = employeeData?.['Role'] || employeeData?.['role'] || employeeData?.ROLE;
+        const normalizedRole = apiRole ? String(apiRole).trim().toUpperCase() : '';
+        const userIsMD = normalizedRole === 'MD';
+        setIsMD(userIsMD);
         
         // Try multiple possible field names for department
         const apiDepartment = employeeData?.['Department'] || 
@@ -111,6 +194,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
             setSelectedDept(mapApiDepartmentToEnum(currentUserDepartment));
           }
         }
+
       } catch (error: any) {
         console.error('❌ [REPORTS] Error fetching employee department:', error);
         // Fallback to prop or default
@@ -181,6 +265,17 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
           console.log('✅ [REPORTS] month_quater_id:', matchingSchedule.month_quater_id);
           console.log('✅ [REPORTS] id:', matchingSchedule.id);
           setCurrentSchedule(matchingSchedule);
+          // Initialize selected quarter and month from schedule
+          const detectedQuarter =
+            typeof matchingSchedule.quater === 'string'
+              ? parseInt(String(matchingSchedule.quater).replace(/[^0-9]/g, ''), 10) || undefined
+              : undefined;
+          if (detectedQuarter) {
+            setSelectedQuarter(detectedQuarter);
+          }
+          if (matchingSchedule.month) {
+            setSelectedMonth(matchingSchedule.month);
+          }
         } else {
           console.warn('⚠️ [REPORTS] No matching schedule found for month', currentMonthNum, 'year', currentYear);
           setCurrentSchedule(null);
@@ -196,6 +291,26 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     
     fetchSchedule();
   }, [userId, currentDate]);
+
+  // When user changes quarter or month, update currentSchedule accordingly
+  useEffect(() => {
+    if (!monthlySchedule || monthlySchedule.length === 0) return;
+    if (!selectedQuarter && !selectedMonth) return;
+
+    const targetQuarterStr = selectedQuarter ? `Q${selectedQuarter}` : undefined;
+
+    const candidate = monthlySchedule.find((s: any) => {
+      const monthMatches = selectedMonth ? s.month === selectedMonth : true;
+      const quarterMatches = targetQuarterStr
+        ? String(s.quater || s.quarter || '').toUpperCase() === targetQuarterStr.toUpperCase()
+        : true;
+      return monthMatches && quarterMatches;
+    });
+
+    if (candidate) {
+      setCurrentSchedule(candidate);
+    }
+  }, [monthlySchedule, selectedQuarter, selectedMonth]);
 
   // Fetch existing entries when schedule and user ID are available
   useEffect(() => {
@@ -474,6 +589,21 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
       subHeads: { d1: "Objective 1", d2: "Objective 2", d3: "Objective 3" }
     };
   }, [currentSchedule, selectedDept]);
+
+  // Filter employees by selected department for Reporting Officer / Attendee dropdown
+  const filteredEmployeesByDept = useMemo(() => {
+    return allEmployees.filter((emp) => {
+      if (!emp.department) return false;
+      return mapApiDepartmentToEnum(emp.department) === selectedDept;
+    });
+  }, [allEmployees, selectedDept]);
+
+  // Clear attendee when department changes and current selection is not in filtered list
+  useEffect(() => {
+    if (!attendee) return;
+    const inList = filteredEmployeesByDept.some((e) => e.name === attendee);
+    if (!inList) setAttendee('');
+  }, [selectedDept, filteredEmployeesByDept]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle status change for Review rows
   const handleReviewStatusChange = async (rowId: string, newStatus: 'PENDING' | 'INPROCESS' | 'COMPLETED') => {
@@ -1109,26 +1239,74 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                   <Building2 className="w-3 h-3 mr-1" />
                   Department
                 </span>
-                {isLoadingDept ? (
+                {isLoadingDept || (isMD && isLoadingDeptList) ? (
                   <span className="text-slate-500 font-bold mt-1 text-sm">Loading...</span>
+                ) : isMD ? (
+                  <select
+                    value={selectedDept}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value) {
+                        setSelectedDept(mapApiDepartmentToEnum(value));
+                      }
+                    }}
+                    className="mt-1 bg-white border border-slate-200 rounded-md px-3 py-1.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
+                  >
+                    <option value="">Select Department</option>
+                    {(availableDepartments.length > 0
+                      ? availableDepartments
+                      : Object.values(Department)
+                    ).map((dept) => (
+                      <option key={dept} value={dept}>
+                        {dept}
+                      </option>
+                    ))}
+                  </select>
                 ) : (
                   <span className="text-slate-800 font-bold mt-1">{selectedDept}</span>
                 )}
               </div>
               <div className="flex flex-col">
-                <span className="text-gray-400 text-[10px] font-black uppercase tracking-tighter flex items-center">
+                <span className="text-gray-400 text-[10px] font-black uppercase tracking-titter flex items-center">
                   <Calendar className="w-3 h-3 mr-1" />
                   Month
                 </span>
-                <span className="text-slate-800 font-bold mt-1">
-                  {currentSchedule?.actual_month || monthNames[new Date().getMonth()]}
-                </span>
+                <select
+                  value={selectedMonth || currentSchedule?.month || new Date().getMonth() + 1}
+                  onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+                  className="mt-1 bg-white border border-slate-200 rounded-md px-3 py-1.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
+                >
+                  {getMonthsForQuarter(selectedQuarter || quarter)
+                    .map((m) => ({
+                      value: m,
+                      label: monthNames[m - 1],
+                    }))
+                    .map(({ value, label }) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                </select>
               </div>
               <div className="flex flex-col">
                 <span className="text-gray-400 text-[10px] font-black uppercase tracking-tighter">Quarter</span>
-                <span className="text-slate-800 font-bold mt-1">
-                  {currentSchedule?.quater || `Q${quarter}`}
-                </span>
+                <select
+                  value={selectedQuarter || quarter}
+                  onChange={(e) => {
+                    const q = parseInt(e.target.value, 10);
+                    setSelectedQuarter(q);
+                    const months = getMonthsForQuarter(q);
+                    if (!selectedMonth || !months.includes(selectedMonth)) {
+                      setSelectedMonth(months[0]);
+                    }
+                  }}
+                  className="mt-1 bg-white border border-slate-200 rounded-md px-3 py-1.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
+                >
+                  <option value={1}>Q1 (Apr–Jun)</option>
+                  <option value={2}>Q2 (Jul–Sep)</option>
+                  <option value={3}>Q3 (Oct–Dec)</option>
+                  <option value={4}>Q4 (Jan–Mar)</option>
+                </select>
               </div>
               <div className="flex flex-col">
                 <span className="text-gray-400 text-[10px] font-black uppercase tracking-tighter">Year</span>
@@ -1155,13 +1333,22 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                   <UserIcon className="w-3 h-3 mr-1" />
                   Reporting Officer / Attendee
                 </span>
-                <input 
-                  type="text" 
-                  value={attendee}
-                  onChange={(e) => setAttendee(e.target.value)}
-                  placeholder="Enter attendee name..."
-                  className="bg-white border-b-2 border-slate-100 p-2 text-slate-800 font-semibold focus:border-brand-400 outline-none transition-all no-print"
-                />
+                {isLoadingEmployees ? (
+                  <span className="text-slate-500 font-semibold p-2 no-print">Loading...</span>
+                ) : (
+                  <select
+                    value={attendee}
+                    onChange={(e) => setAttendee(e.target.value)}
+                    className="bg-white border border-slate-200 rounded-md px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
+                  >
+                    <option value="">Select reporting officer / attendee</option>
+                    {filteredEmployeesByDept.map((emp) => (
+                      <option key={emp.id} value={emp.name}>
+                        {emp.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <span className="hidden print:block text-slate-800 font-semibold border-b border-slate-200 py-2">{attendee || '____________________'}</span>
               </div>
             </div>

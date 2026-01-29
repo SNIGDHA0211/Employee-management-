@@ -7,6 +7,52 @@ export enum UserRole {
   INTERN = 'INTERN',
 }
 
+// ===== Admin Ops (Assets / Bills / Expenses / Vendors) =====
+export type StatusType = 'Pending' | 'Inprocess' | 'Completed';
+
+export type AssetType = 'Hardware' | 'Software';
+
+export interface Asset {
+  id: string;
+  type: AssetType;
+  name: string;
+  author: string;
+  code: string;
+  status: StatusType;
+  createdAt: string; // YYYY-MM-DD
+}
+
+export type BillCategory = 'Light Bills' | 'Rent' | 'Housekeeping' | 'Tea Bills' | 'WiFi Bills';
+
+export interface Bill {
+  id: string;
+  category: BillCategory;
+  amount: number;
+  recipient: string;
+  date: string; // YYYY-MM-DD
+  status: StatusType;
+}
+
+export interface Expense {
+  id: string;
+  title: string;
+  amount: number;
+  note: string;
+  paidDate: string; // YYYY-MM-DD
+  status: StatusType;
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  address: string;
+  email: string;
+  phone: string;
+  altPhone?: string;
+  gstNumber: string;
+  status: StatusType;
+}
+
 // Helper function to format role for display
 export const formatRoleForDisplay = (role: UserRole | string): string => {
   const roleStr = String(role).toUpperCase();
@@ -58,6 +104,8 @@ export interface User {
   score: number; // Gamification score
   password?: string; // New field for authentication
   branch?: 'TECH' | 'FARM_CORE' | 'FARM_TECH' | 'INFRA_CORE' | 'INFRA_TECH'; // Granular branches
+  // Human-readable tenure label from backend, e.g. "1 years 27 days"
+  numberOfDaysFromJoining?: string;
 }
 
 export interface Task {
