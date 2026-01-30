@@ -109,25 +109,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       setAvailableTaskTypes([]); // Clear previous values
       
       try {
-        // Fetch task types from API - this is the PRIMARY and ONLY source
-        console.log('🔄 [TASK BOARD] Modal opened - Fetching task types from API endpoint: /tasks/getTaskTypes/');
-        console.log('🔄 [TASK BOARD] Current availableTaskTypes:', availableTaskTypes);
-        
         const taskTypes = await apiGetTaskTypes();
-        console.log('📋 [TASK BOARD] API Response - Raw task types:', taskTypes);
-        console.log('📋 [TASK BOARD] API Response - Type:', typeof taskTypes, 'Is Array:', Array.isArray(taskTypes));
-        
-        // Ensure taskTypes is an array of strings
         const validTaskTypes = Array.isArray(taskTypes) 
           ? taskTypes.filter(t => t != null && typeof t === 'string' && t.trim() !== '')
           : [];
         
-        console.log('✅ [TASK BOARD] Valid task types after filtering:', validTaskTypes);
-        console.log('✅ [TASK BOARD] Number of valid types:', validTaskTypes.length);
-        
         if (validTaskTypes.length > 0) {
           setAvailableTaskTypes(validTaskTypes);
-          console.log('✅ [TASK BOARD] Successfully set', validTaskTypes.length, 'task types in state');
           // Reset task type selection to first available type or empty
           setNewTaskType('');
         } else {
@@ -375,13 +363,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       try {
         let apiTasks;
         if (viewMode === 'reporting') {
-          console.log('🔍 [API CALL] Calling /tasks/viewTasks/ for reporting page');
           apiTasks = await apiViewTasks();
-          console.log('📋 [API RESPONSE] /tasks/viewTasks/ returned:', apiTasks);
         } else {
-          console.log('🔍 [API CALL] Calling /tasks/viewAssignedTasks/ for assign page');
           apiTasks = await apiViewAssignedTasks();
-          console.log('📋 [API RESPONSE] /tasks/viewAssignedTasks/ returned:', apiTasks);
         }
         
         // Convert API tasks to frontend Task format
@@ -464,16 +448,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
             }
           }
           
-          // Debug logging to see what reporter field we're getting from API
-          if (!rawReporterId) {
-            console.warn('⚠️ [TASK] No reporter/assigner found in API response:', {
-              taskId: apiTask.task_id || apiTask.id,
-              taskTitle: apiTask.title,
-              availableFields: Object.keys(apiTask),
-              apiTask: apiTask
-            });
-          }
-          
           // Clean description - remove [ExcludeFromMDReporting:true] markers
           let rawDescription = apiTask.description || apiTask['description'] || '';
           const cleanDescription = rawDescription
@@ -512,17 +486,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
             }
           }
           
-          // Log the task ID extraction for debugging
-          if (backendTaskId) {
-            console.log('✅ [TASK CONVERSION] Task ID extracted:', {
-              taskTitle: apiTask.title || apiTask['title'],
-              extractedId: backendTaskId,
-              idType: typeof backendTaskId,
-              task_id: apiTask.task_id,
-              id: apiTask.id,
-              source: apiTask.task_id ? 'task_id' : apiTask.id ? 'id' : 'other'
-            });
-          } else {
+          if (!backendTaskId) {
             // Log all available fields to help debug
             console.error('❌ [TASK CONVERSION] No backend task ID found in API response:', {
               taskTitle: apiTask.title || apiTask['title'],
@@ -537,7 +501,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                 _id: apiTask._id
               }
             });
-            console.warn('⚠️ [TASK CONVERSION] Using fallback ID - status changes will not work until backend returns task IDs');
           }
           
           // Convert to string for Task.id (which is typed as string)
@@ -563,12 +526,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
           return task;
         });
         
-        const uniqueTasks = convertedTasks.filter((task, index, self) => 
-          index === self.findIndex(t => t.id === task.id)
-        );
-        
-        console.log('✅ [FINAL TASKS] Converted tasks count:', uniqueTasks.length);
-        setTasks(uniqueTasks);
+      const uniqueTasks = convertedTasks.filter((task, index, self) => 
+        index === self.findIndex(t => t.id === task.id)
+      );
+      setTasks(uniqueTasks);
       } catch (err: any) {
         console.error('❌ [FETCH ERROR]', err);
         setTaskError(err.message || 'Failed to fetch tasks from server');
@@ -739,18 +700,12 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
           const assigneeUser = usersForDropdown.find(u => u.id === assigneeId || u.name === assigneeId);
           if (assigneeUser) {
             const empId = getEmployeeIdFromUser(assigneeUser);
-            if (empId) {
-              employeeIds.push(empId);
-            } else {
-              console.warn(`⚠️ [CREATE TASK] Could not find Employee_id for user: ${assigneeUser.name}`);
-            }
+            if (empId) employeeIds.push(empId);
           } else {
-            // If not found in users, try to use the ID directly (might already be an employee ID)
             employeeIds.push(String(assigneeId).trim());
           }
         }
       } else {
-        // For individual tasks, use multipleAssignees
         const allAssignees = multipleAssignees.filter(a => a.assigneeId && a.assigneeId.trim() !== '');
         
         if (allAssignees.length === 0) {
@@ -763,11 +718,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
           const assigneeUser = usersForDropdown.find(u => u.id === assignee.assigneeId || u.name === assignee.assigneeId);
           if (assigneeUser) {
             const empId = getEmployeeIdFromUser(assigneeUser);
-            if (empId) {
-              employeeIds.push(empId);
-            } else {
-              console.warn(`⚠️ [CREATE TASK] Could not find Employee_id for user: ${assigneeUser.name}`);
-            }
+            if (empId) employeeIds.push(empId);
           } else {
             // If not found in users, try to use the ID directly (might already be an employee ID)
             employeeIds.push(String(assignee.assigneeId).trim());
@@ -787,12 +738,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         description: newTaskDesc,
         type: backendType,
         due_date: newTaskDate,
-        assigned_to: employeeIds, // Array of employee IDs: ["444", "20018"]
+        assigned_to: employeeIds,
       };
-      
-      console.log("📝 [CREATE TASK] Sending task data:", taskData);
-      console.log("📝 [CREATE TASK] Employee IDs array:", employeeIds);
-      
       // Create task with all assignees in a single API call
       await apiCreateTask(taskData);
       
@@ -1019,15 +966,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
           }
         }
         
-        // Log the task ID extraction for debugging
-        if (backendTaskId) {
-          console.log('✅ [REFRESH TASKS] Task ID extracted:', {
-            taskTitle: apiTask.title || apiTask['title'],
-            extractedId: backendTaskId,
-            idType: typeof backendTaskId
-          });
-        } else {
-          // Log all available fields to help debug
+        if (!backendTaskId) {
           console.error('❌ [REFRESH TASKS] No backend task ID found in API response:', {
             taskTitle: apiTask.title || apiTask['title'],
             availableFields: Object.keys(apiTask),
@@ -1041,9 +980,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
               _id: apiTask._id
             }
           });
-          
-          // If still no ID, try to use index or hash as fallback (but warn user)
-          console.warn('⚠️ [REFRESH TASKS] Using fallback ID - status changes will not work until backend returns task IDs');
         }
         
         // Convert to string for Task.id (which is typed as string)
@@ -1091,27 +1027,12 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
     try {
       setChangingStatusTaskId(taskId);
       
-      // Find the task to get more info for debugging
       const task = tasks.find(t => t.id === taskId);
-      console.log('🔄 [STATUS CHANGE] Task found:', task ? {
-        id: task.id,
-        title: task.title,
-        currentStatus: task.status,
-        backendTaskId: (task as any)?._backendTaskId || 'N/A'
-      } : 'NOT FOUND');
-      
       // Get the actual backend task ID from the task object
       // Check if task has _backendTaskId property (stored when task was converted from API)
       // This should be the task_id from the backend response
       const taskWithBackendId = task as any;
       const actualBackendId = taskWithBackendId?._backendTaskId || task?.id;
-      
-      console.log('🔄 [STATUS CHANGE] Backend Task ID extraction:', {
-        frontendTaskId: taskId,
-        backendTaskId: actualBackendId,
-        hasBackendId: !!taskWithBackendId?._backendTaskId
-      });
-      
       // Validate task ID - check if it's a generated fallback ID (starts with 't')
       // If it is, try to use the stored backend ID, otherwise we can't use it with the backend API
       let backendTaskIdToUse = actualBackendId;
@@ -1119,10 +1040,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       if (typeof taskId === 'string' && taskId.startsWith('t') && taskId.includes('-')) {
         // This is a fallback ID - check if we have the actual backend ID stored
         if (actualBackendId && !actualBackendId.startsWith('t')) {
-          console.warn('⚠️ [STATUS CHANGE] Using stored backend ID instead of fallback ID:', {
-            fallbackId: taskId,
-            backendId: actualBackendId
-          });
           backendTaskIdToUse = actualBackendId;
         } else {
           console.error('❌ [STATUS CHANGE] Invalid task ID - appears to be a generated fallback ID:', taskId);
@@ -1157,30 +1074,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       };
       
       const apiStatus = statusMap[newStatus] || "PENDING";
-      
-      console.log('🔄 [STATUS CHANGE] Changing task status:', { 
-        originalTaskId: taskId, 
-        taskIdType: typeof taskId,
-        taskIdValue: taskId,
-        backendTaskIdToUse: backendTaskIdToUse,
-        backendTaskIdType: typeof backendTaskIdToUse,
-        newStatus, 
-        apiStatus,
-        taskTitle: task?.title
-      });
-      
-      // Call API to change status using the actual backend ID (task_id from backend)
-      // backendTaskIdToUse should be the numeric task_id from the backend response
-      console.log('🔄 [STATUS CHANGE] Calling API with backend task_id:', backendTaskIdToUse);
       await apiChangeTaskStatus(backendTaskIdToUse, apiStatus);
-      
-      console.log('✅ [STATUS CHANGE] Status changed successfully, refreshing tasks...');
-      
-      // Refresh tasks from API to get updated status (visible to both assigned user and reporting user)
       await refreshTasks();
-      
-      // Show success message
-      console.log('✅ [STATUS CHANGE] Task status updated successfully');
     } catch (error: any) {
       console.error('❌ [STATUS CHANGE ERROR]', error);
       console.error('❌ [STATUS CHANGE ERROR] Task ID that failed:', taskId);
@@ -2494,8 +2389,6 @@ const TaskDetailModal: React.FC<{ task: Task; onClose: () => void; currentUser: 
             taskIdToFetch = parseInt(match[0], 10);
           }
         }
-        
-        console.log('📥 [FETCH MESSAGES] Task ID:', task.id, '→ Numeric ID:', taskIdToFetch);
         const taskMessages = await apiGetTaskMessages(taskIdToFetch);
         setMessages(taskMessages);
       } catch (err: any) {

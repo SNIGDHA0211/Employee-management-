@@ -117,8 +117,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     if (normalizedDept.includes('purchase')) return Department.PURCHASE;
     if (normalizedDept.includes('legal')) return Department.LEGAL;
     
-    // Default fallback
-    console.warn(`⚠️ [REPORTS] Unknown department from API: "${apiDept}", defaulting to Sales`);
     return Department.SALES;
   };
 
@@ -183,10 +181,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                           employeeData?.id ||
                           null;
         
-        if (employeeId) {
-          setUserId(String(employeeId));
-          console.log('✅ [REPORTS] User ID (Employee_id):', employeeId);
-        }
+        if (employeeId) setUserId(String(employeeId));
 
         // Detect role (MD vs others) – support "MD", "Managing Director", etc.
         const apiRole = employeeData?.['Role'] || employeeData?.['role'] || employeeData?.ROLE;
@@ -205,15 +200,10 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                               currentUserDepartment ||
                               null;
         
-        console.log('📋 [REPORTS] Fetched employee dashboard:', employeeData);
-        console.log('📋 [REPORTS] Department from API:', apiDepartment);
-        
         if (apiDepartment) {
           const mappedDept = mapApiDepartmentToEnum(apiDepartment);
-          console.log('✅ [REPORTS] Mapped department:', apiDepartment, '→', mappedDept);
           setSelectedDept(mappedDept);
         } else {
-          console.warn('⚠️ [REPORTS] No department found in API response, using default or prop value');
           if (currentUserDepartment) {
             setSelectedDept(mapApiDepartmentToEnum(currentUserDepartment));
           }
@@ -236,17 +226,11 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   // Fetch monthly schedule when user ID and month are available
   useEffect(() => {
     const fetchSchedule = async () => {
-      if (!userId) {
-        console.log('⚠️ [REPORTS] No user ID available, skipping schedule fetch');
-        return;
-      }
+      if (!userId) return;
 
       setIsLoadingSchedule(true);
       try {
-        console.log('📅 [REPORTS] Fetching monthly schedule for user_id:', userId);
         const schedule = await getMonthlySchedule(userId);
-        console.log('📅 [REPORTS] Monthly schedule response:', schedule);
-        
         setMonthlySchedule(schedule);
         
         // Find schedule for current month and year
@@ -284,10 +268,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
         }
         
         if (matchingSchedule) {
-          console.log('✅ [REPORTS] Found matching schedule:', matchingSchedule);
-          console.log('✅ [REPORTS] Schedule fields:', Object.keys(matchingSchedule));
-          console.log('✅ [REPORTS] month_quater_id:', matchingSchedule.month_quater_id);
-          console.log('✅ [REPORTS] id:', matchingSchedule.id);
           setCurrentSchedule(matchingSchedule);
           // Initialize selected quarter and month from schedule
           const detectedQuarter =
@@ -301,7 +281,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
             setSelectedMonth(matchingSchedule.month);
           }
         } else {
-          console.warn('⚠️ [REPORTS] No matching schedule found for month', currentMonthNum, 'year', currentYear);
           setCurrentSchedule(null);
         }
       } catch (error: any) {
@@ -606,7 +585,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   const handleReviewStatusChange = async (rowId: string, newStatus: 'PENDING' | 'INPROCESS' | 'COMPLETED') => {
     const row = reviewRows.find(r => r.id === rowId);
     if (!row) {
-      console.warn('⚠️ [REPORTS] Cannot change status: row not found');
       alert('Error: Row not found. Please refresh the page.');
       return;
     }
@@ -618,8 +596,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
 
     // Check if entry_id is available and is a valid number
     if (!row.entry_id || typeof row.entry_id !== 'number' || row.entry_id <= 0) {
-      console.log('📝 [REPORTS] Entry ID not available. Saving entry first to get entry_id...');
-      
       // If entry has content, save it first to get entry_id
       if (row.col2.trim() || row.col3.trim() || row.col4.trim()) {
         try {
@@ -650,7 +626,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
               }
               
               await changeEntryStatus(entryIdNum, normalizedStatus);
-              console.log('✅ [REPORTS] Entry saved and status changed successfully');
               return;
             }
           }
@@ -663,21 +638,10 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
           alert(`Failed to save entry or change status: ${error.message || 'Unknown error'}. Please try again.`);
           return;
         }
-      } else {
-        console.warn('⚠️ [REPORTS] Entry has no content. Status will be saved when entry is submitted.');
-        return;
-      }
+      } else return;
     }
 
-    // If entry_id exists, change status directly
     try {
-      console.log('🔄 [REPORTS] Changing status for entry:', {
-        entry_id: row.entry_id,
-        entry_id_type: typeof row.entry_id,
-        newStatus: newStatus,
-        rowId: rowId
-      });
-      
       // Ensure entry_id is a number
       const entryIdNum = typeof row.entry_id === 'number' ? row.entry_id : parseInt(String(row.entry_id));
       
@@ -696,7 +660,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
       }
       
       await changeEntryStatus(entryIdNum, normalizedStatus);
-      console.log('✅ [REPORTS] Status changed successfully');
     } catch (error: any) {
       console.error('❌ [REPORTS] Error changing status:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Unknown error';
@@ -711,13 +674,9 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   // Handle status change for Implementation rows
   const handleImplementationStatusChange = async (rowId: string, newStatus: 'PENDING' | 'INPROCESS' | 'Completed') => {
     const row = implRows.find(r => r.id === rowId);
-    if (!row) {
-      console.warn('⚠️ [REPORTS] Cannot change status: Implementation row not found');
-      return;
-    }   
+    if (!row) return;
 
     if (!row.entry_id) {
-      console.warn('⚠️ [REPORTS] Cannot change status: entry_id not available. Entry may need to be saved first.');
       // Update local state only (won't persist to backend)
       setImplRows(prev => prev.map(r => 
         r.id === rowId ? { ...r, status: newStatus === 'Completed' ? 'Completed' : newStatus === 'INPROCESS' ? 'In Progress' : 'Pending' } : r
@@ -726,9 +685,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     }
 
     try {
-      console.log('🔄 [REPORTS] Changing Implementation status for entry:', row.entry_id, 'to:', newStatus);
       await changeEntryStatus(row.entry_id, newStatus);
-      console.log('✅ [REPORTS] Implementation status changed successfully');
     } catch (error: any) {
       console.error('❌ [REPORTS] Error changing Implementation status:', error);
       // Revert status change on error
@@ -741,13 +698,9 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   // Handle status change for Sales Ops rows
   const handleSalesOpsStatusChange = async (rowId: string, newStatus: 'PENDING' | 'INPROCESS' | 'Completed') => {
     const row = salesOpsRows.find(r => r.id === rowId);
-    if (!row) {
-      console.warn('⚠️ [REPORTS] Cannot change status: Sales Ops row not found');
-      return;
-    }
+    if (!row) return;
 
     if (!row.entry_id) {
-      console.warn('⚠️ [REPORTS] Cannot change status: entry_id not available. Entry may need to be saved first.');
       // Update local state only (won't persist to backend)
       setSalesOpsRows(prev => prev.map(r => 
         r.id === rowId ? { ...r, status: newStatus } : r
@@ -756,9 +709,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     }
 
     try {
-      console.log('🔄 [REPORTS] Changing Sales Ops status for entry:', row.entry_id, 'to:', newStatus);
       await changeEntryStatus(row.entry_id, newStatus);
-      console.log('✅ [REPORTS] Sales Ops status changed successfully');
     } catch (error: any) {
       console.error('❌ [REPORTS] Error changing Sales Ops status:', error);
       // Revert status change on error
@@ -770,26 +721,15 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
 
   // Save entries when user adds/updates them
   const saveEntries = async (date: string, entries: ReviewRow[]) => {
-    if (!currentSchedule?.month_quater_id && !currentSchedule?.id) {
-      console.warn('⚠️ [REPORTS] Cannot save entries: month_quater_id not found in schedule');
-      return;
-    }
+    if (!currentSchedule?.month_quater_id && !currentSchedule?.id) return;
 
     const monthQuaterId = currentSchedule.month_quater_id || currentSchedule.id;
-    if (!monthQuaterId) {
-      console.warn('⚠️ [REPORTS] Cannot save entries: month_quater_id is missing');
-      return;
-    }
+    if (!monthQuaterId) return;
 
-    // Filter entries for this date that have content
     const dateEntries = entries.filter(row => 
       row.col1 === date && (row.col2.trim() || row.col3.trim() || row.col4.trim())
     );
-
-    if (dateEntries.length === 0) {
-      console.log('📝 [REPORTS] No entries to save for date:', date);
-      return;
-    }
+    if (dateEntries.length === 0) return;
 
     // Prepare entries array for API
     const apiEntries = dateEntries.map(row => {

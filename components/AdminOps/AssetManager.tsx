@@ -90,8 +90,6 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
     try {
       const res = await api.post("/adminapi/assets/", payload);
 
-      console.log("✅ Asset saved:", res.data);
-
       // OPTIONAL: if backend returns saved asset
       const savedAsset: Asset = {
         id: res.data.id.toString(),
@@ -143,8 +141,6 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
       await api.patch(`/adminapi/assets/${id}/`, {
         status: newStatus.toUpperCase(),
       });
-
-      console.log("✅ Status updated on backend");
     } catch (error) {
       console.error("❌ Failed to update status", error);
 
@@ -175,12 +171,10 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
     );
 
     try {
-      const res = await api.patch(`/adminapi/assets/${editingAsset.id}/`, {
+      await api.patch(`/adminapi/assets/${editingAsset.id}/`, {
         asset_name: editData.name,
         author: editData.author,
       });
-
-      console.log("✅ Asset fields updated:", res.data);
       setEditingAsset(null);
     } catch (error) {
       console.error("❌ Failed to update asset", error);
@@ -206,7 +200,6 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
 
     try {
       await api.delete(`/adminapi/assets/${id}/`);
-      console.log("✅ Asset deleted successfully");
     } catch (error) {
       console.error("❌ Failed to delete asset", error);
 

@@ -91,10 +91,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           const chatWith = chat.with || '';
           let chatId = chat.chat_id || '';
           
-          // Log the raw chat_id format from API
-          console.log("💬 [CHAT SYSTEM] Raw chat_id from loadChats API:", chatId, "Type:", typeof chatId);
-          console.log("💬 [CHAT SYSTEM] Chat 'with' field:", chatWith);
-          
           // Store chat_id as-is from API (e.g., "C30146685" for IndividualChats, "G09381" for GroupChats)
           // The postMessages/getMessages functions will handle the conversion:
           // - IndividualChats (C prefix): Convert to numeric (30146685)
@@ -104,11 +100,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           }
           
           if (chatWith && chatId) {
-            // Store with the exact 'with' value from API
             chatMap[chatWith] = chatId;
-            console.log("💬 [CHAT SYSTEM] Stored chat_id:", chatId, "for user:", chatWith);
-            console.log("💬 [CHAT SYSTEM] Note: IndividualChats (C prefix) will be converted to numeric when sending/fetching messages");
-            
             // Also try to find matching user and store by their name/id
             // This helps when chat.with doesn't exactly match user.name
             const matchingUser = users.find(u => 
@@ -343,22 +335,11 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         const employees = await apiGetEmployees();
         const convertedUsers = employees.map(convertEmployeeToUser);
         
-        // Log to verify Employee_id is preserved
-        if (convertedUsers.length > 0) {
-          console.log("💬 [CHAT SYSTEM] Sample converted user:", {
-            name: convertedUsers[0].name,
-            id: convertedUsers[0].id,
-            Employee_id: (convertedUsers[0] as any).Employee_id,
-            email: convertedUsers[0].email
-          });
-        }
-        
         setAllUsers(convertedUsers);
       } catch (err: any) {
         console.error('Error fetching all users:', err);
         // Fallback to users prop if API fails
         if (users && users.length > 0) {
-          console.warn('⚠️ [CHAT SYSTEM] Using users from props as fallback');
           setAllUsers(users);
         } else {
           setAllUsers([]);
@@ -405,19 +386,11 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
     setIsCreatingGroup(true);
     try {
-      // Log the data being sent for debugging
       const groupData = {
         group_name: newGroupName.trim(),
         description: newGroupDescription.trim() || '',
         participants: selectedParticipants,
       };
-      console.log('📤 [CREATE GROUP] Sending group data:', groupData);
-      console.log('📤 [CREATE GROUP] Current user:', currentUser);
-      console.log('📤 [CREATE GROUP] Current user role:', currentUser.role);
-      console.log('📤 [CREATE GROUP] Role type:', typeof currentUser.role);
-      console.log('📤 [CREATE GROUP] Can create group (frontend check):', canCreateGroup);
-      console.log('📤 [CREATE GROUP] Selected participants:', selectedParticipants);
-      
       // Verify role is one of the allowed roles
       if (!canCreateGroup) {
         throw new Error('You do not have permission to create groups. Only MD, Admin, and Team Leader can create groups.');
@@ -506,12 +479,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       // Use employee ID (user.id should be the employee ID)
       const employeeId = userToAdd.id;
 
-      console.log('👤 [ADD USER] Adding user to group:', {
-        groupId: activeGroup.groupId,
-        employeeId: employeeId,
-        userName: userToAdd.name
-      });
-
       await apiAddUserToGroup(activeGroup.groupId, employeeId);
 
       // Show success message
@@ -571,12 +538,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     }
 
     try {
-      console.log('🗑️ [DELETE USER] Removing user from group:', {
-        groupId: activeGroup.groupId,
-        userId: userId,
-        userName: userName
-      });
-
       const response = await apiDeleteUserFromGroup(activeGroup.groupId, userId);
 
       // Check response message
@@ -622,11 +583,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     }
 
     try {
-      console.log('🗑️ [DELETE GROUP] Deleting group:', {
-        groupId: activeGroup.groupId,
-        groupName: activeGroup.name
-      });
-
       const response = await apiDeleteGroup(activeGroup.groupId);
 
       // Check response message
@@ -687,26 +643,17 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   const getEmployeeIdFromUser = (user: User): string | null => {
     // Priority 1: Check if user has Employee_id field (preserved from API)
     if ((user as any).Employee_id !== undefined && (user as any).Employee_id !== null) {
-      // Preserve as string to keep leading zeros - DO NOT convert to number
       const empId = String((user as any).Employee_id);
-      console.log(`🔍 [CHAT SYSTEM] Found Employee_id from field: "${empId}" (preserving leading zeros)`);
       return empId.trim();
     }
-    // Priority 2: Check if user has 'Employee ID' field (with space)
     if ((user as any)['Employee ID'] !== undefined && (user as any)['Employee ID'] !== null) {
       const empId = String((user as any)['Employee ID']);
-      console.log(`🔍 [CHAT SYSTEM] Found Employee_id from 'Employee ID' field: "${empId}"`);
       return empId.trim();
     }
-    // Priority 3: Use user.id (which is already set to Employee_id in conversion)
-    // IMPORTANT: Keep as string to preserve leading zeros (e.g., "00011" stays "00011")
     if (user.id !== undefined && user.id !== null) {
       const empId = String(user.id);
-      console.log(`🔍 [CHAT SYSTEM] Using user.id as Employee_id: "${empId}" (preserving format, including leading zeros)`);
       return empId.trim();
     }
-    
-    console.warn(`⚠️ [CHAT SYSTEM] No Employee_id found for user: ${user.name}`);
     return null;
   };
 
@@ -753,22 +700,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
   // Handle user click - open direct message
   const handleUserClick = async (user: User) => {
-    // Log current user's Employee_id for debugging
     const currentUserEmpId = getEmployeeIdFromUser(currentUser);
-    console.log("🔍 [CHAT SYSTEM] ====== STARTING CHAT ======");
-    console.log("🔍 [CHAT SYSTEM] Logged-in user:", {
-      name: currentUser.name,
-      id: currentUser.id,
-      Employee_id: (currentUser as any).Employee_id,
-      extracted_Employee_id: currentUserEmpId
-    });
-    console.log("🔍 [CHAT SYSTEM] Clicked user (target):", {
-      name: user.name,
-      id: user.id,
-      Employee_id: (user as any).Employee_id,
-      email: user.email
-    });
-    
     if (user.id === currentUser.id) {
       return; // Don't allow messaging yourself
     }
@@ -785,10 +717,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         // Get employee ID of the CLICKED USER (target user, not current user)
         // This is the participant we want to start a chat with
         employeeId = getEmployeeIdFromUser(user);
-        
-        console.log("🔍 [CHAT SYSTEM] Extracted Employee_id for TARGET user:", employeeId);
-        console.log("🔍 [CHAT SYSTEM] This is the participant we're starting a chat with (NOT the logged-in user)");
-        
         // Validate employeeId
         if (!employeeId || employeeId === '') {
           console.error("❌ [CHAT SYSTEM] Failed to extract Employee_id. User object:", user);
@@ -799,7 +727,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           
           // Try to reload users from API to get fresh data
           try {
-            console.log("🔄 [CHAT SYSTEM] Reloading users from API to get Employee_id...");
             const employees = await apiGetEmployees();
             const freshUser = employees.find((emp: any) => 
               (emp['Name'] || emp['Full Name']) === user.name || 
@@ -816,10 +743,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                     : ((freshUser as any).id !== undefined && (freshUser as any).id !== null
                         ? String((freshUser as any).id)
                         : null));
-              if (freshEmployeeId) {
-                employeeId = freshEmployeeId.trim();
-                console.log("✅ [CHAT SYSTEM] Found Employee_id from fresh API data:", employeeId, "(preserving format)");
-              }
+              if (freshEmployeeId) employeeId = freshEmployeeId.trim();
             }
           } catch (reloadError) {
             console.error("❌ [CHAT SYSTEM] Error reloading users:", reloadError);
@@ -836,29 +760,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           throw new Error(`Invalid Employee ID for user "${user.name}". Employee ID cannot be empty.`);
         }
         
-        console.log("💬 [CHAT SYSTEM] ====== SENDING START CHAT REQUEST ======");
-        console.log("💬 [CHAT SYSTEM] Logged-in user Employee_id:", currentUserEmpId);
-        console.log("💬 [CHAT SYSTEM] TARGET user Employee_id (participant):", employeeId);
-        console.log("💬 [CHAT SYSTEM] Final Employee_id to send to API:", employeeId);
-        console.log("💬 [CHAT SYSTEM] Employee_id type:", typeof employeeId);
-        console.log("💬 [CHAT SYSTEM] Employee_id length:", employeeId.length);
-        console.log("💬 [CHAT SYSTEM] Employee_id character codes:", Array.from(employeeId).map(c => c.charCodeAt(0)));
-        console.log("💬 [CHAT SYSTEM] Current user (logged-in):", {
-          name: currentUser.name,
-          id: currentUser.id,
-          Employee_id: currentUserEmpId,
-          role: currentUser.role
-        });
-        console.log("💬 [CHAT SYSTEM] Target user (clicked):", {
-          name: user.name,
-          id: user.id,
-          Employee_id: employeeId,
-          role: user.role,
-          fullUserObject: user
-        });
-        console.log("💬 [CHAT SYSTEM] Starting chat - API works for all roles: MD, Admin, TeamLead, Employee, Intern");
-        console.log("💬 [CHAT SYSTEM] Request will be: { participant: \"" + employeeId + "\" }");
-        
         // CRITICAL: Verify the Employee_id exists in availableEmployees before sending
         // If not found, try to find the correct Employee_id by matching name/email
         let employeeExists = availableEmployees.find(emp => {
@@ -867,15 +768,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         });
         
         if (!employeeExists) {
-          console.warn("⚠️ [CHAT SYSTEM] Employee_id '" + employeeId + "' not found in availableEmployees list.");
-          console.warn("⚠️ [CHAT SYSTEM] Trying to find user by name/email to get correct Employee_id...");
-          console.warn("⚠️ [CHAT SYSTEM] Clicked user:", {
-            name: user.name,
-            email: user.email,
-            id: user.id,
-            Employee_id: (user as any).Employee_id
-          });
-          
           // Try to find the user by name or email to get the correct Employee_id
           const foundByMatch = availableEmployees.find(emp => {
             const empName = emp.name?.toLowerCase().trim();
@@ -900,10 +792,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               // Use the correct Employee_id
               employeeId = correctEmployeeId;
               employeeExists = foundByMatch;
-              console.log("✅ [CHAT SYSTEM] Using corrected Employee_id:", employeeId);
             } else if (correctEmployeeId) {
               employeeExists = foundByMatch;
-              console.log("✅ [CHAT SYSTEM] Found user in availableEmployees with matching Employee_id:", employeeId);
             }
           } else {
             // Still not found - show detailed error
@@ -919,17 +809,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             console.error("❌ [CHAT SYSTEM] Trying to use Employee_id:", employeeId);
             console.error("❌ [CHAT SYSTEM] This Employee_id may not exist in the backend database!");
           }
-        } else {
-          console.log("✅ [CHAT SYSTEM] Verified Employee_id exists in availableEmployees:", {
-            foundEmployee: {
-              id: employeeExists.id,
-              Employee_id: (employeeExists as any).Employee_id,
-              name: employeeExists.name
-            },
-            employeeIdBeingSent: employeeId
-          });
         }
-        
         // Final validation before sending
         if (!employeeId || employeeId.trim() === '' || employeeId === 'undefined' || employeeId === 'null') {
           throw new Error(
@@ -949,21 +829,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         }
         
         const startChatResponse = await apiStartChat(employeeId);
-        console.log("💬 [CHAT SYSTEM] Start chat response:", startChatResponse);
-        
-        // Check if chat was created successfully
-        // Response 1: [{}] - New chat created
-        // Response 2: Existing chat loaded (array or object with data)
-        if (startChatResponse) {
-          if (startChatResponse.isNewChat) {
-            console.log("✅ [CHAT SYSTEM] Response 1: New chat created [{}]");
-          } else if (startChatResponse.success) {
-            console.log("✅ [CHAT SYSTEM] Response 2: Existing chat loaded");
-          } else {
-            console.log("✅ [CHAT SYSTEM] Chat started successfully");
-          }
-        }
-        
         // After starting chat, reload chats to get the new chat_id
         // Wait a bit to ensure backend has processed the new chat
         await new Promise(resolve => setTimeout(resolve, 1000)); // Increased wait time
@@ -1009,18 +874,15 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               }
             });
             
-            console.log("💬 [CHAT SYSTEM] Updated chat map (attempt", retryCount + 1, "):", chatMap);
             setDirectChats(prev => ({ ...prev, ...chatMap }));
             
             // Verify we now have a chat_id for this user
             const newChatId = findChatIdForUser(user);
             if (newChatId && newChatId.trim() !== '') {
-              console.log("✅ [CHAT SYSTEM] Chat ID found after starting chat:", newChatId);
               chatIdFound = true;
             } else {
               retryCount++;
               if (retryCount < maxRetries) {
-                console.log("⚠️ [CHAT SYSTEM] Chat ID not found, retrying... (attempt", retryCount + 1, "of", maxRetries, ")");
                 await new Promise(resolve => setTimeout(resolve, 1000)); // Wait before retry
               }
             }
@@ -1034,7 +896,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         }
         
         if (!chatIdFound) {
-          console.warn("⚠️ [CHAT SYSTEM] Chat ID not found after", maxRetries, "attempts. Chat may need more time to sync.");
           // Still set active user - the chat_id might be available when they try to send a message
         }
         
@@ -1115,8 +976,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         setIsStartingChat(false);
       }
     } else {
-      // Chat already exists, just set active user
-      console.log("💬 [CHAT SYSTEM] Chat already exists, using existing chat_id:", existingChatId);
       setActiveUser(user);
       setActiveGroup(null);
     }
@@ -1144,20 +1003,9 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           // For groups: chat_id = group_id from /messaging/loadChats/ response
           // Format: "G09381" (with 'G' prefix) - use as-is, don't extract numeric
           chatId = (activeGroup as any).groupId;
-          console.log("💬 [CHAT SYSTEM] Fetching messages for GROUP chat");
-          console.log("💬 [CHAT SYSTEM] Group Name:", activeGroup.name);
-          console.log("💬 [CHAT SYSTEM] Group ID from API (used as chat_id):", chatId);
-          console.log("💬 [CHAT SYSTEM] Group ID type:", typeof chatId);
         } else if (activeUser) {
-          // For direct messages: use improved chat_id lookup
           chatId = findChatIdForUser(activeUser) || '';
-          console.log("💬 [CHAT SYSTEM] Fetching messages for DIRECT MESSAGE chat");
-          console.log("💬 [CHAT SYSTEM] Active User Name:", activeUser.name);
-          console.log("💬 [CHAT SYSTEM] Active User ID:", activeUser.id);
-          console.log("💬 [CHAT SYSTEM] Chat ID from chats_info:", chatId);
-          
           if (!chatId || chatId.trim() === '') {
-            console.warn("⚠️ [CHAT SYSTEM] No chat_id found for user. Chat may need to be started first.");
             // Try to reload chats in case it was just created
             try {
               const chatData = await apiLoadChats();
@@ -1196,15 +1044,12 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
         // Validate chatId before using it
         if (!chatId || (typeof chatId === 'string' && chatId.trim() === '')) {
-          console.warn("⚠️ [CHAT SYSTEM] Invalid chat_id:", chatId);
           setApiMessages([]);
           setIsLoadingMessages(false);
           return;
         }
 
-        console.log("💬 [CHAT SYSTEM] Final chat_id being sent to API:", chatId);
         const fetchedMessages = await apiGetMessages(chatId);
-        // getMessages returns empty array on 403/404 errors, which is fine
         setApiMessages(fetchedMessages || []);
       } catch (error: any) {
         console.error('Error fetching messages:', error);
@@ -1261,18 +1106,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       // For groups: chat_id = group_id from /messaging/loadChats/ response
       // Format: "G09381" (with 'G' prefix) - use as-is, don't extract numeric
       chatId = (activeGroup as any).groupId;
-      console.log("💬 [CHAT SYSTEM] Sending message to GROUP chat");
-      console.log("💬 [CHAT SYSTEM] Group Name:", activeGroup.name);
-      console.log("💬 [CHAT SYSTEM] Group ID from API (used as chat_id):", chatId);
-      console.log("💬 [CHAT SYSTEM] Group ID type:", typeof chatId);
     } else if (activeUser) {
-      // For direct messages: use improved chat_id lookup
       chatId = findChatIdForUser(activeUser) || '';
-      console.log("💬 [CHAT SYSTEM] Sending message to DIRECT MESSAGE chat");
-      console.log("💬 [CHAT SYSTEM] Active User Name:", activeUser.name);
-      console.log("💬 [CHAT SYSTEM] Active User ID:", activeUser.id);
-      console.log("💬 [CHAT SYSTEM] Chat ID from chats_info:", chatId);
-      
       if (!chatId || chatId.trim() === '') {
         // Try to reload chats and find chat_id - retry multiple times
         let chatIdFound = false;
@@ -1281,7 +1116,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         
         while (!chatIdFound && retryCount < maxRetries) {
           try {
-            console.log("💬 [CHAT SYSTEM] Reloading chats to find chat_id (attempt", retryCount + 1, ")");
             const chatData = await apiLoadChats();
             const chats = chatData.chats_info || [];
             const chatMap: Record<string, string> = {};
@@ -1313,14 +1147,10 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             // Try to find chat_id again
             chatId = findChatIdForUser(activeUser) || '';
             if (chatId && chatId.trim() !== '') {
-              console.log("✅ [CHAT SYSTEM] Chat ID found after reload:", chatId);
               chatIdFound = true;
             } else {
               retryCount++;
-              if (retryCount < maxRetries) {
-                console.log("⚠️ [CHAT SYSTEM] Chat ID not found, retrying...");
-                await new Promise(resolve => setTimeout(resolve, 500));
-              }
+              if (retryCount < maxRetries) await new Promise(resolve => setTimeout(resolve, 500));
             }
           } catch (reloadError) {
             console.error('Error reloading chats:', reloadError);
@@ -1347,21 +1177,10 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     }
 
     const messageText = input.trim();
-    console.log("💬 [CHAT SYSTEM] Final chat_id being sent to API:", chatId);
-    console.log("💬 [CHAT SYSTEM] Chat_id type:", typeof chatId);
-    console.log("💬 [CHAT SYSTEM] Chat_id value:", JSON.stringify(chatId));
-    console.log("💬 [CHAT SYSTEM] Message text:", messageText);
     setIsSendingMessage(true);
     
     try {
-      // Ensure chatId is properly formatted before sending
-      // The API will extract numeric part, but log what we're sending
-      console.log("💬 [CHAT SYSTEM] Sending to postMessages API with chatId:", chatId);
-      console.log("💬 [CHAT SYSTEM] ChatId type:", typeof chatId);
-      
-      // If chatId is empty or invalid, try to reload chats first
       if (!chatId || (typeof chatId === 'string' && chatId.trim() === '')) {
-        console.warn("⚠️ [CHAT SYSTEM] Invalid chatId before sending, reloading chats...");
         if (activeUser) {
           const chatData = await apiLoadChats();
           const chats = chatData.chats_info || [];
@@ -1395,22 +1214,10 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       // Wait a moment for the backend to save the message
       await new Promise(resolve => setTimeout(resolve, 800));
       
-      // Refresh messages to show the newly sent message
-      // Use the same chatId format that was used for sending
-      console.log("💬 [CHAT SYSTEM] Refreshing messages after send...");
-      console.log("💬 [CHAT SYSTEM] Using chatId for fetch:", chatId);
-      console.log("💬 [CHAT SYSTEM] ChatId type:", typeof chatId);
-      
       const fetchedMessages = await apiGetMessages(chatId);
-      console.log("💬 [CHAT SYSTEM] Fetched messages after send:", fetchedMessages);
-      console.log("💬 [CHAT SYSTEM] Number of messages fetched:", fetchedMessages?.length || 0);
-      
       if (fetchedMessages && fetchedMessages.length > 0) {
         setApiMessages(fetchedMessages);
-        console.log("✅ [CHAT SYSTEM] Messages updated successfully");
       } else {
-        console.warn("⚠️ [CHAT SYSTEM] No messages returned after send. This might be normal if it's a new chat.");
-        // Still set empty array to clear any old messages
         setApiMessages([]);
       }
       
