@@ -1803,9 +1803,7 @@ export const addDayEntries = async (data: {
   month_quater_id: number;
 }): Promise<{ message: string; created_entry_ids: number[] }> => {
   try {
-    console.log("📝 [ADD DAY ENTRIES] Adding entries:", data);
     const response = await api.post("/addDayEntries/", data);
-    console.log("✅ [ADD DAY ENTRIES] Response:", response.data);
     return response.data;
   } catch (error: any) {
     console.error("❌ [ADD DAY ENTRIES] Error:", error);

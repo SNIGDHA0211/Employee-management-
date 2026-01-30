@@ -48,6 +48,8 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   // Refs to prevent duplicate fetches
   const hasFetchedEntries = useRef(false);
   const lastFetchKey = useRef<string>('');
+  // Ref to avoid auto-save loop: after we save we update entry_id in rows → reviewRows changes → effect runs again. Skip save when content unchanged.
+  const lastAutoSaveContentRef = useRef<string>('');
 
   // Memoize the schedule month to prevent unnecessary re-renders
   const scheduleMonth = useMemo(() => currentSchedule?.month, [currentSchedule?.month]);
@@ -480,7 +482,13 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     })
       .then((entries) => {
         if (!isMounted) return;
-        setReviewRows(entriesToReviewRows(entries || []));
+        const rows = entriesToReviewRows(entries || []);
+        setReviewRows(rows);
+        // Mark as "already saved" so auto-save doesn't fire right after load
+        const sig = JSON.stringify(
+          rows.filter(r => (r.col2 || '').trim() || (r.col3 || '').trim() || (r.col4 || '').trim()).map(r => ({ date: r.col1, col2: r.col2, col3: r.col3, col4: r.col4 })).sort((a, b) => a.date.localeCompare(b.date))
+        );
+        lastAutoSaveContentRef.current = sig;
       })
       .catch((err) => {
         if (isMounted) {
@@ -811,48 +819,30 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
       const dateObj = new Date(date);
       const apiDate = `${dateObj.getFullYear()}-${dateObj.getMonth() + 1}-${dateObj.getDate()}`;
       
-      console.log('📝 [REPORTS] Saving entries for date:', date, '→', apiDate);
-      console.log('📝 [REPORTS] Entries:', apiEntries);
-      console.log('📝 [REPORTS] Month Quarter ID:', monthQuaterId);
-      
       const response = await addDayEntries({
         entries: apiEntries,
         date: apiDate,
         month_quater_id: monthQuaterId
       });
 
-      console.log('✅ [REPORTS] Entries saved successfully:', response);
-      
       // Update entry_ids in rows
       if (response.created_entry_ids && response.created_entry_ids.length > 0) {
-        console.log('✅ [REPORTS] Updating entry_ids in rows (auto-save):', response.created_entry_ids);
         setReviewRows(prev => {
           const updated = [...prev];
           let entryIdIndex = 0;
-          
           dateEntries.forEach(dateRow => {
             const rowIndex = updated.findIndex(r => r.id === dateRow.id);
             if (rowIndex !== -1 && entryIdIndex < response.created_entry_ids.length) {
               const newEntryId = response.created_entry_ids[entryIdIndex];
-              // Ensure entry_id is a number
               const entryIdNum = typeof newEntryId === 'number' ? newEntryId : parseInt(String(newEntryId));
               if (!isNaN(entryIdNum) && entryIdNum > 0) {
-                updated[rowIndex] = {
-                  ...updated[rowIndex],
-                  entry_id: entryIdNum
-                };
-                console.log(`✅ [REPORTS] Updated row ${rowIndex} with entry_id: ${entryIdNum} (auto-save)`);
-              } else {
-                console.warn(`⚠️ [REPORTS] Invalid entry_id received: ${newEntryId}`);
+                updated[rowIndex] = { ...updated[rowIndex], entry_id: entryIdNum };
               }
               entryIdIndex++;
             }
           });
-          
           return updated;
         });
-      } else {
-        console.warn('⚠️ [REPORTS] No created_entry_ids in response (auto-save). Status changes may not work.');
       }
     } catch (error: any) {
       console.error('❌ [REPORTS] Error saving entries:', error);
@@ -892,37 +882,41 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
-  // Auto-save entries when content changes (debounced)
+  // Auto-save entries when content changes (debounced). Guard: skip when only entry_id changed to stop loop (save → setReviewRows(entry_id) → effect → save again).
   useEffect(() => {
     if (!currentSchedule?.month_quater_id && !currentSchedule?.id) {
-      return; // Don't save if month_quater_id is not available
+      return;
     }
 
-    // Skip auto-save if rows are empty or only have empty rows
     const hasContent = reviewRows.some(row => row.col2.trim() || row.col3.trim() || row.col4.trim());
     if (!hasContent) {
       return;
     }
 
+    // Content signature: only col1,col2,col3,col4 (not entry_id) so we don't re-save when we only updated entry_id
+    const contentSignature = JSON.stringify(
+      reviewRows
+        .filter(row => (row.col2 || '').trim() || (row.col3 || '').trim() || (row.col4 || '').trim())
+        .map(row => ({ date: row.col1, col2: row.col2, col3: row.col3, col4: row.col4 }))
+        .sort((a, b) => a.date.localeCompare(b.date))
+    );
+
     const timeoutId = setTimeout(() => {
-      console.log('💾 [REPORTS] Auto-saving entries...');
-      
-      // Group rows by date
+      if (lastAutoSaveContentRef.current === contentSignature) {
+        return; // Content unchanged (e.g. we only updated entry_id) – don't save again
+      }
+      lastAutoSaveContentRef.current = contentSignature;
+
       const rowsByDate = reviewRows.reduce((acc, row) => {
-        if (!acc[row.col1]) {
-          acc[row.col1] = [];
-        }
+        if (!acc[row.col1]) acc[row.col1] = [];
         acc[row.col1].push(row);
         return acc;
       }, {} as Record<string, ReviewRow[]>);
 
-      // Save entries for each date
       Object.keys(rowsByDate).forEach(date => {
         saveEntries(date, rowsByDate[date]);
       });
-      
-      console.log('✅ [REPORTS] Auto-save completed');
-    }, 2000); // Debounce: save 2 seconds after last change
+    }, 2000);
 
     return () => clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -984,9 +978,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
       alert('Unable to determine month/quarter. Please select Month and Quarter.');
       return;
     }
-    console.log('📋 [REPORTS] ===== SUBMIT BUTTON CLICKED =====');
-    console.log('✅ [REPORTS] Using month_quater_id:', finalMonthQuaterId);
-
     // Group rows by date
     const rowsByDate: Record<string, ReviewRow[]> = {};
     reviewRows.forEach(row => {
@@ -1051,26 +1042,11 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
             status: statusValue as 'PENDING' | 'INPROCESS' | 'COMPLETED'
           };
         });
-        
-        console.log('📝 [REPORTS] Prepared API entries:', JSON.stringify(apiEntries, null, 2));
 
         // Convert date from ISO format (YYYY-MM-DD) to API format (YYYY-M-D)
         const dateObj = new Date(date);
         const apiDate = `${dateObj.getFullYear()}-${dateObj.getMonth() + 1}-${dateObj.getDate()}`;
-        
-        console.log('📝 [REPORTS] ===== CALLING addDayEntries API =====');
-        console.log('📝 [REPORTS] Submitting entries for date:', date, '→', apiDate);
-        console.log('📝 [REPORTS] Number of entries:', apiEntries.length);
-        console.log('📝 [REPORTS] Entries:', JSON.stringify(apiEntries, null, 2));
-        console.log('📝 [REPORTS] Month Quarter ID:', finalMonthQuaterId);
-        console.log('📝 [REPORTS] Full API Request payload:', JSON.stringify({
-          entries: apiEntries,
-          date: apiDate,
-          month_quater_id: finalMonthQuaterId
-        }, null, 2));
-        
-        // Call POST addDayEntries to store entries
-        console.log('🚀 [REPORTS] About to call addDayEntries API...');
+
         const response = await addDayEntries({
           entries: apiEntries,
           date: apiDate,
@@ -1080,9 +1056,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
           alert((response as any).error);
           return;
         }
-        console.log('✅ [REPORTS] API Response received:', JSON.stringify(response, null, 2));
-        console.log('✅ [REPORTS] Response message:', response.message);
-        console.log('✅ [REPORTS] Created entry IDs:', response.created_entry_ids);
         // Store the backend message
         if (response.message) {
           lastResponseMessage = response.message;
@@ -1096,34 +1069,22 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
 
         // Update entry_ids in rows
         if (response.created_entry_ids && response.created_entry_ids.length > 0) {
-          console.log('✅ [REPORTS] Updating entry_ids in rows:', response.created_entry_ids);
           setReviewRows(prev => {
             const updated = [...prev];
             let entryIdIndex = 0;
-            
             entries.forEach(dateRow => {
               const rowIndex = updated.findIndex(r => r.id === dateRow.id);
               if (rowIndex !== -1 && entryIdIndex < response.created_entry_ids.length) {
                 const newEntryId = response.created_entry_ids[entryIdIndex];
-                // Ensure entry_id is a number
                 const entryIdNum = typeof newEntryId === 'number' ? newEntryId : parseInt(String(newEntryId));
                 if (!isNaN(entryIdNum) && entryIdNum > 0) {
-                  updated[rowIndex] = {
-                    ...updated[rowIndex],
-                    entry_id: entryIdNum
-                  };
-                  console.log(`✅ [REPORTS] Updated row ${rowIndex} with entry_id: ${entryIdNum}`);
-                } else {
-                  console.warn(`⚠️ [REPORTS] Invalid entry_id received: ${newEntryId}`);
+                  updated[rowIndex] = { ...updated[rowIndex], entry_id: entryIdNum };
                 }
                 entryIdIndex++;
               }
             });
-            
             return updated;
           });
-        } else {
-          console.warn('⚠️ [REPORTS] No created_entry_ids in response. Status changes may not work.');
         }
       }
 
