@@ -10,6 +10,22 @@ export enum UserRole {
 // ===== Admin Ops (Assets / Bills / Expenses / Vendors) =====
 export type StatusType = 'Pending' | 'Inprocess' | 'Completed';
 
+export type BillCategory =
+  | 'Light Bills'
+  | 'Rent'
+  | 'Housekeeping'
+  | 'Tea Bills'
+  | 'WiFi Bills';
+
+export interface Bill {
+  id: string;
+  category: BillCategory;
+  amount: number;
+  recipient: string;
+  date: string;
+  status: StatusType;
+}
+
 export type AssetType = 'Hardware' | 'Software';
 
 export interface Asset {
@@ -22,16 +38,7 @@ export interface Asset {
   createdAt: string; // YYYY-MM-DD
 }
 
-export type BillCategory = 'Light Bills' | 'Rent' | 'Housekeeping' | 'Tea Bills' | 'WiFi Bills';
 
-export interface Bill {
-  id: string;
-  category: BillCategory;
-  amount: number;
-  recipient: string;
-  date: string; // YYYY-MM-DD
-  status: StatusType;
-}
 
 export interface Expense {
   id: string;

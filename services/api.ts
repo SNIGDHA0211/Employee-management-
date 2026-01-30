@@ -17,13 +17,14 @@ const isDevelopment = typeof window !== 'undefined' &&
    window.location.hostname.startsWith('10.') ||
    window.location.hostname.startsWith('172.'));
 
+   
 const API_BASE_URL = isDevelopment
   ? '/api'  // Use Vite proxy in development (bypasses CORS)
   : 'https://employee-management-system-tmrl.onrender.com';  // Direct URL in production
 
   
 // Create axios instance for authenticated requests
-const api = axios.create({
+ const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
@@ -83,7 +84,7 @@ api.interceptors.response.use(
       error.message?.includes("Failed to fetch") ||
       (error.name === "TypeError" && error.message?.includes("fetch"))
     ) {
-      const backendUrl = isDevelopment ? 'https://employee-management-system-tmrl.onrender.com' : API_BASE_URL;
+      const backendUrl = isDevelopment ? 'http://192.168.41.97:8000' : API_BASE_URL;
       const networkError = new Error(
         `Network Error: Unable to connect to the backend server at ${backendUrl}.\n\nPlease check:\n1. Backend server is running on ${backendUrl}\n2. Network connectivity\n3. Firewall settings\n\n${isDevelopment ? 'Note: Using Vite proxy (/api) to bypass CORS. Make sure the backend server is running.' : 'Please check CORS configuration and network connectivity.'}`
       );
@@ -3414,6 +3415,7 @@ export const getMessages = async (
     return [];
   }
 };
+
 
 // Export default api instance
 export default api;
