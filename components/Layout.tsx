@@ -79,16 +79,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
                 src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`} 
                 alt={user.name} 
                 className="w-10 h-10 rounded-full border-2 border-brand-500 object-cover"
-                onLoad={() => {
-                  console.log('✅ [SIDEBAR AVATAR] Image loaded successfully:', user.avatar);
-                }}
+                onLoad={() => {}}
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
                   console.error('❌ [SIDEBAR AVATAR] Image failed to load:', target.src);
                   // If the image fails to load and it's not already a fallback, use ui-avatars
                   if (!target.src.includes('ui-avatars.com')) {
                     const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`;
-                    console.log('🔄 [SIDEBAR AVATAR] Falling back to:', fallbackUrl);
                     target.src = fallbackUrl;
                   }
                 }}

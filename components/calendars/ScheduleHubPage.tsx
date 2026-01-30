@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { format, addMonths, subMonths } from 'date-fns';
 import { Calendar, ChevronLeft, ChevronRight, CalendarDays, PartyPopper, MapPin } from 'lucide-react';
+import { UserRole } from '../../types';
 import { ViewMode, Meeting, Holiday, Tour, MeetingStatus } from './types';
 import { CalendarGrid } from './CalendarGrid';
 import { DayViewModal } from './DayViewModal';
@@ -8,8 +9,14 @@ import { HolidayModal } from './HolidayModal';
 import { MeetingModal } from './MeetingModal';
 import { TourDetailModal } from './TourDetailModal';
 import { TourModal } from './TourModal';
+import type { User } from '../../types';
 
-export const ScheduleHubPage: React.FC = () => {
+interface ScheduleHubPageProps {
+  currentUser?: User | null;
+}
+
+export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser }) => {
+  const canAddHolidayOrEvent = currentUser && [UserRole.MD, UserRole.ADMIN].includes(currentUser.role);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.MEETING);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -128,7 +135,7 @@ export const ScheduleHubPage: React.FC = () => {
             </button>
           </div>
 
-          {viewMode === ViewMode.HOLIDAY && (
+          {viewMode === ViewMode.HOLIDAY && canAddHolidayOrEvent && (
             <button
               onClick={() => {
                 setHolidayModalDate(currentDate);

@@ -239,9 +239,6 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
             return normalizedRole as UserRole;
           }
           
-          // Log unmapped role for debugging
-          console.log(`⚠️ [LOGIN] Unmapped role: "${roleString}" (normalized: "${normalizedRole}") - defaulting to EMPLOYEE`);
-          
           return UserRole.EMPLOYEE;
         };
 
@@ -249,9 +246,8 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
         let employeeDashboard: any = null;
         try {
           employeeDashboard = await getEmployeeDashboard();
-        } catch (dashboardError: any) {
+        } catch (_dashboardError: any) {
           // If dashboard fetch fails, continue with login response data
-          console.warn('Failed to fetch employee dashboard, using login response data:', dashboardError.message);
         }
         
         // If user found in mock data, update it with dashboard data if available
@@ -270,9 +266,6 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
                       ? String(employeeDashboard?.id)
                       : userProfile.id));
             
-            console.log("🔍 [LOGIN] Dashboard Employee_id:", dashboardEmployeeId);
-            console.log("🔍 [LOGIN] Original userProfile.id:", userProfile.id);
-            
             userProfile = {
               ...userProfile,
               id: dashboardEmployeeId, // Set to Employee_id from dashboard (preserved as string)
@@ -287,30 +280,16 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
                 // Prioritize Photo_link from dashboard API (same field name used in createEmployee)
                 const photoLink = employeeDashboard?.['Photo_link'] || employeeDashboard?.['Profile Picture'] || employeeDashboard?.avatar || employeeDashboard?.profilePicture || userProfile.avatar;
                 
-                console.log('🖼️ [LOGIN] Photo_link from dashboard:', photoLink);
-                console.log('🖼️ [LOGIN] employeeDashboard keys:', employeeDashboard ? Object.keys(employeeDashboard) : 'null');
-                
                 if (photoLink) {
                   const convertedUrl = convertPhotoLinkToUrl(photoLink);
-                  if (convertedUrl) {
-                    console.log('🔗 [LOGIN] Converted Photo_link:', photoLink, 'to URL:', convertedUrl);
-                    return convertedUrl;
-                  }
+                  if (convertedUrl) return convertedUrl;
                 }
-                
-                console.warn('⚠️ [LOGIN] No valid Photo_link found, using existing avatar:', userProfile.avatar);
                 return userProfile.avatar;
               })(),
             } as User & { Employee_id?: string };
             
             // Add Employee_id separately to avoid TypeScript error
             (userProfile as any).Employee_id = dashboardEmployeeId;
-            
-            console.log("✅ [LOGIN] Updated userProfile with Employee_id:", {
-              id: userProfile.id,
-              Employee_id: (userProfile as any).Employee_id,
-              name: userProfile.name
-            });
           } else if (loginResponse?.Role) {
             // Update role from API response if dashboard data not available
             const apiRole = loginResponse.Role;
@@ -338,10 +317,6 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
                 : (employeeDashboard?.id !== undefined && employeeDashboard?.id !== null
                     ? String(employeeDashboard?.id)
                     : String(username)));
-          
-          console.log("🔍 [LOGIN] Logged-in user Employee_id:", employeeId);
-          console.log("🔍 [LOGIN] Employee_id from dashboard:", employeeDashboard?.['Employee_id']);
-          console.log("🔍 [LOGIN] Employee_id from loginResponse:", loginResponse?.Employee_id);
           
           const fullName = employeeDashboard?.['Name'] || employeeDashboard?.['Full Name'] || employeeDashboard?.name || loginResponse?.username || username;
           const email = employeeDashboard?.['Email_id'] || employeeDashboard?.['Email Address'] || employeeDashboard?.email || (username.includes('@') ? username : `${username}@planeteye.com`);
@@ -415,14 +390,6 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
           
           // Add Employee_id separately to avoid TypeScript error
           (newUser as any).Employee_id = employeeId;
-          
-          console.log("✅ [LOGIN] Final logged-in user object:", {
-            id: newUser.id,
-            Employee_id: (newUser as any).Employee_id,
-            name: newUser.name,
-            role: newUser.role
-          });
-          
           onLogin(newUser);
         }
     } catch (err: any) {
@@ -684,39 +651,22 @@ export default function App() {
     const fetchUserAvatar = async () => {
       if (currentUser && currentUser.id) {
         try {
-          console.log('🔄 [AVATAR] Fetching avatar from dashboard API...');
           const employeeDashboard = await getEmployeeDashboard();
-          console.log('📦 [AVATAR] Dashboard response:', employeeDashboard);
-          
           const photoLink = employeeDashboard?.['Photo_link'] || employeeDashboard?.['Profile Picture'];
-          console.log('🖼️ [AVATAR] Photo_link value:', photoLink);
-          console.log('🖼️ [AVATAR] Photo_link type:', typeof photoLink);
           
           if (photoLink && typeof photoLink === 'string' && photoLink.trim() !== '') {
             let avatarUrl = photoLink.trim();
             
             // Convert relative URL to absolute using helper function
             const convertedUrl = convertPhotoLinkToUrl(avatarUrl);
-            if (convertedUrl) {
-              avatarUrl = convertedUrl;
-              console.log('🔗 [AVATAR] Converted Photo_link to URL:', avatarUrl);
-            } else {
-              console.log('✅ [AVATAR] Using URL as-is:', avatarUrl);
-            }
+            if (convertedUrl) avatarUrl = convertedUrl;
             
-            // Update user avatar if it's different
             if (currentUser.avatar !== avatarUrl) {
-              console.log('🔄 [AVATAR] Updating avatar from', currentUser.avatar, 'to', avatarUrl);
               setCurrentUser({
                 ...currentUser,
                 avatar: avatarUrl
               });
-            } else {
-              console.log('ℹ️ [AVATAR] Avatar URL unchanged');
             }
-          } else {
-            console.warn('⚠️ [AVATAR] No valid Photo_link found in dashboard response');
-            console.log('📋 [AVATAR] Current avatar:', currentUser.avatar);
           }
         } catch (err: any) {
           console.error('❌ [AVATAR] Error fetching user avatar from dashboard:', err);
@@ -806,13 +756,6 @@ export default function App() {
           const employeeId = rawEmployeeId !== undefined && rawEmployeeId !== null 
             ? String(rawEmployeeId).trim() 
             : '';
-          
-          // Log if we detect a number that might have lost leading zeros
-          if (typeof rawEmployeeId === 'number' && rawEmployeeId < 1000) {
-            console.warn(`⚠️ [FETCH EMPLOYEES] Employee_id came as number: ${rawEmployeeId} (converted to string: "${employeeId}")`);
-            console.warn(`   This might have lost leading zeros! Original value might have been "000${rawEmployeeId}" or similar.`);
-            console.warn(`   Full employee object:`, emp);
-          }
           
           const fullName = emp['Name'] || emp['Full Name'] || emp.name || 'Unknown';
           const email = emp['Email_id'] || emp['Email Address'] || emp.email || '';
@@ -955,11 +898,6 @@ export default function App() {
       fixedRole = UserRole.EMPLOYEE;
     } else if (roleUpper === 'INTERN') {
       fixedRole = UserRole.INTERN;
-    }
-    
-    // Log role mapping for debugging
-    if (roleString !== String(fixedRole)) {
-      console.log(`🔍 [LOGIN] Role mapping: "${roleString}" → "${roleUpper}" → ${fixedRole}`);
     }
     
     // CRITICAL: Ensure role is properly set before setting currentUser
@@ -1569,7 +1507,7 @@ export default function App() {
         );
       
       case 'schedule-hub':
-        return <ScheduleHubPage />;
+        return <ScheduleHubPage currentUser={currentUser} />;
 
       case 'attendance':
         // Attendance & Tours - Under Maintenance

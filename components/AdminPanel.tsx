@@ -151,9 +151,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ users, onAddUser, onDele
 
     setIsLoadingTeamLeads(true);
     try {
-      console.log('📋 [ADMIN] Fetching team leads for role:', role);
       const teamLeadsData = await apiGetTeamleads(role);
-      console.log('✅ [ADMIN] Team leads fetched:', teamLeadsData);
       setTeamLeads(teamLeadsData || []);
     } catch (error: any) {
       console.error('❌ [ADMIN] Error fetching team leads:', error);
@@ -167,23 +165,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ users, onAddUser, onDele
   // Fetch departments and functions based on selected role (using combined endpoint)
   const fetchDepartmentsAndFunctionsForRole = async (role: string) => {
     if (!role || role.trim() === '') {
-      console.warn('⚠️ [ADMIN PANEL] No role provided, skipping fetch');
       setDepartments([]);
       setFunctions([]);
       return;
     }
 
     try {
-      console.log('📋 [ADMIN PANEL] Fetching departments and functions for role:', role);
-      console.log('📋 [ADMIN PANEL] API endpoint will be: /accounts/getDepartmentsandFunctions/?Role=' + encodeURIComponent(role));
-      
       const data = await apiGetDepartmentsandFunctions(role);
-      
-      console.log('📋 [ADMIN PANEL] Raw API response:', data);
-      console.log('📋 [ADMIN PANEL] Response type:', typeof data);
-      console.log('📋 [ADMIN PANEL] Has departments?', !!data?.departments);
-      console.log('📋 [ADMIN PANEL] Has functions?', !!data?.functions);
-      
       // Check if data is valid
       if (!data || typeof data !== 'object') {
         console.error('❌ [ADMIN PANEL] Invalid response format:', data);
@@ -201,11 +189,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ users, onAddUser, onDele
       const validFunctions = Array.isArray(data.functions)
         ? data.functions.filter(f => f != null && typeof f === 'string' && f.trim() !== '')
         : [];
-      
-      console.log('✅ [ADMIN PANEL] Valid departments:', validDepartments);
-      console.log('✅ [ADMIN PANEL] Valid functions:', validFunctions);
-      console.log('✅ [ADMIN PANEL] Setting', validDepartments.length, 'departments and', validFunctions.length, 'functions');
-      
       setDepartments(validDepartments);
       setFunctions(validFunctions);
     } catch (err: any) {
@@ -271,11 +254,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ users, onAddUser, onDele
 
   const fetchEmployeesFromAPI = async () => {
     try {
-      // Fetch employees from GET /accounts/employees/ endpoint
-      console.log("📋 [ADMIN PANEL] Fetching employees from /accounts/employees/ API...");
       const employees = await apiGetEmployees();
-      console.log(`✅ [ADMIN PANEL] Successfully fetched ${employees.length} employees from API`);
-      
       // Convert API employees to User format - using EXACT same field mapping as App.tsx
       // This ensures consistent data display across User Management table and employee dashboard
       const apiUsersList: User[] = employees.map((emp: any) => {
@@ -296,31 +275,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ users, onAddUser, onDele
         // CRITICAL: Fetch Role from API - check multiple possible field names
         // Priority: Role (capital R) → role (lowercase) → ROLE (uppercase) → default to EMPLOYEE
         const roleFromAPI = emp['Role'] || emp.role || emp['role'] || emp.ROLE;
-        
-        // DEBUG: Log the raw API response to see what we're getting
-        console.log(`🔍 [ADMIN PANEL] API Response for ${fullName}:`, {
-          'emp[Role]': emp['Role'],
-          'emp.role': emp.role,
-          'emp[role]': emp['role'],
-          'emp.ROLE': emp.ROLE,
-          'roleFromAPI': roleFromAPI,
-          'roleFromAPIType': typeof roleFromAPI,
-          'roleFromAPIValue': roleFromAPI ? String(roleFromAPI) : 'undefined'
-        });
-        
         // Store raw role from API FIRST (before any transformation) - exactly as backend sends it
         // DO NOT transform, uppercase, or modify in any way - preserve exactly as received
         const rawRoleFromAPI = roleFromAPI ? String(roleFromAPI).trim() : 'EMPLOYEE';
         
         // Use roleFromAPI for enum mapping (but don't modify rawRoleFromAPI)
         const role = roleFromAPI || 'EMPLOYEE';
-        
-        // Log role fetching for verification
-        if (roleFromAPI) {
-          console.log(`✅ [ADMIN PANEL] Stored rawRole for ${fullName}: "${rawRoleFromAPI}" (exactly as received from API)`);
-        } else {
-          console.warn(`⚠️ [ADMIN PANEL] No Role field found in API response for ${fullName}, using default: EMPLOYEE`);
-        }
         const designation = emp['Designation'] || emp.designation || '';
         const branch = emp['Branch'] || emp.branch || '';
         const department = emp['Department'] || emp.department || '';
@@ -365,11 +325,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ users, onAddUser, onDele
         else if (roleUpper === 'EMPLOYEE') userRole = UserRole.EMPLOYEE;
         else if (roleUpper === 'INTERN') userRole = UserRole.INTERN;
         
-        // Verify role is from API, not default
-        if (role === 'EMPLOYEE' && !emp['Role'] && !emp.role) {
-          console.warn(`⚠️ [ADMIN PANEL] User ${fullName} has no Role field in API response, using default EMPLOYEE`);
-        }
-        
         // Get password from various possible field names
         const password = emp['Initial Password'] || 
                         emp['Password'] || 
@@ -400,29 +355,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ users, onAddUser, onDele
       });
       
       setApiUsers(apiUsersList);
-      setError(null); // Clear any previous errors on success
-      
-      // Log summary of roles fetched (using raw roles from API)
-      const roleCounts: Record<string, number> = {};
-      const rawRoleCheck: Record<string, string> = {};
-      apiUsersList.forEach(u => {
-        const roleKey = (u as any).rawRole || String(u.role);
-        roleCounts[roleKey] = (roleCounts[roleKey] || 0) + 1;
-        // Store sample rawRole for each user to verify
-        if ((u as any).rawRole) {
-          rawRoleCheck[u.name] = (u as any).rawRole;
-        }
-      });
-      console.log(`📊 [ADMIN PANEL] Role distribution from API (raw values):`, roleCounts);
-      console.log(`📊 [ADMIN PANEL] Sample rawRole values stored:`, rawRoleCheck);
-      
-      // Verify rawRole is set for all users
-      const usersWithoutRawRole = apiUsersList.filter(u => !(u as any).rawRole);
-      if (usersWithoutRawRole.length > 0) {
-        console.warn(`⚠️ [ADMIN PANEL] ${usersWithoutRawRole.length} users missing rawRole:`, usersWithoutRawRole.map(u => u.name));
-      } else {
-        console.log(`✅ [ADMIN PANEL] All ${apiUsersList.length} users have rawRole set correctly`);
-      }
+      setError(null);
     } catch (err: any) {
       console.error("❌ [ADMIN PANEL] Error fetching employees:", err);
       
@@ -1426,12 +1359,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ users, onAddUser, onDele
                   <p className="text-white/90 font-semibold mt-1 text-sm">
                     {(() => {
                       const rawRole = (selectedUser as any).rawRole;
-                      console.log(`🔍 [ADMIN PANEL] Displaying role in header for ${selectedUser.name}:`, {
-                        rawRole: rawRole,
-                        rawRoleType: typeof rawRole,
-                        role: selectedUser.role,
-                        willDisplay: rawRole ? String(rawRole) : 'N/A'
-                      });
                       return rawRole ? String(rawRole) : 'N/A';
                     })()}
                   </p>
