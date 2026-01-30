@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { CreditCard, Pencil, Plus, Trash2 } from "lucide-react";
 import { Bill, BillCategory, StatusType } from "../../types";
-import { getBillCategories, createBill,getBills } from "../../services/bill.service";
+import {
+  getBillCategories,
+  createBill,
+  getBills,
+  deleteBill,
+  updateBillStatus,
+  backendToUiStatus,
+  updateBill,
+} from "../../services/bill.service";
 
 interface BillsManagerProps {
   bills: Bill[];
@@ -12,6 +20,8 @@ const BillsManager: React.FC<BillsManagerProps> = ({ bills, setBills }) => {
   const [showForm, setShowForm] = useState(false);
   const [categories, setCategories] = useState<BillCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingBillId, setEditingBillId] = useState<number | null>(null);
+
   const [formData, setFormData] = useState({
     category: "",
     amount: "",
@@ -20,17 +30,17 @@ const BillsManager: React.FC<BillsManagerProps> = ({ bills, setBills }) => {
     status: "Pending" as StatusType,
   });
   useEffect(() => {
-  const fetchBills = async () => {
-    try {
-      const data = await getBills();
-      setBills(data);
-    } catch (error) {
-      console.error("Failed to fetch bills", error);
-    }
-  };
+    const fetchBills = async () => {
+      try {
+        const data = await getBills();
+        setBills(data);
+      } catch (error) {
+        console.error("Failed to fetch bills", error);
+      }
+    };
 
-  fetchBills();
-}, [setBills]);
+    fetchBills();
+  }, [setBills]);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -49,42 +59,57 @@ const BillsManager: React.FC<BillsManagerProps> = ({ bills, setBills }) => {
 
     fetchCategories();
   }, []);
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-  try {
-    const payload = {
-      category: formData.category,
-      amount: Number(formData.amount),
-      recipient: formData.recipient,
-      date: formData.date,
-      status: formData.status.toUpperCase(), // 🔥 backend expects this
-    };
+    try {
+      const payload = {
+        category: formData.category,
+        amount: Number(formData.amount),
+        recipient: formData.recipient,
+        date: formData.date,
+        status: formData.status.toUpperCase(),
+      };
 
-    const savedBill = await createBill(payload);
+      if (editingBillId) {
+        // 🔁 EDIT
+        const updatedBill = await updateBill(editingBillId, payload);
 
-    // Use backend response
-    setBills((prev) => [savedBill, ...prev]);
+        setBills((prev) =>
+          prev.map((b) => (b.id === editingBillId ? updatedBill : b)),
+        );
+      } else {
+        // ➕ CREATE
+        const savedBill = await createBill(payload);
+        setBills((prev) => [savedBill, ...prev]);
+      }
 
-    setFormData({
-      category: "",
-      amount: "",
-      recipient: "",
-      date: new Date().toISOString().split("T")[0],
-      status: "Pending",
-    });
+      // reset
+      setFormData({
+        category: "",
+        amount: "",
+        recipient: "",
+        date: new Date().toISOString().split("T")[0],
+        status: "Pending",
+      });
 
-    setShowForm(false);
-  } catch (error) {
-    console.error("Failed to create bill", error);
-  }
-};
+      setEditingBillId(null);
+      setShowForm(false);
+    } catch (error) {
+      console.error("Failed to save bill", error);
+      alert("Failed to save bill");
+    }
+  };
 
+  const updateStatus = async (id: number, newStatus: StatusType) => {
+    try {
+      const updatedBill = await updateBillStatus(id, newStatus);
 
-  const updateStatus = (id: string, newStatus: StatusType) => {
-    setBills((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, status: newStatus } : b)),
-    );
+      setBills((prev) => prev.map((b) => (b.id === id ? updatedBill : b)));
+    } catch (error) {
+      console.error("Failed to update bill", error);
+      alert("Failed to update bill status");
+    }
   };
 
   const getStatusStyle = (status: StatusType) => {
@@ -97,6 +122,20 @@ const handleSubmit = async (e: React.FormEvent) => {
         return "bg-gray-100 text-gray-700 border-gray-200";
       default:
         return "bg-gray-100 text-gray-700";
+    }
+  };
+  const handleDeleteBill = async (id: number) => {
+    const ok = window.confirm("Are you sure you want to delete this bill?");
+    if (!ok) return;
+
+    try {
+      await deleteBill(id);
+
+      // remove bill from UI after backend success
+      setBills((prev) => prev.filter((b) => b.id !== id));
+    } catch (error) {
+      console.error("Failed to delete bill", error);
+      alert("Failed to delete bill");
     }
   };
 
@@ -245,7 +284,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                 </span>
               </div>
               <span className="text-lg font-black text-gray-800">
-                ${Number(bill.amount).toLocaleString()}
+                {Number(bill.amount).toLocaleString()}
               </span>
             </div>
             <div className="space-y-3">
@@ -265,12 +304,12 @@ const handleSubmit = async (e: React.FormEvent) => {
                   Status Update
                 </label>
                 <select
-  value={bill.status === "INPROCESS" ? "Inprocess" : bill.status}
+                  value={backendToUiStatus(bill.status)}
                   onChange={(e) =>
-                    updateStatus(bill.id, e.target.value as StatusType)
+                    updateStatus(Number(bill.id), e.target.value as StatusType)
                   }
                   className={`w-full px-3 py-2 rounded-xl text-xs font-bold border outline-none transition-all ${getStatusStyle(
-                    bill.status,
+                    backendToUiStatus(bill.status),
                   )}`}
                 >
                   <option value="Completed">Completed</option>
@@ -286,14 +325,25 @@ const handleSubmit = async (e: React.FormEvent) => {
                   className="hover:text-indigo-600 transition-colors"
                   title="Edit"
                   type="button"
+                  onClick={() => {
+                    setEditingBillId(bill.id);
+                    setFormData({
+                      category: bill.category,
+                      amount: String(bill.amount),
+                      recipient: bill.recipient,
+                      date: bill.date,
+                      status: backendToUiStatus(bill.status),
+                    });
+                    setShowForm(true);
+                  }}
                 >
                   <Pencil size={18} />
                 </button>
               </div>
               <button
-                onClick={() => setBills(bills.filter((b) => b.id !== bill.id))}
+                onClick={() => handleDeleteBill(Number(bill.id))}
                 className="text-red-300 hover:text-red-500"
-                title="Delete"
+                title="Delete Bill"
                 type="button"
               >
                 <Trash2 size={18} />
