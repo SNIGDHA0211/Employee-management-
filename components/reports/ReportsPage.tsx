@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { FileText, Printer, Send, Plus, Calendar, Building2, User as UserIcon } from 'lucide-react';
 import { Department, ViewType, ReviewRow, ImplementationRow, SalesOpsRow } from './types';
-import { MONTH_TO_MEETING_MAP } from './constants';
+import { MONTH_TO_MEETING_MAP, MONTH_NAMES } from './constants';
 import ReviewTable from './ReviewTable';
 import ImplementationTable from './ImplementationTable';
 import SalesOpsTable from './SalesOpsTable';
@@ -11,6 +11,7 @@ import {
   addDayEntries, 
   changeEntryStatus, 
   getUserEntries,
+  getUserEntriesByFilters,
   getDepartmentsandFunctions,
   getEmployees,
 } from '../../services/api';
@@ -40,13 +41,33 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   const [currentSchedule, setCurrentSchedule] = useState<any | null>(null);
   const [allEmployees, setAllEmployees] = useState<Array<{ id: string; name: string; department?: string }>>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
-  
+  const [refreshEntriesKey, setRefreshEntriesKey] = useState(0); // Bump after save to refetch and display stored entries
+  const [mdAttendeeSchedule, setMdAttendeeSchedule] = useState<any[]>([]);
+  const [isLoadingMDSchedule, setIsLoadingMDSchedule] = useState(false);
+
   // Refs to prevent duplicate fetches
   const hasFetchedEntries = useRef(false);
   const lastFetchKey = useRef<string>('');
+  // Ref to avoid auto-save loop: after we save we update entry_id in rows → reviewRows changes → effect runs again. Skip save when content unchanged.
+  const lastAutoSaveContentRef = useRef<string>('');
 
   // Memoize the schedule month to prevent unnecessary re-renders
   const scheduleMonth = useMemo(() => currentSchedule?.month, [currentSchedule?.month]);
+
+  // For MD: selected attendee → user id for API (username param). For non-MD: current user id. MD never uses userId for entries – only matched attendee id.
+  const scheduleUserId = useMemo(() => {
+    if (isMD) {
+      if (attendee && typeof attendee === 'string' && attendee.trim()) {
+        const normalized = attendee.trim().toLowerCase();
+        const emp = allEmployees.find(
+          (e) => e.name && String(e.name).trim().toLowerCase() === normalized
+        );
+        return emp?.id ?? undefined;
+      }
+      return undefined;
+    }
+    return userId ?? undefined;
+  }, [isMD, attendee, allEmployees, userId]);
 
   // Helper: map quarter number to months (financial year: Q4 = Jan–Mar, Q1 = Apr–Jun, etc.)
   const getMonthsForQuarter = (quarterNum: number): number[] => {
@@ -96,8 +117,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     if (normalizedDept.includes('purchase')) return Department.PURCHASE;
     if (normalizedDept.includes('legal')) return Department.LEGAL;
     
-    // Default fallback
-    console.warn(`⚠️ [REPORTS] Unknown department from API: "${apiDept}", defaulting to Sales`);
     return Department.SALES;
   };
 
@@ -162,10 +181,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                           employeeData?.id ||
                           null;
         
-        if (employeeId) {
-          setUserId(String(employeeId));
-          console.log('✅ [REPORTS] User ID (Employee_id):', employeeId);
-        }
+        if (employeeId) setUserId(String(employeeId));
 
         // Detect role (MD vs others) – support "MD", "Managing Director", etc.
         const apiRole = employeeData?.['Role'] || employeeData?.['role'] || employeeData?.ROLE;
@@ -184,15 +200,10 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                               currentUserDepartment ||
                               null;
         
-        console.log('📋 [REPORTS] Fetched employee dashboard:', employeeData);
-        console.log('📋 [REPORTS] Department from API:', apiDepartment);
-        
         if (apiDepartment) {
           const mappedDept = mapApiDepartmentToEnum(apiDepartment);
-          console.log('✅ [REPORTS] Mapped department:', apiDepartment, '→', mappedDept);
           setSelectedDept(mappedDept);
         } else {
-          console.warn('⚠️ [REPORTS] No department found in API response, using default or prop value');
           if (currentUserDepartment) {
             setSelectedDept(mapApiDepartmentToEnum(currentUserDepartment));
           }
@@ -215,17 +226,11 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   // Fetch monthly schedule when user ID and month are available
   useEffect(() => {
     const fetchSchedule = async () => {
-      if (!userId) {
-        console.log('⚠️ [REPORTS] No user ID available, skipping schedule fetch');
-        return;
-      }
+      if (!userId) return;
 
       setIsLoadingSchedule(true);
       try {
-        console.log('📅 [REPORTS] Fetching monthly schedule for user_id:', userId);
         const schedule = await getMonthlySchedule(userId);
-        console.log('📅 [REPORTS] Monthly schedule response:', schedule);
-        
         setMonthlySchedule(schedule);
         
         // Find schedule for current month and year
@@ -263,10 +268,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
         }
         
         if (matchingSchedule) {
-          console.log('✅ [REPORTS] Found matching schedule:', matchingSchedule);
-          console.log('✅ [REPORTS] Schedule fields:', Object.keys(matchingSchedule));
-          console.log('✅ [REPORTS] month_quater_id:', matchingSchedule.month_quater_id);
-          console.log('✅ [REPORTS] id:', matchingSchedule.id);
           setCurrentSchedule(matchingSchedule);
           // Initialize selected quarter and month from schedule
           const detectedQuarter =
@@ -280,7 +281,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
             setSelectedMonth(matchingSchedule.month);
           }
         } else {
-          console.warn('⚠️ [REPORTS] No matching schedule found for month', currentMonthNum, 'year', currentYear);
           setCurrentSchedule(null);
         }
       } catch (error: any) {
@@ -295,14 +295,60 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     fetchSchedule();
   }, [userId, currentDate]);
 
+  // MD: fetch getMonthlySchedule for selected attendee; populate Month/Quarter from API
+  useEffect(() => {
+    if (!isMD || !scheduleUserId) {
+      setMdAttendeeSchedule([]);
+      return;
+    }
+    let isMounted = true;
+    const fetchMdSchedule = async () => {
+      setIsLoadingMDSchedule(true);
+      try {
+        const schedule = await getMonthlySchedule(scheduleUserId);
+        if (!isMounted) return;
+        setMdAttendeeSchedule(Array.isArray(schedule) ? schedule : []);
+        if (Array.isArray(schedule) && schedule.length > 0) {
+          const first = schedule[0];
+          // Only set quarter/month from first entry when user hasn't selected yet – don't overwrite Q4/January with first entry (e.g. Q1/April)
+          setSelectedQuarter((prev) => {
+            const qNum = typeof first.quater === 'string'
+              ? parseInt(String(first.quater).replace(/[^0-9]/g, ''), 10) || undefined
+              : undefined;
+            return prev != null ? prev : (qNum ?? null);
+          });
+          setSelectedMonth((prev) => (prev != null ? prev : (first.month ?? null)));
+          setCurrentSchedule(first);
+        } else {
+          setCurrentSchedule(null);
+        }
+      } catch (e) {
+        if (isMounted) {
+          setMdAttendeeSchedule([]);
+          setCurrentSchedule(null);
+        }
+      } finally {
+        if (isMounted) setIsLoadingMDSchedule(false);
+      }
+    };
+    fetchMdSchedule();
+    return () => { isMounted = false; };
+  }, [isMD, scheduleUserId]);
+
+  // Schedule source: for MD use attendee's schedule, else logged-in user's monthly schedule
+  const scheduleSource = useMemo(() => {
+    if (isMD && mdAttendeeSchedule?.length) return mdAttendeeSchedule;
+    return monthlySchedule;
+  }, [isMD, mdAttendeeSchedule, monthlySchedule]);
+
   // When user changes quarter or month, update currentSchedule accordingly
   useEffect(() => {
-    if (!monthlySchedule || monthlySchedule.length === 0) return;
+    if (!scheduleSource || scheduleSource.length === 0) return;
     if (!selectedQuarter && !selectedMonth) return;
 
     const targetQuarterStr = selectedQuarter ? `Q${selectedQuarter}` : undefined;
 
-    const candidate = monthlySchedule.find((s: any) => {
+    const candidate = scheduleSource.find((s: any) => {
       const monthMatches = selectedMonth ? s.month === selectedMonth : true;
       const quarterMatches = targetQuarterStr
         ? String(s.quater || s.quarter || '').toUpperCase() === targetQuarterStr.toUpperCase()
@@ -313,228 +359,124 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     if (candidate) {
       setCurrentSchedule(candidate);
     }
-  }, [monthlySchedule, selectedQuarter, selectedMonth]);
+  }, [scheduleSource, selectedQuarter, selectedMonth]);
 
-  // Fetch existing entries when schedule and user ID are available
+  // Map GET getUserEntries response to Review table rows. Response: [{ id, note, meeting_head, meeting_sub_head, username, date, status, month_quater_id }]. note → col2 (or col2|col3|col4 if note contains " | ").
+  const entriesToReviewRows = (entries: any[]): ReviewRow[] => {
+    const rowsByDate: Record<string, ReviewRow[]> = {};
+    (entries || []).forEach((entry: any) => {
+      const entryDate = entry.date || entry.Date || entry.entry_date;
+      if (!entryDate) return;
+      let isoDate: string;
+      try {
+        const dateParts = String(entryDate).split('-').map((p: string) => parseInt(p));
+        if (dateParts.length === 3) {
+          isoDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]).toISOString().split('T')[0];
+        } else {
+          isoDate = new Date(entryDate).toISOString().split('T')[0];
+        }
+      } catch {
+        return;
+      }
+      if (!rowsByDate[isoDate]) rowsByDate[isoDate] = [];
+      const note = String(entry.note ?? entry.Note ?? '').trim();
+      const parts = note ? note.split(' | ').map((p: string) => p.trim()).filter(Boolean) : [];
+      const d1Content = parts.length > 0 ? parts[0] : note;
+      const d2Content = parts.length > 1 ? parts[1] : '';
+      const d3Content = parts.length > 2 ? parts[2] : '';
+      let entryId: number | undefined;
+      if (entry.id != null) entryId = typeof entry.id === 'number' ? entry.id : parseInt(String(entry.id));
+      else if (entry.Id != null) entryId = typeof entry.Id === 'number' ? entry.Id : parseInt(String(entry.Id));
+      else if (entry.entry_id != null) entryId = typeof entry.entry_id === 'number' ? entry.entry_id : parseInt(String(entry.entry_id));
+      if (entryId != null && (isNaN(entryId) || entryId <= 0)) entryId = undefined;
+      const rowId = entryId ? `entry-${isoDate}-${rowsByDate[isoDate].length}-${entryId}` : `entry-${isoDate}-${rowsByDate[isoDate].length}-${Date.now()}-${Math.random()}`;
+      let tableType: 'D1' | 'D2' | 'D3' = 'D1';
+      if (d1Content.trim()) tableType = 'D1';
+      else if (d2Content.trim()) tableType = 'D2';
+      else if (d3Content.trim()) tableType = 'D3';
+      rowsByDate[isoDate].push({
+        id: rowId,
+        col1: isoDate,
+        col2: d1Content,
+        col3: d2Content,
+        col4: d3Content,
+        status: (entry.status || entry.Status || 'PENDING') as 'PENDING' | 'INPROCESS' | 'COMPLETED',
+        entry_id: entryId,
+        tableType
+      });
+    });
+    const allRows: ReviewRow[] = [];
+    Object.keys(rowsByDate).sort().forEach((d) => allRows.push(...rowsByDate[d]));
+    return allRows;
+  };
+
+  // Fetch entries via GET getUserEntries – depends on selected user, quarter, month, department. User = own entries; MD = selected attendee's entries.
   useEffect(() => {
-    // Early return if dependencies are not ready
-    if (!userId || !currentSchedule || !scheduleMonth) {
-      return;
+    let isMounted = true;
+
+    // MD without attendee: clear table
+    if (isMD && !attendee) {
+      setReviewRows([]);
+      hasFetchedEntries.current = false;
+      lastFetchKey.current = '';
+      return () => { isMounted = false; };
     }
 
-    // Create a unique key for this fetch (userId + month)
-    const fetchKey = `${userId}-${scheduleMonth}`;
-    
-    // STRICT CHECK: Prevent duplicate fetches for the same month/user
-    if (hasFetchedEntries.current && lastFetchKey.current === fetchKey) {
-      // Already fetched for this exact combination, skip completely - NO LOGGING
-      return;
+    // Who to fetch: MD with attendee → selected user (scheduleUserId); else current user (userId). MD entries only when attendee schedule is loaded so quarter/month are correct.
+    if (isMD && scheduleUserId && isLoadingMDSchedule) {
+      return () => { isMounted = false; };
     }
-    
-    // Reset flag if the key changed (new month or user)
-    if (lastFetchKey.current !== '' && lastFetchKey.current !== fetchKey) {
-      hasFetchedEntries.current = false;
+    const targetUsername = isMD && attendee ? scheduleUserId : userId;
+    if (!targetUsername) {
+      return () => { isMounted = false; };
     }
-    
-    // Mark as fetching IMMEDIATELY before any async operations
+
+    const currentMonthNum = new Date().getMonth() + 1;
+    // Use selected dropdown values so Q4 + January sends quater=Q4&month=January (not currentSchedule Q1/April)
+    const q = selectedQuarter != null ? selectedQuarter : (currentSchedule?.quater ? parseInt(String(currentSchedule.quater).replace(/[^0-9]/g, ''), 10) : (currentMonthNum >= 4 && currentMonthNum <= 6 ? 1 : currentMonthNum >= 7 && currentMonthNum <= 9 ? 2 : currentMonthNum >= 10 ? 3 : 4));
+    const m = selectedMonth != null ? selectedMonth : (currentSchedule?.month ?? currentMonthNum);
+    const fetchKey = `${targetUsername}-Q${q}-${m}-${selectedDept}-${refreshEntriesKey}`;
+    if (hasFetchedEntries.current && lastFetchKey.current === fetchKey) return () => { isMounted = false; };
+    if (lastFetchKey.current !== '' && lastFetchKey.current !== fetchKey) hasFetchedEntries.current = false;
     hasFetchedEntries.current = true;
     lastFetchKey.current = fetchKey;
 
-    let isMounted = true;
-    let isFetching = false;
+    const quaterStr = `Q${q}`;
+    const monthStr = MONTH_NAMES[m - 1] ?? MONTH_NAMES[0];
+    // Resolve month_quater_id from schedule so backend gets correct month id (fixes Q4/January sending wrong id)
+    const matchingSchedule = scheduleSource?.find((s: any) =>
+      s.month === m && String(s.quater || s.quarter || '').toUpperCase() === quaterStr
+    );
+    const monthQuaterId = matchingSchedule
+      ? (matchingSchedule.month_quater_id ?? matchingSchedule.id)
+      : (currentSchedule && currentSchedule.month === m && String(currentSchedule.quater || '').toUpperCase() === quaterStr ? (currentSchedule.month_quater_id ?? currentSchedule.id) : undefined);
 
-    const fetchEntries = async () => {
-      // Prevent multiple simultaneous fetches
-      if (isFetching) {
-        console.log('⚠️ [REPORTS] Fetch already in progress, skipping');
-        return;
-      }
-
-      isFetching = true;
-
-      try {
-        // OPTIMIZED: Only fetch entries for today and last 3 days to reduce API calls
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const allEntries: any[] = [];
-        
-        // Only fetch last 4 days (today + 3 days back) to reduce API calls
-        const daysToFetch = 4;
-        
-        console.log(`📖 [REPORTS] Fetching entries for last ${daysToFetch} days (including today)`);
-        
-        for (let i = 0; i < daysToFetch; i++) {
-          // Check if component is still mounted
-          if (!isMounted) {
-            break;
-          }
-
-          const fetchDate = new Date(today);
-          fetchDate.setDate(today.getDate() - i); // Go back i days
-          
-          const dateStr = `${fetchDate.getFullYear()}-${String(fetchDate.getMonth() + 1).padStart(2, '0')}-${String(fetchDate.getDate()).padStart(2, '0')}`;
-          
-          try {
-            // Only log first fetch to reduce console spam
-            if (i === 0) {
-              console.log(`📖 [REPORTS] Fetching entries for date: ${dateStr}, username: ${userId}`);
-            }
-            const entries = await getUserEntries(dateStr, userId);
-            if (entries && entries.length > 0) {
-              allEntries.push(...entries);
-              if (i === 0) {
-                console.log(`✅ [REPORTS] Found ${entries.length} entries for ${dateStr}`);
-              }
-            }
-            
-            // Add delay between requests to prevent overwhelming the server
-            if (i < daysToFetch - 1) {
-              await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
-            }
-          } catch (error: any) {
-            // Continue to next date if one fails
-            if (error.name !== 'AbortError') {
-              // Only log errors for today to reduce spam
-              if (i === 0) {
-                console.warn(`⚠️ [REPORTS] Error fetching entries for ${dateStr}:`, error.message);
-              }
-            }
-          }
-        }
-
-        // Check if component is still mounted before updating state
-        if (!isMounted) {
-          return;
-        }
-
-        console.log(`📖 [REPORTS] All fetched entries: ${allEntries.length} total`);
-
-        // Convert API entries to ReviewRow format
-        const rowsByDate: Record<string, ReviewRow[]> = {};
-        
-        allEntries.forEach((entry: any) => {
-          const entryDate = entry.date || entry.Date || entry.entry_date;
-          if (!entryDate) {
-            console.warn('⚠️ [REPORTS] Entry missing date:', entry);
-            return;
-          }
-
-          // Convert API date format to ISO format for consistency
-          let isoDate: string;
-          try {
-            // Handle different date formats: "2026-1-21" or "2026-01-21" or ISO format
-            const dateParts = entryDate.split('-').map((p: string) => parseInt(p));
-            if (dateParts.length === 3) {
-              const [year, month, day] = dateParts;
-              isoDate = new Date(year, month - 1, day).toISOString().split('T')[0];
-            } else {
-              isoDate = new Date(entryDate).toISOString().split('T')[0];
-            }
-          } catch (e) {
-            console.warn('⚠️ [REPORTS] Error parsing date:', entryDate, e);
-            return;
-          }
-
-          if (!rowsByDate[isoDate]) {
-            rowsByDate[isoDate] = [];
-          }
-
-          // Parse note to extract D1, D2, D3 content (separated by " | ")
-          const note = entry.note || entry.Note || '';
-          const parts = note.split(' | ').filter((p: string) => p.trim());
-          const d1Content = parts[0] || '';
-          const d2Content = parts[1] || '';
-          const d3Content = parts[2] || '';
-
-          // Get entry ID from API response - check multiple possible field names
-          // The API should return an 'id' field that is a number
-          let entryId: number | undefined = undefined;
-          
-          // Try to extract numeric ID from various possible fields
-          if (entry.id !== undefined && entry.id !== null) {
-            entryId = typeof entry.id === 'number' ? entry.id : parseInt(String(entry.id));
-          } else if (entry.Id !== undefined && entry.Id !== null) {
-            entryId = typeof entry.Id === 'number' ? entry.Id : parseInt(String(entry.Id));
-          } else if (entry.entry_id !== undefined && entry.entry_id !== null) {
-            entryId = typeof entry.entry_id === 'number' ? entry.entry_id : parseInt(String(entry.entry_id));
-          } else if (entry.pk !== undefined && entry.pk !== null) {
-            entryId = typeof entry.pk === 'number' ? entry.pk : parseInt(String(entry.pk));
-          }
-          
-          // Validate that entryId is a valid number
-          if (entryId !== undefined && (isNaN(entryId) || entryId <= 0)) {
-            console.warn('⚠️ [REPORTS] Invalid entry_id found:', entryId, 'for entry:', entry);
-            entryId = undefined;
-          }
-
-          // Create a unique row ID for React key
-          const rowId = entryId 
-            ? `entry-${isoDate}-${rowsByDate[isoDate].length}-${entryId}` 
-            : `entry-${isoDate}-${rowsByDate[isoDate].length}-${Date.now()}-${Math.random()}`;
-
-          // Determine tableType based on which column has content
-          // Priority: D1 > D2 > D3 (if multiple columns have content, assign to D1)
-          let tableType: 'D1' | 'D2' | 'D3' = 'D1';
-          if (d1Content.trim()) {
-            tableType = 'D1';
-          } else if (d2Content.trim() && !d1Content.trim()) {
-            tableType = 'D2';
-          } else if (d3Content.trim() && !d1Content.trim() && !d2Content.trim()) {
-            tableType = 'D3';
-          }
-          
-          rowsByDate[isoDate].push({
-            id: rowId,
-            col1: isoDate,
-            col2: d1Content,
-            col3: d2Content,
-            col4: d3Content,
-            status: (entry.status || entry.Status || 'PENDING') as 'PENDING' | 'INPROCESS' | 'COMPLETED',
-            entry_id: entryId, // Numeric ID for API calls (undefined if not available)
-            tableType: tableType
-          });
-          
-          if (entryId) {
-            console.log(`✅ [REPORTS] Entry loaded with entry_id: ${entryId} for date ${isoDate}`);
-          } else {
-            console.warn(`⚠️ [REPORTS] Entry loaded without entry_id for date ${isoDate}. Status changes will not work until entry is saved.`);
-          }
-        });
-
-        // Convert to array and sort by date
-        const allRows: ReviewRow[] = [];
-        Object.keys(rowsByDate).sort().forEach(date => {
-          allRows.push(...rowsByDate[date]);
-        });
-
-        console.log(`✅ [REPORTS] Converted ${allRows.length} entries to rows`);
-        
-        // Update rows with fetched entries (only if component is still mounted)
+    // GET {{baseurl}}/getUserEntries/?quater=Q4&month=January&department=Sales&username=20011&month_quater_id=... – use selected Q/M and month_quater_id when available
+    getUserEntriesByFilters({
+      quater: quaterStr,
+      month: monthStr,
+      department: selectedDept,
+      username: targetUsername,
+      ...(monthQuaterId != null && monthQuaterId !== '' ? { month_quater_id: monthQuaterId } : {}),
+    })
+      .then((entries) => {
+        if (!isMounted) return;
+        const rows = entriesToReviewRows(entries || []);
+        setReviewRows(rows);
+        // Mark as "already saved" so auto-save doesn't fire right after load
+        const sig = JSON.stringify(
+          rows.filter(r => (r.col2 || '').trim() || (r.col3 || '').trim() || (r.col4 || '').trim()).map(r => ({ date: r.col1, col2: r.col2, col3: r.col3, col4: r.col4 })).sort((a, b) => a.date.localeCompare(b.date))
+        );
+        lastAutoSaveContentRef.current = sig;
+      })
+      .catch((err) => {
         if (isMounted) {
-          if (allRows.length > 0) {
-            setReviewRows(allRows);
-          } else {
-            console.log('📖 [REPORTS] No entries found for this month');
-          }
+          console.error('❌ [REPORTS] Error fetching entries:', err);
+          setReviewRows([]);
         }
-      } catch (error: any) {
-        if (isMounted) {
-          console.error('❌ [REPORTS] Error fetching entries:', error);
-          // Don't clear existing rows on error
-        }
-      } finally {
-        isFetching = false;
-      }
-    };
-
-    fetchEntries();
-
-    // Cleanup function to prevent state updates after unmount
-    return () => {
-      isMounted = false;
-      isFetching = false;
-    };
-  }, [userId, scheduleMonth]); // Only re-fetch if userId or schedule month changes
+      });
+    return () => { isMounted = false; };
+  }, [userId, isMD, attendee, scheduleUserId, selectedQuarter, selectedMonth, selectedDept, currentSchedule, scheduleSource, refreshEntriesKey, isLoadingMDSchedule]);
 
 
   // Derive Quarter from schedule or calculate
@@ -561,6 +503,37 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     }
     return currentDate.getFullYear();
   }, [currentSchedule, currentDate]);
+
+  // MD: Month options from getMonthlySchedule response (unique by month, label = actual_month)
+  const mdMonthOptions = useMemo(() => {
+    if (!isMD || !mdAttendeeSchedule?.length) return [];
+    const byMonth: Record<number, { value: number; label: string }> = {};
+    mdAttendeeSchedule.forEach((s: any) => {
+      if (s.month == null) return;
+      if (byMonth[s.month]) return;
+      byMonth[s.month] = {
+        value: s.month,
+        label: s.actual_month || MONTH_NAMES[(s.month || 1) - 1] || `Month ${s.month}`,
+      };
+    });
+    return Object.values(byMonth).sort((a, b) => a.value - b.value);
+  }, [isMD, mdAttendeeSchedule]);
+
+  // MD: Quarter options from getMonthlySchedule response (unique quarters, label with month range)
+  const quarterLabelMap: Record<number, string> = { 1: 'Q1 (Apr–Jun)', 2: 'Q2 (Jul–Sep)', 3: 'Q3 (Oct–Dec)', 4: 'Q4 (Jan–Mar)' };
+  const mdQuarterOptions = useMemo(() => {
+    if (!isMD || !mdAttendeeSchedule?.length) return [];
+    const seen = new Set<number>();
+    return mdAttendeeSchedule
+      .map((s: any) => {
+        const qStr = String(s.quater || s.quarter || '').toUpperCase();
+        const num = qStr ? parseInt(qStr.replace(/[^0-9]/g, ''), 10) : undefined;
+        return num && (1 <= num && num <= 4) ? num : undefined;
+      })
+      .filter((num): num is number => num != null && !seen.has(num) && (seen.add(num), true))
+      .sort((a, b) => a - b)
+      .map((q) => ({ value: q, label: quarterLabelMap[q] || `Q${q}` }));
+  }, [isMD, mdAttendeeSchedule]);
 
   // Review State
   const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
@@ -612,7 +585,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   const handleReviewStatusChange = async (rowId: string, newStatus: 'PENDING' | 'INPROCESS' | 'COMPLETED') => {
     const row = reviewRows.find(r => r.id === rowId);
     if (!row) {
-      console.warn('⚠️ [REPORTS] Cannot change status: row not found');
       alert('Error: Row not found. Please refresh the page.');
       return;
     }
@@ -624,8 +596,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
 
     // Check if entry_id is available and is a valid number
     if (!row.entry_id || typeof row.entry_id !== 'number' || row.entry_id <= 0) {
-      console.log('📝 [REPORTS] Entry ID not available. Saving entry first to get entry_id...');
-      
       // If entry has content, save it first to get entry_id
       if (row.col2.trim() || row.col3.trim() || row.col4.trim()) {
         try {
@@ -656,7 +626,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
               }
               
               await changeEntryStatus(entryIdNum, normalizedStatus);
-              console.log('✅ [REPORTS] Entry saved and status changed successfully');
               return;
             }
           }
@@ -669,21 +638,10 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
           alert(`Failed to save entry or change status: ${error.message || 'Unknown error'}. Please try again.`);
           return;
         }
-      } else {
-        console.warn('⚠️ [REPORTS] Entry has no content. Status will be saved when entry is submitted.');
-        return;
-      }
+      } else return;
     }
 
-    // If entry_id exists, change status directly
     try {
-      console.log('🔄 [REPORTS] Changing status for entry:', {
-        entry_id: row.entry_id,
-        entry_id_type: typeof row.entry_id,
-        newStatus: newStatus,
-        rowId: rowId
-      });
-      
       // Ensure entry_id is a number
       const entryIdNum = typeof row.entry_id === 'number' ? row.entry_id : parseInt(String(row.entry_id));
       
@@ -702,7 +660,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
       }
       
       await changeEntryStatus(entryIdNum, normalizedStatus);
-      console.log('✅ [REPORTS] Status changed successfully');
     } catch (error: any) {
       console.error('❌ [REPORTS] Error changing status:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Unknown error';
@@ -717,13 +674,9 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   // Handle status change for Implementation rows
   const handleImplementationStatusChange = async (rowId: string, newStatus: 'PENDING' | 'INPROCESS' | 'Completed') => {
     const row = implRows.find(r => r.id === rowId);
-    if (!row) {
-      console.warn('⚠️ [REPORTS] Cannot change status: Implementation row not found');
-      return;
-    }   
+    if (!row) return;
 
     if (!row.entry_id) {
-      console.warn('⚠️ [REPORTS] Cannot change status: entry_id not available. Entry may need to be saved first.');
       // Update local state only (won't persist to backend)
       setImplRows(prev => prev.map(r => 
         r.id === rowId ? { ...r, status: newStatus === 'Completed' ? 'Completed' : newStatus === 'INPROCESS' ? 'In Progress' : 'Pending' } : r
@@ -732,9 +685,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     }
 
     try {
-      console.log('🔄 [REPORTS] Changing Implementation status for entry:', row.entry_id, 'to:', newStatus);
       await changeEntryStatus(row.entry_id, newStatus);
-      console.log('✅ [REPORTS] Implementation status changed successfully');
     } catch (error: any) {
       console.error('❌ [REPORTS] Error changing Implementation status:', error);
       // Revert status change on error
@@ -747,13 +698,9 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   // Handle status change for Sales Ops rows
   const handleSalesOpsStatusChange = async (rowId: string, newStatus: 'PENDING' | 'INPROCESS' | 'Completed') => {
     const row = salesOpsRows.find(r => r.id === rowId);
-    if (!row) {
-      console.warn('⚠️ [REPORTS] Cannot change status: Sales Ops row not found');
-      return;
-    }
+    if (!row) return;
 
     if (!row.entry_id) {
-      console.warn('⚠️ [REPORTS] Cannot change status: entry_id not available. Entry may need to be saved first.');
       // Update local state only (won't persist to backend)
       setSalesOpsRows(prev => prev.map(r => 
         r.id === rowId ? { ...r, status: newStatus } : r
@@ -762,9 +709,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     }
 
     try {
-      console.log('🔄 [REPORTS] Changing Sales Ops status for entry:', row.entry_id, 'to:', newStatus);
       await changeEntryStatus(row.entry_id, newStatus);
-      console.log('✅ [REPORTS] Sales Ops status changed successfully');
     } catch (error: any) {
       console.error('❌ [REPORTS] Error changing Sales Ops status:', error);
       // Revert status change on error
@@ -776,26 +721,15 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
 
   // Save entries when user adds/updates them
   const saveEntries = async (date: string, entries: ReviewRow[]) => {
-    if (!currentSchedule?.month_quater_id && !currentSchedule?.id) {
-      console.warn('⚠️ [REPORTS] Cannot save entries: month_quater_id not found in schedule');
-      return;
-    }
+    if (!currentSchedule?.month_quater_id && !currentSchedule?.id) return;
 
     const monthQuaterId = currentSchedule.month_quater_id || currentSchedule.id;
-    if (!monthQuaterId) {
-      console.warn('⚠️ [REPORTS] Cannot save entries: month_quater_id is missing');
-      return;
-    }
+    if (!monthQuaterId) return;
 
-    // Filter entries for this date that have content
     const dateEntries = entries.filter(row => 
       row.col1 === date && (row.col2.trim() || row.col3.trim() || row.col4.trim())
     );
-
-    if (dateEntries.length === 0) {
-      console.log('📝 [REPORTS] No entries to save for date:', date);
-      return;
-    }
+    if (dateEntries.length === 0) return;
 
     // Prepare entries array for API
     const apiEntries = dateEntries.map(row => {
@@ -825,48 +759,30 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
       const dateObj = new Date(date);
       const apiDate = `${dateObj.getFullYear()}-${dateObj.getMonth() + 1}-${dateObj.getDate()}`;
       
-      console.log('📝 [REPORTS] Saving entries for date:', date, '→', apiDate);
-      console.log('📝 [REPORTS] Entries:', apiEntries);
-      console.log('📝 [REPORTS] Month Quarter ID:', monthQuaterId);
-      
       const response = await addDayEntries({
         entries: apiEntries,
         date: apiDate,
         month_quater_id: monthQuaterId
       });
 
-      console.log('✅ [REPORTS] Entries saved successfully:', response);
-      
       // Update entry_ids in rows
       if (response.created_entry_ids && response.created_entry_ids.length > 0) {
-        console.log('✅ [REPORTS] Updating entry_ids in rows (auto-save):', response.created_entry_ids);
         setReviewRows(prev => {
           const updated = [...prev];
           let entryIdIndex = 0;
-          
           dateEntries.forEach(dateRow => {
             const rowIndex = updated.findIndex(r => r.id === dateRow.id);
             if (rowIndex !== -1 && entryIdIndex < response.created_entry_ids.length) {
               const newEntryId = response.created_entry_ids[entryIdIndex];
-              // Ensure entry_id is a number
               const entryIdNum = typeof newEntryId === 'number' ? newEntryId : parseInt(String(newEntryId));
               if (!isNaN(entryIdNum) && entryIdNum > 0) {
-                updated[rowIndex] = {
-                  ...updated[rowIndex],
-                  entry_id: entryIdNum
-                };
-                console.log(`✅ [REPORTS] Updated row ${rowIndex} with entry_id: ${entryIdNum} (auto-save)`);
-              } else {
-                console.warn(`⚠️ [REPORTS] Invalid entry_id received: ${newEntryId}`);
+                updated[rowIndex] = { ...updated[rowIndex], entry_id: entryIdNum };
               }
               entryIdIndex++;
             }
           });
-          
           return updated;
         });
-      } else {
-        console.warn('⚠️ [REPORTS] No created_entry_ids in response (auto-save). Status changes may not work.');
       }
     } catch (error: any) {
       console.error('❌ [REPORTS] Error saving entries:', error);
@@ -906,37 +822,41 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
-  // Auto-save entries when content changes (debounced)
+  // Auto-save entries when content changes (debounced). Guard: skip when only entry_id changed to stop loop (save → setReviewRows(entry_id) → effect → save again).
   useEffect(() => {
     if (!currentSchedule?.month_quater_id && !currentSchedule?.id) {
-      return; // Don't save if month_quater_id is not available
+      return;
     }
 
-    // Skip auto-save if rows are empty or only have empty rows
     const hasContent = reviewRows.some(row => row.col2.trim() || row.col3.trim() || row.col4.trim());
     if (!hasContent) {
       return;
     }
 
+    // Content signature: only col1,col2,col3,col4 (not entry_id) so we don't re-save when we only updated entry_id
+    const contentSignature = JSON.stringify(
+      reviewRows
+        .filter(row => (row.col2 || '').trim() || (row.col3 || '').trim() || (row.col4 || '').trim())
+        .map(row => ({ date: row.col1, col2: row.col2, col3: row.col3, col4: row.col4 }))
+        .sort((a, b) => a.date.localeCompare(b.date))
+    );
+
     const timeoutId = setTimeout(() => {
-      console.log('💾 [REPORTS] Auto-saving entries...');
-      
-      // Group rows by date
+      if (lastAutoSaveContentRef.current === contentSignature) {
+        return; // Content unchanged (e.g. we only updated entry_id) – don't save again
+      }
+      lastAutoSaveContentRef.current = contentSignature;
+
       const rowsByDate = reviewRows.reduce((acc, row) => {
-        if (!acc[row.col1]) {
-          acc[row.col1] = [];
-        }
+        if (!acc[row.col1]) acc[row.col1] = [];
         acc[row.col1].push(row);
         return acc;
       }, {} as Record<string, ReviewRow[]>);
 
-      // Save entries for each date
       Object.keys(rowsByDate).forEach(date => {
         saveEntries(date, rowsByDate[date]);
       });
-      
-      console.log('✅ [REPORTS] Auto-save completed');
-    }, 2000); // Debounce: save 2 seconds after last change
+    }, 2000);
 
     return () => clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -945,7 +865,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   const addRow = () => {
     const todayStr = new Date().toISOString().split('T')[0];
     if (view === 'Review') {
-      // Get the active table from ReviewTable
       const activeTable = (window as any).__activeReviewTable || 'D1';
       setReviewRows(prev => [
         ...prev,
@@ -960,68 +879,45 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
         }
       ]);
     } else if (view === 'Implementation') {
-        setImplRows(prev => [
-            ...prev,
-            { id: Math.random().toString(36), no: (prev.length + 1).toString(), action: '', deadline: '', assignedHelp: '', status: '', group: 'D1' }
-        ]);
+      setImplRows(prev => [
+        ...prev,
+        { id: Math.random().toString(36), no: (prev.length + 1).toString(), action: '', deadline: '', assignedHelp: '', status: '', group: 'D1' }
+      ]);
     }
+  };
+
+  const removeReviewRow = (rowId: string) => {
+    setReviewRows(prev => prev.filter(r => r.id !== rowId));
+  };
+
+  const removeImplRow = (rowId: string) => {
+    setImplRows(prev => prev.filter(r => r.id !== rowId));
+  };
+
+  const removeSalesOpsRow = (rowId: string) => {
+    setSalesOpsRows(prev => prev.filter(r => r.id !== rowId));
   };
 
   const handlePrint = () => window.print();
   const handleSubmit = async () => {
-    // Check if schedule is available
-    if (!currentSchedule) {
-      alert('Error: Schedule information not available. Please wait for the schedule to load or refresh the page.');
-      console.error('❌ [REPORTS] Current schedule:', currentSchedule);
+    // month_quater_id for POST addDayEntries – from schedule when available, else from selected month/quarter so entry is stored
+    let finalMonthQuaterId: number;
+    if (currentSchedule) {
+      const monthQuaterId = currentSchedule.month_quater_id ?? currentSchedule.id ?? currentSchedule.Id ?? currentSchedule.month_quarter_id ?? currentSchedule.monthQuarterId ?? currentSchedule.pk ?? currentSchedule.pk_id;
+      if (monthQuaterId != null && monthQuaterId !== '') {
+        finalMonthQuaterId = typeof monthQuaterId === 'number' ? monthQuaterId : parseInt(String(monthQuaterId), 10);
+      } else {
+        const scheduleIndex = monthlySchedule.findIndex((s: any) => s.month === currentSchedule.month && s.financial_year === currentSchedule.financial_year);
+        finalMonthQuaterId = scheduleIndex !== -1 ? scheduleIndex + 1 : (currentSchedule.month ?? 1);
+      }
+    } else {
+      const monthNum = selectedMonth ?? new Date().getMonth() + 1;
+      finalMonthQuaterId = Number(monthNum) || 1;
+    }
+    if (!Number.isFinite(finalMonthQuaterId) || finalMonthQuaterId <= 0) {
+      alert('Unable to determine month/quarter. Please select Month and Quarter.');
       return;
     }
-
-    // Check for month_quater_id in various possible field names
-    // Note: The schedule API response may not include month_quater_id
-    // We need to check all possible field names
-    const monthQuaterId = currentSchedule.month_quater_id || 
-                          currentSchedule.month_quater_id || 
-                          currentSchedule.id || 
-                          currentSchedule.Id ||
-                          currentSchedule.month_quarter_id ||
-                          currentSchedule.monthQuarterId ||
-                          currentSchedule.pk ||
-                          currentSchedule.pk_id;
-    
-    console.log('📋 [REPORTS] ===== SUBMIT BUTTON CLICKED =====');
-    console.log('📋 [REPORTS] Checking for month_quater_id...');
-    console.log('📋 [REPORTS] Schedule object:', JSON.stringify(currentSchedule, null, 2));
-    console.log('📋 [REPORTS] Available fields:', Object.keys(currentSchedule));
-    console.log('📋 [REPORTS] Extracted month_quater_id:', monthQuaterId);
-    
-    // TEMPORARY: If month_quater_id is not found, try to use schedule index or a default
-    // TODO: Get month_quater_id from backend or use proper identifier
-    let finalMonthQuaterId = monthQuaterId;
-    
-    if (!finalMonthQuaterId) {
-      // Try to find the schedule index in monthlySchedule array
-      const scheduleIndex = monthlySchedule.findIndex(s => 
-        s.month === currentSchedule.month && 
-        s.financial_year === currentSchedule.financial_year
-      );
-      
-      if (scheduleIndex !== -1) {
-        // Use index + 1 as fallback (assuming IDs start from 1)
-        finalMonthQuaterId = scheduleIndex + 1;
-        console.warn('⚠️ [REPORTS] Using schedule index as month_quater_id fallback:', finalMonthQuaterId);
-      } else {
-        // TEMPORARY FIX: Use a default value to allow API call to proceed
-        // TODO: Backend should include month_quater_id in schedule response
-        // For now, we'll use month number as a temporary identifier
-        finalMonthQuaterId = currentSchedule.month || 1;
-        console.warn('⚠️ [REPORTS] month_quater_id not found, using month as fallback:', finalMonthQuaterId);
-        console.warn('⚠️ [REPORTS] This is a temporary fix. Backend should include month_quater_id in schedule response.');
-        // Don't return - proceed with API call using fallback value
-      }
-    }
-    
-    console.log('✅ [REPORTS] Using month_quater_id:', finalMonthQuaterId);
-
     // Group rows by date
     const rowsByDate: Record<string, ReviewRow[]> = {};
     reviewRows.forEach(row => {
@@ -1086,38 +982,20 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
             status: statusValue as 'PENDING' | 'INPROCESS' | 'COMPLETED'
           };
         });
-        
-        console.log('📝 [REPORTS] Prepared API entries:', JSON.stringify(apiEntries, null, 2));
 
         // Convert date from ISO format (YYYY-MM-DD) to API format (YYYY-M-D)
         const dateObj = new Date(date);
         const apiDate = `${dateObj.getFullYear()}-${dateObj.getMonth() + 1}-${dateObj.getDate()}`;
-        
-        console.log('📝 [REPORTS] ===== CALLING addDayEntries API =====');
-        console.log('📝 [REPORTS] Submitting entries for date:', date, '→', apiDate);
-        console.log('📝 [REPORTS] Number of entries:', apiEntries.length);
-        console.log('📝 [REPORTS] Entries:', JSON.stringify(apiEntries, null, 2));
-        console.log('📝 [REPORTS] Month Quarter ID:', finalMonthQuaterId);
-        console.log('📝 [REPORTS] Full API Request payload:', JSON.stringify({
-          entries: apiEntries,
-          date: apiDate,
-          month_quater_id: finalMonthQuaterId
-        }, null, 2));
-        
-        // Call the API
-        console.log('🚀 [REPORTS] About to call addDayEntries API...');
+
         const response = await addDayEntries({
           entries: apiEntries,
           date: apiDate,
           month_quater_id: finalMonthQuaterId
         });
-        
-        console.log('✅ [REPORTS] API Response received:', JSON.stringify(response, null, 2));
-        console.log('✅ [REPORTS] Response message:', response.message);
-        console.log('✅ [REPORTS] Created entry IDs:', response.created_entry_ids);
-
-        console.log('✅ [REPORTS] Entries saved successfully:', response);
-        
+        if ((response as any)?.error) {
+          alert((response as any).error);
+          return;
+        }
         // Store the backend message
         if (response.message) {
           lastResponseMessage = response.message;
@@ -1131,44 +1009,34 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
 
         // Update entry_ids in rows
         if (response.created_entry_ids && response.created_entry_ids.length > 0) {
-          console.log('✅ [REPORTS] Updating entry_ids in rows:', response.created_entry_ids);
           setReviewRows(prev => {
             const updated = [...prev];
             let entryIdIndex = 0;
-            
             entries.forEach(dateRow => {
               const rowIndex = updated.findIndex(r => r.id === dateRow.id);
               if (rowIndex !== -1 && entryIdIndex < response.created_entry_ids.length) {
                 const newEntryId = response.created_entry_ids[entryIdIndex];
-                // Ensure entry_id is a number
                 const entryIdNum = typeof newEntryId === 'number' ? newEntryId : parseInt(String(newEntryId));
                 if (!isNaN(entryIdNum) && entryIdNum > 0) {
-                  updated[rowIndex] = {
-                    ...updated[rowIndex],
-                    entry_id: entryIdNum
-                  };
-                  console.log(`✅ [REPORTS] Updated row ${rowIndex} with entry_id: ${entryIdNum}`);
-                } else {
-                  console.warn(`⚠️ [REPORTS] Invalid entry_id received: ${newEntryId}`);
+                  updated[rowIndex] = { ...updated[rowIndex], entry_id: entryIdNum };
                 }
                 entryIdIndex++;
               }
             });
-            
             return updated;
           });
-        } else {
-          console.warn('⚠️ [REPORTS] No created_entry_ids in response. Status changes may not work.');
         }
       }
 
       // Show success message from backend
       const successMessage = lastResponseMessage || `Entries created successfully! ${totalSaved} entry/entries saved.`;
       alert(successMessage);
+      setRefreshEntriesKey((k) => k + 1); // Refetch entries so stored entries display in Review table
     } catch (error: any) {
       console.error('❌ [REPORTS] Error submitting entries:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to submit entries. Please try again.';
-      alert(`Error: ${errorMessage}`);
+      const data = error.response?.data;
+      const errorMessage = data?.error || data?.message || error.message || 'Failed to submit entries. Please try again.';
+      alert(errorMessage);
     }
   };
 
@@ -1279,16 +1147,11 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                   onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
                   className="mt-1 bg-white border border-slate-200 rounded-md px-3 py-1.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
                 >
-                  {getMonthsForQuarter(selectedQuarter || quarter)
-                    .map((m) => ({
-                      value: m,
-                      label: monthNames[m - 1],
-                    }))
-                    .map(({ value, label }) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
+                  {monthNames.map((label, i) => (
+                    <option key={i + 1} value={i + 1}>
+                      {label}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="flex flex-col">
@@ -1384,6 +1247,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                     }
                   ]);
                 }}
+                onRemoveRow={removeReviewRow}
               />
             )}
             {view === 'Implementation' && (
@@ -1391,6 +1255,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                     rows={implRows}
                     setRows={setImplRows}
                     onStatusChange={handleImplementationStatusChange}
+                    onRemoveRow={removeImplRow}
                 />
             )}
             {view === 'SalesOps' && (
@@ -1398,20 +1263,23 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                     rows={salesOpsRows}
                     setRows={setSalesOpsRows}
                     onStatusChange={handleSalesOpsStatusChange}
+                    onRemoveRow={removeSalesOpsRow}
                 />
             )}
           </div>
 
-          {/* Table Actions */}
+          {/* Table Actions – ADD ENTRY only for non-MD (MD only views entries) */}
           <div className="p-6 bg-white border-t border-slate-100 flex justify-between items-center no-print">
-            <button 
+            {!isMD && (
+              <button 
                 onClick={addRow}
                 className="group flex items-center px-6 py-3 text-sm font-bold text-white bg-slate-900 rounded-xl hover:bg-slate-800 transition-all shadow-lg hover:-translate-y-0.5 active:translate-y-0"
-            >
+              >
                 <Plus className="w-5 h-5 mr-2 group-hover:rotate-90 transition-transform" />
                 ADD ENTRY
-            </button>
-            <div className="text-right">
+              </button>
+            )}
+            <div className={`text-right ${isMD ? 'ml-auto' : ''}`}>
                 <p className="text-xs text-slate-500 font-bold tracking-tight">System status: Secure & Operational</p>
                 <p className="text-[10px] text-slate-400 font-medium">Daily data entry protocol v3.1</p>
             </div>

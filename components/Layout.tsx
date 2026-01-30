@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2 } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar } from 'lucide-react';
 import { getMotivationalQuote } from '../services/gemini';
 
 interface SidebarProps {
@@ -29,11 +29,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
     { id: 'admin-expenses', label: 'Expenses', icon: Wallet, roles: [UserRole.ADMIN] },
     { id: 'admin-bills', label: 'Bills', icon: Receipt, roles: [UserRole.ADMIN] },
 
+    { id: 'schedule-hub', label: 'Schedule Hub', icon: Calendar, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN, UserRole.ADMIN] },
     { id: 'attendance', label: 'Attendance & Tours', icon: CalendarDays, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN, UserRole.ADMIN] },
     { id: 'tasks', label: 'Tasks', icon: FolderKanban, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN], hasSubmenu: user.role === UserRole.MD || user.role === UserRole.EMPLOYEE || user.role === UserRole.INTERN || user.role === UserRole.TEAM_LEADER },
     { id: 'reports', label: 'Reports', icon: FileText, roles: [UserRole.MD, UserRole.ADMIN, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
     { id: 'projects', label: 'Projects', icon: Briefcase, roles: [UserRole.MD, UserRole.TEAM_LEADER] },
-    { id: 'team', label: 'Team', icon: Users, roles: [UserRole.MD, UserRole.ADMIN, UserRole.TEAM_LEADER] },
     { id: 'messages', label: 'Messages', icon: MessageSquare, roles: [UserRole.MD, UserRole.ADMIN, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
     { id: 'admin', label: 'Admin Panel', icon: Users, roles: [UserRole.ADMIN] },
   ];
@@ -79,16 +79,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
                 src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`} 
                 alt={user.name} 
                 className="w-10 h-10 rounded-full border-2 border-brand-500 object-cover"
-                onLoad={() => {
-                  console.log('✅ [SIDEBAR AVATAR] Image loaded successfully:', user.avatar);
-                }}
+                onLoad={() => {}}
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
                   console.error('❌ [SIDEBAR AVATAR] Image failed to load:', target.src);
                   // If the image fails to load and it's not already a fallback, use ui-avatars
                   if (!target.src.includes('ui-avatars.com')) {
                     const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`;
-                    console.log('🔄 [SIDEBAR AVATAR] Falling back to:', fallbackUrl);
                     target.src = fallbackUrl;
                   }
                 }}
