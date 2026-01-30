@@ -52,10 +52,9 @@ Access-Control-Allow-Credentials: true (if using cookies/sessions)
 
    # OR specify specific origins (recommended for production)
    CORS_ALLOWED_ORIGINS = [
-       "http://localhost:5173",
-       "http://localhost:3000",
+       "http://192.168.41.97:8000",
+       "http://192.168.41.97:8000",
        "http://127.0.0.1:5173",
-       # Add your frontend URL here
    ]
 
    CORS_ALLOW_CREDENTIALS = True

@@ -11,6 +11,7 @@ import {
   updateBill,
 } from "../../services/bill.service";
 
+
 interface BillsManagerProps {
   bills: Bill[];
   setBills: React.Dispatch<React.SetStateAction<Bill[]>>;
