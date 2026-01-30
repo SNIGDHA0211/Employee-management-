@@ -46,7 +46,6 @@ export const getMotivationalQuote = async (): Promise<string> => {
     }
     // For other errors, log once but don't spam
     if (!(window as any).__geminiErrorLogged) {
-      console.warn("Gemini API unavailable. Using default quote.");
       (window as any).__geminiErrorLogged = true;
     }
     return "Believe you can and you're halfway there.";
@@ -73,7 +72,6 @@ export const getTaskAssistance = async (taskDescription: string): Promise<string
     }
     // For other errors, log once but don't spam
     if (!(window as any).__geminiErrorLogged) {
-      console.warn("Gemini API unavailable.");
       (window as any).__geminiErrorLogged = true;
     }
     return "Error generating assistance. Please try again later.";

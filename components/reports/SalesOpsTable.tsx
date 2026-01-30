@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo } from 'react';
+import { Trash2 } from 'lucide-react';
 import { SalesOpsRow } from './types';
 
 interface SalesOpsTableProps {
   rows: SalesOpsRow[];
   setRows: React.Dispatch<React.SetStateAction<SalesOpsRow[]>>;
   onStatusChange?: (rowId: string, status: 'PENDING' | 'INPROCESS' | 'Completed') => void;
+  onRemoveRow?: (rowId: string) => void;
 }
 
-const SalesOpsTable: React.FC<SalesOpsTableProps> = ({ rows, setRows, onStatusChange }) => {
+const SalesOpsTable: React.FC<SalesOpsTableProps> = ({ rows, setRows, onStatusChange, onRemoveRow }) => {
   useEffect(() => {
     if (rows.length === 0) {
       const initial: SalesOpsRow[] = [];
@@ -63,6 +65,7 @@ const SalesOpsTable: React.FC<SalesOpsTableProps> = ({ rows, setRows, onStatusCh
             <th colSpan={5} className="border border-gray-300 p-1 bg-indigo-50">SALE PIPELINE UPDATE</th>
             <th rowSpan={2} className="border border-gray-300 p-1">CONV%</th>
             <th rowSpan={2} className="border border-gray-300 p-1 w-32">Status</th>
+            <th rowSpan={2} className="border border-gray-300 p-1 w-16 no-print">Remove</th>
           </tr>
           <tr className="bg-gray-50">
             <th className="border border-gray-300 p-1">LEAD</th>
@@ -108,6 +111,18 @@ const SalesOpsTable: React.FC<SalesOpsTableProps> = ({ rows, setRows, onStatusCh
                         <option value="INPROCESS" className="text-blue-600">In Process</option>
                         <option value="Completed" className="text-green-600">Completed</option>
                       </select>
+                    </td>
+                    <td className="border border-gray-300 p-1 text-center align-middle no-print w-16">
+                      {onRemoveRow && (
+                        <button
+                          type="button"
+                          onClick={() => onRemoveRow(row.id)}
+                          className="p-1 rounded-md text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                          title="Remove row"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

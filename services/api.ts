@@ -432,10 +432,6 @@ export const login = async (
         formData.append(fieldName, trimmedUsername);
         formData.append("password", trimmedPassword);
 
-        console.log(
-          `[LOGIN] Trying field "${fieldName}" with form-data. Username: "${trimmedUsername}"`
-        );
-
         const response = await publicApi.post(loginEndpoint, formData.toString(), {
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
@@ -451,59 +447,35 @@ export const login = async (
           // Others use session cookies (no token needed)
           if ((data as any).access) {
             setAuthTokenUtil((data as any).access);
-            console.log("✅ [LOGIN] JWT token saved to localStorage");
           } else if ((data as any).token) {
             setAuthTokenUtil((data as any).token);
-            console.log("✅ [LOGIN] Token saved to localStorage");
           } else if (response.headers['authorization']) {
-            // Token might be in Authorization header
             const authHeader = response.headers['authorization'];
             const token = authHeader.replace('Bearer ', '');
-            if (token) {
-              setAuthTokenUtil(token);
-              console.log("✅ [LOGIN] Token extracted from Authorization header");
-            }
-          } else {
-            console.log("ℹ️ [LOGIN] No token in response - backend likely uses session-based auth (cookies)");
+            if (token) setAuthTokenUtil(token);
           }
-          
           return data;
         }
       } catch (formError: any) {
-        // If 406, try JSON format
         if (formError.response?.status === 406) {
           try {
             const requestBody: any = {};
             requestBody[fieldName] = trimmedUsername;
             requestBody.password = trimmedPassword;
 
-            console.log(
-              `[LOGIN] Trying field "${fieldName}" with JSON. Username: "${trimmedUsername}"`
-            );
-
             const response = await publicApi.post(loginEndpoint, requestBody);
 
             if (response.status === 200 || response.status === 201) {
               const data = response.data as LoginResponse;
-              
-              // Check if backend returns JWT token in response
               if ((data as any).access) {
                 setAuthTokenUtil((data as any).access);
-                console.log("✅ [LOGIN] JWT token saved to localStorage");
               } else if ((data as any).token) {
                 setAuthTokenUtil((data as any).token);
-                console.log("✅ [LOGIN] Token saved to localStorage");
               } else if (response.headers['authorization']) {
                 const authHeader = response.headers['authorization'];
                 const token = authHeader.replace('Bearer ', '');
-                if (token) {
-                  setAuthTokenUtil(token);
-                  console.log("✅ [LOGIN] Token extracted from Authorization header");
-                }
-              } else {
-                console.log("ℹ️ [LOGIN] No token in response - backend likely uses session-based auth (cookies)");
+                if (token) setAuthTokenUtil(token);
               }
-              
               return data;
             }
           } catch (jsonError: any) {
@@ -629,13 +601,7 @@ export const getEmployeeDashboard = async (): Promise<Employee> => {
     }
 
     // Log Photo_link for debugging
-    if (employeeData?.Photo_link) {
-      console.log("📸 [DASHBOARD API] Photo_link found:", employeeData.Photo_link);
-    } else if (employeeData?.["Profile Picture"]) {
-      console.log("📸 [DASHBOARD API] Profile Picture found:", employeeData["Profile Picture"]);
-    } else {
-      console.log("⚠️ [DASHBOARD API] No Photo_link or Profile Picture found in response");
-    }
+    if (employeeData?.Photo_link) {} else if (employeeData?.["Profile Picture"]) {} else {}
 
     return employeeData as Employee;
   } catch (error: any) {
@@ -719,21 +685,11 @@ export const createEmployee = async (employeeData: {
  */
 export const getEmployees = async (): Promise<Employee[]> => {
   try {
-    const token = getAuthToken();
-    console.log("📋 [GET EMPLOYEES] Fetching from /accounts/employees/");
-    console.log("📋 [GET EMPLOYEES] Auth token present:", !!token);
-    console.log("📋 [GET EMPLOYEES] API Base URL:", API_BASE_URL);
-    console.log("📋 [GET EMPLOYEES] Full URL:", `${API_BASE_URL}/accounts/employees/`);
-    
-    const response = await api.get("/accounts/employees/", {
+    const token = getAuthToken();const response = await api.get("/accounts/employees/", {
       headers: {
         'Accept': 'application/json',
       }
-    });
-    console.log("✅ [GET EMPLOYEES] Response status:", response.status);
-    console.log("✅ [GET EMPLOYEES] Response data:", response.data);
-
-    const data: GetEmployeesResponse = response.data;
+    });const data: GetEmployeesResponse = response.data;
 
     // Handle different response formats - check for Employee_id/Name first (matching createEmployee field names)
     let employees: Employee[] = [];
@@ -747,52 +703,15 @@ export const getEmployees = async (): Promise<Employee[]> => {
     } else if (Array.isArray(data)) {
       employees = data;
     } else {
-      console.warn("⚠️ [GET EMPLOYEES] Unexpected response format:", data);
       return [];
     }
 
-    // Log Employee_id format from first few employees to check for leading zeros
-    console.log("📋 [GET EMPLOYEES] Sample Employee_id formats (first 5):");
-    employees.slice(0, 5).forEach((emp: any, index: number) => {
-      const empId = emp['Employee_id'] || emp['Employee ID'] || emp.id;
-      const allKeys = Object.keys(emp);
-      const idRelatedKeys = allKeys.filter(k => 
-        k.toLowerCase().includes('id') || 
-        k.toLowerCase().includes('employee') ||
-        k === 'id'
-      );
-      
-      console.log(`   Employee ${index + 1}:`, {
-        name: emp['Name'] || emp['Full Name'] || emp.name || 'Unknown',
-        rawEmployeeId: empId,
-        rawType: typeof empId,
-        asString: String(empId),
-        length: String(empId).length,
-        hasLeadingZeros: String(empId).match(/^0+/) ? String(empId).match(/^0+/)?.[0] : null,
-        allIdRelatedFields: idRelatedKeys.reduce((acc: any, key: string) => {
-          acc[key] = { value: emp[key], type: typeof emp[key] };
-          return acc;
-        }, {}),
-        // Show first few keys to understand structure
-        sampleKeys: allKeys.slice(0, 10)
-      });
-    });
-    
     // Check if any Employee_id values are numbers (which would lose leading zeros)
     const numericEmployeeIds = employees.filter((emp: any) => {
       const empId = emp['Employee_id'] || emp['Employee ID'] || emp.id;
       return typeof empId === 'number';
     });
-    
-    if (numericEmployeeIds.length > 0) {
-      console.warn(`⚠️ [GET EMPLOYEES] Found ${numericEmployeeIds.length} employees with numeric Employee_id (leading zeros may be lost):`);
-      numericEmployeeIds.slice(0, 5).forEach((emp: any) => {
-        const empId = emp['Employee_id'] || emp['Employee ID'] || emp.id;
-        console.warn(`   - ${emp['Name'] || emp.name}: ${empId} (type: ${typeof empId})`);
-      });
-    }
 
-    console.log(`✅ [GET EMPLOYEES] Successfully fetched ${employees.length} employees`);
     return employees;
   } catch (error: any) {
     console.error("❌ [GET EMPLOYEES] Error:", error);
@@ -976,12 +895,7 @@ export const createTask = async (taskData: {
   type: string;
   due_date: string;
   assigned_to: string | string[]; // Can be single string or array of employee IDs
-}): Promise<{ message: string }> => {
-  console.log("📝 [CREATE TASK API] Starting create task request...");
-  console.log("📝 [CREATE TASK API] URL:", `${API_BASE_URL}/tasks/createTask/`);
-  console.log("📝 [CREATE TASK API] Task Data:", taskData);
-
-  // Validate required fields
+}): Promise<{ message: string }> => {// Validate required fields
   if (!taskData.title || !taskData.description || !taskData.due_date || !taskData.assigned_to || !taskData.type) {
     throw new Error("Missing required fields: title, description, due_date, assigned_to, type are all required");
   }
@@ -1003,13 +917,7 @@ export const createTask = async (taskData: {
       due_date: taskData.due_date,
       assigned_to: assignedToArray, // Send as array of employee IDs
       type: taskData.type,
-    };
-    
-    console.log("📝 [CREATE TASK API] Request Body:", JSON.stringify(requestBody, null, 2));
-    
-    const response = await api.post("/tasks/createTask/", requestBody);
-    console.log("✅ [CREATE TASK API] Success Response:", response.data);
-    return response.data;
+    };const response = await api.post("/tasks/createTask/", requestBody);return response.data;
   } catch (error: any) {
     console.error("❌ [CREATE TASK API] Exception:", error);
     console.error("❌ [CREATE TASK API] Error Response:", error.response?.data);
@@ -1048,11 +956,7 @@ export const createTask = async (taskData: {
  * @endpoint GET /tasks/viewTasks/
  * @returns Array of task objects
  */
-export const viewTasks = async (): Promise<any[]> => {
-  console.log("👀 [VIEW TASKS API] Fetching all tasks...");
-  console.log("👀 [VIEW TASKS API] URL:", `${API_BASE_URL}/tasks/viewTasks/`);
-
-  try {
+export const viewTasks = async (): Promise<any[]> => {try {
     const response = await api.get("/tasks/viewTasks/");
     const data = response.data;
 
@@ -1067,39 +971,20 @@ export const viewTasks = async (): Promise<any[]> => {
       tasks = data.data;
     } else if (data.results && Array.isArray(data.results)) {
       tasks = data.results; // Handle paginated responses
-    } else {
-      console.warn("⚠️ [VIEW TASKS API] Unexpected response format:", data);
-      return [];
+    } else {return [];
     }
 
     // Log task IDs for debugging
     if (tasks.length > 0) {
       const firstTask = tasks[0];
-      const hasId = !!(firstTask.id || firstTask.task_id || firstTask.pk || firstTask.taskId);
-      
-      console.log("📋 [VIEW TASKS API] Sample task structure (first task):", {
-        task: firstTask,
-        availableFields: Object.keys(firstTask),
-        taskIdFields: {
-          id: firstTask.id,
-          task_id: firstTask.task_id,
-          pk: firstTask.pk,
-          taskId: firstTask.taskId,
-        },
-        hasTaskId: hasId
-      });
-      
-      if (!hasId) {
+      const hasId = !!(firstTask.id || firstTask.task_id || firstTask.pk || firstTask.taskId);if (!hasId) {
         console.error("❌ [VIEW TASKS API] CRITICAL: Backend is not returning task IDs!");
         console.error("❌ [VIEW TASKS API] The API response must include one of: id, task_id, pk, or taskId");
         console.error("❌ [VIEW TASKS API] Without task IDs, status changes and other operations will fail.");
         console.error("❌ [VIEW TASKS API] Current response fields:", Object.keys(firstTask));
         console.error("❌ [VIEW TASKS API] Expected format: { id: 123, title: '...', description: '...', ... }");
       }
-    }
-
-    console.log("✅ [VIEW TASKS API] Successfully fetched", tasks.length, "tasks");
-    return tasks;
+    }return tasks;
   } catch (error: any) {
     console.error("❌ [VIEW TASKS API] Exception caught:", error);
     console.error("❌ [VIEW TASKS API] Error Response:", error.response?.data);
@@ -1116,14 +1001,7 @@ export const viewTasks = async (): Promise<any[]> => {
 /**
  * View assigned tasks for current user
  */
-export const viewAssignedTasks = async (): Promise<any[]> => {
-  console.log("👀 [VIEW ASSIGNED TASKS API] Fetching assigned tasks...");
-  console.log(
-    "👀 [VIEW ASSIGNED TASKS API] URL:",
-    `${API_BASE_URL}/tasks/viewAssignedTasks/`
-  );
-
-  try {
+export const viewAssignedTasks = async (): Promise<any[]> => {try {
     const response = await api.get("/tasks/viewAssignedTasks/");
     const data = response.data;
 
@@ -1143,21 +1021,7 @@ export const viewAssignedTasks = async (): Promise<any[]> => {
 
     // Log task IDs for debugging
     if (tasks.length > 0) {
-      const firstTask = tasks[0];
-      console.log("📋 [VIEW ASSIGNED TASKS API] Sample task structure (first task):", {
-        task: firstTask,
-        availableFields: Object.keys(firstTask),
-        taskIdFields: {
-          id: firstTask.id,
-          task_id: firstTask.task_id,
-          pk: firstTask.pk,
-          taskId: firstTask.taskId,
-        }
-      });
-    }
-
-    console.log("✅ [VIEW ASSIGNED TASKS API] Final tasks count:", tasks.length);
-    return tasks;
+      const firstTask = tasks[0];}return tasks;
   } catch (error: any) {
     console.error("❌ [VIEW ASSIGNED TASKS API] Exception caught:", error);
     throw error;
@@ -1192,9 +1056,7 @@ export const changeTaskStatus = async (
         // For fallback IDs like "t1767789989844-0.11216026287831349", extract the first number
         const match = taskIdStr.match(/\d+/);
         if (match) {
-          numericTaskId = parseInt(match[0], 10);
-          console.warn("⚠️ [CHANGE TASK STATUS API] Extracted numeric ID from string:", taskId, "→", numericTaskId);
-        } else {
+          numericTaskId = parseInt(match[0], 10);} else {
           // Last resort: try to parse the whole string
           numericTaskId = parseInt(taskIdStr, 10);
           if (isNaN(numericTaskId)) {
@@ -1219,31 +1081,11 @@ export const changeTaskStatus = async (
       backendStatus = "COMPLETED";
     } else {
       throw new Error(`Invalid status: ${status}. Must be one of: PENDING, INPROCESS, COMPLETED`);
-    }
-
-    console.log("🔄 [CHANGE TASK STATUS API] Changing task status...");
-    console.log("🔄 [CHANGE TASK STATUS API] Original Task ID:", taskId, "(type:", typeof taskId, ")");
-    console.log("🔄 [CHANGE TASK STATUS API] Extracted Numeric Task ID:", numericTaskId);
-    console.log("🔄 [CHANGE TASK STATUS API] Original status:", status);
-    console.log("🔄 [CHANGE TASK STATUS API] Mapped backend status:", backendStatus);
-    
-    // Correct endpoint format: PATCH /tasks/changeStatus/<int:task_id>/
+    }// Correct endpoint format: PATCH /tasks/changeStatus/<int:task_id>/
     const endpoint = `/tasks/changeStatus/${numericTaskId}/`;
     const requestBody = {
       change_Status_to: backendStatus, // Field name with capital S as documented
-    };
-    
-    console.log("🔄 [CHANGE TASK STATUS API] Endpoint:", endpoint);
-    console.log("🔄 [CHANGE TASK STATUS API] Full URL:", `${API_BASE_URL}${endpoint}`);
-    console.log("🔄 [CHANGE TASK STATUS API] Request Body:", JSON.stringify(requestBody));
-    console.log("🔄 [CHANGE TASK STATUS API] Status value being sent:", backendStatus);
-
-    const response = await api.patch(endpoint, requestBody);
-    
-    console.log("🔄 [CHANGE TASK STATUS API] Response Status:", response.status);
-    console.log("🔄 [CHANGE TASK STATUS API] Response Data:", response.data);
-
-    // Check if response contains error message even if status is 200
+    };const response = await api.patch(endpoint, requestBody);// Check if response contains error message even if status is 200
     // Backend may return 200 but with error in response body
     const responseData = response.data;
     
@@ -1279,23 +1121,17 @@ export const changeTaskStatus = async (
       responseStr.includes('success') ||
       responseStr.includes('updated') ||
       responseStr.includes('Success')
-    )) {
-      console.log("✅ [CHANGE TASK STATUS API] Success Response:", response.data);
-      return response.data;
+    )) {return response.data;
     }
     
     // If no clear success message but status is 200 and no error detected, assume success
     // But only if we didn't detect any error patterns above
-    if (response.status === 200 && !responseStr.includes('null') && !responseStr.includes('error') && !responseStr.includes('column')) {
-      console.log("✅ [CHANGE TASK STATUS API] Success Response (200 OK, no errors detected):", response.data);
-      return response.data;
+    if (response.status === 200 && !responseStr.includes('null') && !responseStr.includes('error') && !responseStr.includes('column')) {return response.data;
     }
     
     // If we get here, something unexpected happened - log warning but don't throw
     // This allows the caller to handle it
-    if (response.status === 200 && responseStr) {
-      console.warn("⚠️ [CHANGE TASK STATUS API] Unexpected response format (200 OK but unclear message):", response.data);
-      // If there's a message but we're not sure if it's success or error, throw to be safe
+    if (response.status === 200 && responseStr) {// If there's a message but we're not sure if it's success or error, throw to be safe
       throw new Error(`Unclear response from backend: ${responseStr}`);
     }
     
@@ -1527,13 +1363,8 @@ export const getDepartments = async (role?: string): Promise<string[]> => {
     endpoint = `/accounts/getDepartments/?Role=${encodeURIComponent(role)}`;
   }
 
-  try {
-    console.log("📋 [GET DEPARTMENTS] Fetching from:", endpoint);
-    const response = await api.get(endpoint);
-    const data = response.data;
-    console.log("📋 [GET DEPARTMENTS] Response data:", data);
-
-    // Handle different response formats
+  try {const response = await api.get(endpoint);
+    const data = response.data;// Handle different response formats
     let resultArray: any[] = [];
 
     if (Array.isArray(data)) {
@@ -1587,25 +1418,16 @@ export const getDepartments = async (role?: string): Promise<string[]> => {
  */
 export const getTeamleads = async (role: string): Promise<Array<{ Name: string; Employee_id: string }>> => {
   try {
-    const endpoint = `/accounts/getTeamleads/?Role=${encodeURIComponent(role)}`;
-    console.log("📋 [GET TEAM LEADS] Fetching team leads from:", endpoint);
-    const response = await api.get(endpoint);
-    const data = response.data;
-    console.log("📋 [GET TEAM LEADS] Response data:", data);
-
-    // Handle different response formats
+    const endpoint = `/accounts/getTeamleads/?Role=${encodeURIComponent(role)}`;const response = await api.get(endpoint);
+    const data = response.data;// Handle different response formats
     if (Array.isArray(data)) {
       // Filter out empty objects
-      const validTeamLeads = data.filter((tl: any) => tl && tl.Name && tl.Employee_id);
-      console.log("📋 [GET TEAM LEADS] Parsed team leads:", validTeamLeads);
-      return validTeamLeads;
+      const validTeamLeads = data.filter((tl: any) => tl && tl.Name && tl.Employee_id);return validTeamLeads;
     } else if (data.teamLeads && Array.isArray(data.teamLeads)) {
       return data.teamLeads.filter((tl: any) => tl && tl.Name && tl.Employee_id);
     } else if (data.data && Array.isArray(data.data)) {
       return data.data.filter((tl: any) => tl && tl.Name && tl.Employee_id);
-    } else {
-      console.warn("⚠️ [GET TEAM LEADS] Unexpected response format:", data);
-      return [];
+    } else {return [];
     }
   } catch (error: any) {
     console.error("❌ [GET TEAM LEADS] Error fetching team leads:", error);
@@ -1627,13 +1449,8 @@ export const getDepartmentsandFunctions = async (role?: string): Promise<{ depar
     endpoint = `/accounts/getDepartmentsandFunctions/?Role=${encodeURIComponent(role)}`;
   }
 
-  try {
-    console.log("📋 [GET DEPARTMENTS AND FUNCTIONS] Fetching from:", endpoint);
-    const response = await api.get(endpoint);
-    const data = response.data;
-    console.log("📋 [GET DEPARTMENTS AND FUNCTIONS] Response data:", data);
-
-    // Handle different response formats
+  try {const response = await api.get(endpoint);
+    const data = response.data;// Handle different response formats
     let departmentsArray: any[] = [];
     let functionsArray: any[] = [];
 
@@ -1706,12 +1523,7 @@ export const getDepartmentsandFunctions = async (role?: string): Promise<{ depar
           return String(item);
         }
       })
-      .filter((f) => f != null && f !== "" && f !== "[object Object]");
-
-    console.log("📋 [GET DEPARTMENTS AND FUNCTIONS] Extracted departments:", extractedDepartments);
-    console.log("📋 [GET DEPARTMENTS AND FUNCTIONS] Extracted functions:", extractedFunctions);
-
-    return {
+      .filter((f) => f != null && f !== "" && f !== "[object Object]");return {
       departments: extractedDepartments,
       functions: extractedFunctions
     };
@@ -1749,16 +1561,8 @@ export const getMonthlySchedule = async (userId: string): Promise<Array<{
   month_quater_id?: number;
   id?: number;
 }>> => {
-  try {
-    console.log("📅 [GET MONTHLY SCHEDULE] Fetching schedule for user_id:", userId);
-    const endpoint = `/getMonthlySchedule/${encodeURIComponent(userId)}/`;
-    console.log("📅 [GET MONTHLY SCHEDULE] Endpoint:", endpoint);
-    
-    const response = await api.get(endpoint);
-    const data = response.data;
-    console.log("📅 [GET MONTHLY SCHEDULE] Response data:", data);
-
-    // Handle different response formats
+  try {const endpoint = `/getMonthlySchedule/${encodeURIComponent(userId)}/`;const response = await api.get(endpoint);
+    const data = response.data;// Handle different response formats
     let scheduleArray: any[] = [];
 
     if (Array.isArray(data)) {
@@ -1769,13 +1573,8 @@ export const getMonthlySchedule = async (userId: string): Promise<Array<{
       scheduleArray = data.data;
     } else if (data.monthly_schedule && Array.isArray(data.monthly_schedule)) {
       scheduleArray = data.monthly_schedule;
-    } else {
-      console.warn("⚠️ [GET MONTHLY SCHEDULE] Unexpected response format:", data);
-      return [];
-    }
-
-    console.log("📅 [GET MONTHLY SCHEDULE] Parsed schedule array:", scheduleArray);
-    return scheduleArray;
+    } else {return [];
+    }return scheduleArray;
   } catch (error: any) {
     if (
       error.name === "TypeError" &&
@@ -1804,9 +1603,7 @@ export const addDayEntries = async (data: {
   month_quater_id: number;
 }): Promise<{ message: string; created_entry_ids: number[] }> => {
   try {
-    console.log("📝 [ADD DAY ENTRIES] Adding entries:", data);
     const response = await api.post("/addDayEntries/", data);
-    console.log("✅ [ADD DAY ENTRIES] Response:", response.data);
     return response.data;
   } catch (error: any) {
     console.error("❌ [ADD DAY ENTRIES] Error:", error);
@@ -1825,13 +1622,9 @@ export const changeEntryStatus = async (
   entryId: number,
   status: 'Completed' | 'PENDING' | 'INPROCESS'
 ): Promise<{ message: string }> => {
-  try {
-    console.log("🔄 [CHANGE ENTRY STATUS] Changing status for entry:", entryId, "to:", status);
-    const response = await api.patch(`/changeStatus/${entryId}/`, {
+  try {const response = await api.patch(`/changeStatus/${entryId}/`, {
       change_Status_to: status
-    });
-    console.log("✅ [CHANGE ENTRY STATUS] Response:", response.data);
-    return response.data;
+    });return response.data;
   } catch (error: any) {
     console.error("❌ [CHANGE ENTRY STATUS] Error:", error);
     throw error;
@@ -1866,14 +1659,8 @@ export const getUserEntries = async (
     
     // Build query string
     const queryString = new URLSearchParams(params).toString();
-    const endpoint = `/getUserEntries/?${queryString}`;
-    
-    console.log("📖 [GET USER ENTRIES] Fetching entries from:", endpoint);
-    const response = await api.get(endpoint);
-    const data = response.data;
-    console.log("📖 [GET USER ENTRIES] Response data:", data);
-
-    // Handle different response formats
+    const endpoint = `/getUserEntries/?${queryString}`;const response = await api.get(endpoint);
+    const data = response.data;// Handle different response formats
     let entriesArray: any[] = [];
 
     if (Array.isArray(data)) {
@@ -1884,20 +1671,70 @@ export const getUserEntries = async (
       entriesArray = data.data;
     } else if (data.results && Array.isArray(data.results)) {
       entriesArray = data.results; // Handle paginated responses
-    } else {
-      console.warn("⚠️ [GET USER ENTRIES] Unexpected response format:", data);
-      return [];
-    }
-
-    console.log("📖 [GET USER ENTRIES] Parsed entries array:", entriesArray);
-    return entriesArray;
+    } else {return [];
+    }return entriesArray;
   } catch (error: any) {
     if (error.response?.status === 404) {
-      // No entries found - return empty array
-      console.log("📖 [GET USER ENTRIES] No entries found (404)");
-      return [];
+      // No entries found - return empty arrayreturn [];
     }
     console.error("❌ [GET USER ENTRIES] Error:", error);
+    throw error;
+  }
+};
+
+/**
+ * Get user entries by filters (for Report Review – display stored entries; note field shown in table).
+ * @endpoint GET /getUserEntries/?quater=Q1&month=April&department=Sales&username=3001&date=2026-01-21&month_quater_id=...
+ * @param params - Required: quater, month, department, username. Optional: date, month_quater_id (use for correct month id when backend supports it)
+ * @returns Array of entries with id, note, meeting_head, meeting_sub_head, username, date, status, month_quater_id
+ */
+export const getUserEntriesByFilters = async (params: {
+  quater: string;
+  month: string;
+  department: string;
+  username: string;
+  date?: string;
+  month_quater_id?: string | number;
+}): Promise<Array<{
+  id: number;
+  note: string;
+  meeting_head: string;
+  meeting_sub_head: string;
+  username: string;
+  date: string;
+  status: string;
+  month_quater_id: string;
+}>> => {
+  try {
+    const qs = new URLSearchParams();
+    qs.set("quater", params.quater);
+    qs.set("month", params.month);
+    qs.set("department", params.department);
+    qs.set("username", params.username);
+    if (params.date) qs.set("date", params.date);
+    if (params.month_quater_id != null && params.month_quater_id !== '') qs.set("month_quater_id", String(params.month_quater_id));
+    const endpoint = `/getUserEntries/?${qs.toString()}`;const response = await api.get(endpoint);
+    const data = response.data;
+    let entriesArray: any[] = [];
+    if (data == null) {
+      return [];
+    }
+    if (Array.isArray(data)) {
+      entriesArray = data;
+    } else if (typeof data === 'object') {
+      if (Array.isArray(data.entries)) entriesArray = data.entries;
+      else if (Array.isArray(data.data)) entriesArray = data.data;
+      else if (Array.isArray(data.results)) entriesArray = data.results;
+      else {
+        const key = Object.keys(data).find(k => Array.isArray((data as any)[k]));
+        if (key) entriesArray = (data as any)[key];
+      }
+    }
+    return Array.isArray(entriesArray) ? entriesArray : [];
+  } catch (error: any) {
+    if (error?.response?.status === 404) {return [];
+    }
+    console.error("❌ [GET USER ENTRIES BY FILTERS] Error:", error);
     throw error;
   }
 };
@@ -1918,12 +1755,7 @@ export const getNamesFromRoleAndDesignation = async (
     const roleParam = role && role.trim() !== "" && role.toLowerCase() !== "all" ? role.trim() : "";
     const designationParam = designation && designation.trim() !== "" && designation.toLowerCase() !== "all" ? designation.trim() : "";
     
-    const endpoint = `/tasks/getNamesfromRoleandDesignation/?role=${encodeURIComponent(roleParam)}&designation=${encodeURIComponent(designationParam)}`;
-    
-    console.log("📋 [GET NAMES API] Fetching names with role:", roleParam, "designation:", designationParam);
-    console.log("📋 [GET NAMES API] URL:", `${API_BASE_URL}${endpoint}`);
-    
-    const response = await api.get(endpoint);
+    const endpoint = `/tasks/getNamesfromRoleandDesignation/?role=${encodeURIComponent(roleParam)}&designation=${encodeURIComponent(designationParam)}`;const response = await api.get(endpoint);
     const data = response.data;
 
     // Handle different response formats
@@ -1939,17 +1771,45 @@ export const getNamesFromRoleAndDesignation = async (
       resultArray = data.data;
     } else if (data.employees && Array.isArray(data.employees)) {
       resultArray = data.employees;
-    } else {
-      console.warn("⚠️ [GET NAMES API] Unexpected response format:", data);
-      return [];
-    }
-
-    console.log("✅ [GET NAMES API] Successfully fetched", resultArray.length, "names");
-    return resultArray;
+    } else {return [];
+    }return resultArray;
   } catch (error: any) {
     console.error("❌ [GET NAMES API] Exception caught:", error);
     console.error("❌ [GET NAMES API] Error Response:", error.response?.data);
     throw error;
+  }
+};
+
+/**
+ * Get asset types for Admin Ops Asset Manager (e.g. Hardware, Software).
+ * @endpoint GET /assets/types/ (fallback to default list if not implemented)
+ * @returns Array of { id, name } for dropdown
+ */
+export const getAssetTypes = async (): Promise<Array<{ id: string; name: string }>> => {
+  const defaultTypes: Array<{ id: string; name: string }> = [
+    { id: '1', name: 'Hardware' },
+    { id: '2', name: 'Software' },
+  ];
+  try {
+    const response = await api.get("/assets/types/");
+    const data = response.data;
+    if (Array.isArray(data)) {
+      return data.map((item: any) =>
+        typeof item === 'string'
+          ? { id: String(item).toLowerCase().replace(/\s+/g, '_'), name: item }
+          : { id: String(item?.id ?? item?.value ?? item?.name ?? ''), name: String(item?.name ?? item?.label ?? item ?? '') }
+      ).filter((t: { id: string; name: string }) => t.name);
+    }
+    if (data?.types && Array.isArray(data.types)) {
+      return data.types.map((item: any) =>
+        typeof item === 'string'
+          ? { id: String(item).toLowerCase().replace(/\s+/g, '_'), name: item }
+          : { id: String(item?.id ?? item?.value ?? item?.name ?? ''), name: String(item?.name ?? item?.label ?? item ?? '') }
+      ).filter((t: { id: string; name: string }) => t.name);
+    }
+    return defaultTypes;
+  } catch (error: any) {
+    if (error?.response?.status === 404 || error?.code === 'ERR_NETWORK') return defaultTypes;return defaultTypes;
   }
 };
 
@@ -1959,103 +1819,40 @@ export const getNamesFromRoleAndDesignation = async (
  * @returns Array of task type strings
  */
 export const getTaskTypes = async (): Promise<string[]> => {
-  try {
-    console.log("📋 [GET TASK TYPES API] Fetching task types...");
-    console.log("📋 [GET TASK TYPES API] Base URL:", API_BASE_URL);
-    console.log("📋 [GET TASK TYPES API] Full URL:", `${API_BASE_URL}/tasks/getTaskTypes/`);
-    console.log("📋 [GET TASK TYPES API] Endpoint:", "/tasks/getTaskTypes/");
-    
-    const response = await api.get("/tasks/getTaskTypes/");
-    console.log("📋 [GET TASK TYPES API] Response Status:", response.status);
-    console.log("📋 [GET TASK TYPES API] Response Headers:", response.headers);
-    const data = response.data;
-    console.log("📋 [GET TASK TYPES API] Response Data:", data);
-    console.log("📋 [GET TASK TYPES API] Response Data Type:", typeof data);
-    console.log("📋 [GET TASK TYPES API] Is Array:", Array.isArray(data));
-
-    // Handle different response formats
+  try {const response = await api.get("/tasks/getTaskTypes/");const data = response.data;// Handle different response formats
     let resultArray: any[] = [];
 
     if (Array.isArray(data)) {
-      resultArray = data;
-      console.log("📋 [GET TASK TYPES API] Response is direct array");
-    } else if (data && typeof data === 'object') {
+      resultArray = data;} else if (data && typeof data === 'object') {
       // Try common nested array formats
       if (data.task_types && Array.isArray(data.task_types)) {
-        resultArray = data.task_types;
-        console.log("📋 [GET TASK TYPES API] Found task_types array");
-      } else if (data.types && Array.isArray(data.types)) {
-        resultArray = data.types;
-        console.log("📋 [GET TASK TYPES API] Found types array");
-      } else if (data.data && Array.isArray(data.data)) {
-        resultArray = data.data;
-        console.log("📋 [GET TASK TYPES API] Found data array");
-      } else if (data.results && Array.isArray(data.results)) {
-        resultArray = data.results;
-        console.log("📋 [GET TASK TYPES API] Found results array");
-      } else {
+        resultArray = data.task_types;} else if (data.types && Array.isArray(data.types)) {
+        resultArray = data.types;} else if (data.data && Array.isArray(data.data)) {
+        resultArray = data.data;} else if (data.results && Array.isArray(data.results)) {
+        resultArray = data.results;} else {
         // Try to extract all string values from object
         const allValues = Object.values(data);
         const stringValues = allValues.filter(v => typeof v === 'string');
         if (stringValues.length > 0) {
-          resultArray = stringValues;
-          console.log("📋 [GET TASK TYPES API] Extracted string values from object");
-        } else {
-          console.warn("⚠️ [GET TASK TYPES API] Unexpected response format:", data);
-          console.warn("⚠️ [GET TASK TYPES API] Response keys:", Object.keys(data));
-          return [];
+          resultArray = stringValues;} else {return [];
         }
       }
-    } else {
-      console.warn("⚠️ [GET TASK TYPES API] Unexpected response format (not array or object):", typeof data, data);
-      return [];
+    } else {return [];
     }
 
     // Extract type values from objects if needed
-    console.log("📋 [GET TASK TYPES API] Processing resultArray:", resultArray);
-    console.log("📋 [GET TASK TYPES API] First item:", resultArray[0]);
-    console.log("📋 [GET TASK TYPES API] First item type_name:", resultArray[0]?.type_name);
-    
     const extractedTypes = resultArray
-      .map((item, index) => {
-        console.log(`📋 [GET TASK TYPES API] Processing item ${index}:`, item);
-        
-        if (typeof item === "string") {
-          console.log(`📋 [GET TASK TYPES API] Item ${index} is string:`, item);
-          return item;
-        } else if (item && typeof item === "object") {
-          // Check for type_name first (this is the format from the API)
-          if (item.type_name) {
-            console.log(`📋 [GET TASK TYPES API] Item ${index} has type_name:`, item.type_name);
-            return item.type_name;
-          } else if (item.type) {
-            console.log(`📋 [GET TASK TYPES API] Item ${index} has type:`, item.type);
-            return item.type;
-          } else if (item.name) {
-            console.log(`📋 [GET TASK TYPES API] Item ${index} has name:`, item.name);
-            return item.name;
-          } else {
-            console.warn(`⚠️ [GET TASK TYPES API] Item ${index} has no recognized field:`, item);
-            return String(item);
-          }
-        } else {
-          console.warn(`⚠️ [GET TASK TYPES API] Item ${index} is unexpected type:`, typeof item, item);
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") {
+          if (item.type_name) return item.type_name;
+          if (item.type) return item.type;
+          if (item.name) return item.name;
           return String(item);
         }
+        return String(item);
       })
       .filter((t) => t != null && t !== "");
-    
-    console.log("📋 [GET TASK TYPES API] Extracted types after mapping:", extractedTypes);
-
-    console.log("✅ [GET TASK TYPES API] Successfully fetched", extractedTypes.length, "task types");
-    console.log("✅ [GET TASK TYPES API] Final extracted types:", extractedTypes);
-    
-    if (extractedTypes.length === 0) {
-      console.error("❌ [GET TASK TYPES API] WARNING: No types extracted from response!");
-      console.error("❌ [GET TASK TYPES API] Original response data:", data);
-      console.error("❌ [GET TASK TYPES API] Result array:", resultArray);
-    }
-    
     return extractedTypes;
   } catch (error: any) {
     console.error("❌ [GET TASK TYPES API] Exception caught:", error);
@@ -2147,20 +1944,10 @@ export const sendTaskMessage = async (
           throw new Error(`Invalid task ID format: ${taskId}. Backend expects an integer task_id.`);
         }
       }
-    }
-
-    console.log("💬 [SEND TASK MESSAGE API] Sending message to task:", taskId);
-    console.log("💬 [SEND TASK MESSAGE API] Numeric task ID:", numericTaskId);
-    console.log("💬 [SEND TASK MESSAGE API] Message:", message);
-    console.log("💬 [SEND TASK MESSAGE API] URL:", `${API_BASE_URL}/tasks/sendMessage/`);
-
-    const response = await api.post("/tasks/sendMessage/", {
+    }const response = await api.post("/tasks/sendMessage/", {
       task_id: numericTaskId,
       message: message,
-    });
-
-    console.log("✅ [SEND TASK MESSAGE API] Success Response:", response.data);
-    return response.data;
+    });return response.data;
   } catch (error: any) {
     console.error("❌ [SEND TASK MESSAGE API] Exception:", error);
     console.error("❌ [SEND TASK MESSAGE API] Error Response:", error.response?.data);
@@ -2239,21 +2026,10 @@ export const getTaskMessages = async (
         numericTaskId = parseInt(match[0], 10);
       } else {
         numericTaskId = parseInt(String(taskId), 10);
-        if (isNaN(numericTaskId)) {
-          console.warn("⚠️ [GET TASK MESSAGES API] Could not extract numeric ID from:", taskId);
-          return [];
+        if (isNaN(numericTaskId)) {return [];
         }
       }
-    }
-
-    console.log("💬 [GET TASK MESSAGES API] Fetching messages for task:", taskId);
-    console.log("💬 [GET TASK MESSAGES API] Numeric task ID:", numericTaskId);
-    console.log(
-      "💬 [GET TASK MESSAGES API] URL:",
-      `${API_BASE_URL}/tasks/getMessage/${numericTaskId}/`
-    );
-
-    const response = await api.get(`/tasks/getMessage/${numericTaskId}/`);
+    }const response = await api.get(`/tasks/getMessage/${numericTaskId}/`);
     const data = response.data;
 
     // Handle different response formats
@@ -2265,21 +2041,14 @@ export const getTaskMessages = async (
       messages = data.messages;
     } else if (data.data && Array.isArray(data.data)) {
       messages = data.data;
-    } else {
-      console.warn("⚠️ [GET TASK MESSAGES API] Unexpected response format:", data);
-      return [];
-    }
-
-    console.log("✅ [GET TASK MESSAGES API] Successfully fetched", messages.length, "messages");
-    return messages;
+    } else {return [];
+    }return messages;
   } catch (error: any) {
     console.error("❌ [GET TASK MESSAGES API] Exception:", error);
     console.error("❌ [GET TASK MESSAGES API] Error Response:", error.response?.data);
 
     if (error.response?.status === 404) {
-      // Task not found or no messages - return empty array
-      console.warn("⚠️ [GET TASK MESSAGES API] Task not found or no messages");
-      return [];
+      // Task not found or no messages - return empty arrayreturn [];
     }
 
     throw error;
@@ -2299,24 +2068,11 @@ export const createGroup = async (groupData: {
 }): Promise<any> => {
   try {
     // Check if auth token exists
-    const token = getAuthToken();
-    console.log("💬 [CREATE GROUP API] Auth token present:", !!token);
-    console.log("💬 [CREATE GROUP API] Creating group:", groupData);
-    console.log("💬 [CREATE GROUP API] URL:", `${API_BASE_URL}/messaging/createGroup/`);
-    console.log("💬 [CREATE GROUP API] Request payload:", JSON.stringify({
+    const token = getAuthToken();const response = await api.post("/messaging/createGroup/", {
       group_name: groupData.group_name,
       description: groupData.description,
       participants: groupData.participants,
-    }, null, 2));
-
-    const response = await api.post("/messaging/createGroup/", {
-      group_name: groupData.group_name,
-      description: groupData.description,
-      participants: groupData.participants,
-    });
-
-    console.log("✅ [CREATE GROUP API] Success Response:", response.data);
-    return response.data;
+    });return response.data;
   } catch (error: any) {
     console.error("❌ [CREATE GROUP API] Exception:", error);
     console.error("❌ [CREATE GROUP API] Error Response:", error.response?.data);
@@ -2379,11 +2135,7 @@ export const showCreatedGroups = async (): Promise<
     created_at: string;
   }>
 > => {
-  try {
-    console.log("💬 [SHOW CREATED GROUPS API] Fetching created groups...");
-    console.log("💬 [SHOW CREATED GROUPS API] URL:", `${API_BASE_URL}/messaging/showCreatedGroups/`);
-
-    const response = await api.get("/messaging/showCreatedGroups/");
+  try {const response = await api.get("/messaging/showCreatedGroups/");
     const data = response.data;
 
     // Handle different response formats
@@ -2395,20 +2147,13 @@ export const showCreatedGroups = async (): Promise<
       groups = data.groups;
     } else if (data.data && Array.isArray(data.data)) {
       groups = data.data;
-    } else {
-      console.warn("⚠️ [SHOW CREATED GROUPS API] Unexpected response format:", data);
-      return [];
-    }
-
-    console.log("✅ [SHOW CREATED GROUPS API] Successfully fetched", groups.length, "groups");
-    return groups;
+    } else {return [];
+    }return groups;
   } catch (error: any) {
     console.error("❌ [SHOW CREATED GROUPS API] Exception:", error);
     console.error("❌ [SHOW CREATED GROUPS API] Error Response:", error.response?.data);
 
-    if (error.response?.status === 404) {
-      console.warn("⚠️ [SHOW CREATED GROUPS API] No groups found");
-      return [];
+    if (error.response?.status === 404) {return [];
     }
 
     throw error;
@@ -2490,51 +2235,23 @@ export const startChat = async (
     // DO NOT convert to number - keep as string
     cleanEmployeeId = String(employeeId).trim();
     
-    // Verify we're preserving the format (especially leading zeros)
-    console.log("💬 [START CHAT API] Original employeeId:", employeeId);
-    console.log("💬 [START CHAT API] Cleaned employeeId:", cleanEmployeeId);
-    console.log("💬 [START CHAT API] EmployeeId type:", typeof cleanEmployeeId);
-    console.log("💬 [START CHAT API] EmployeeId length:", cleanEmployeeId.length);
-    console.log("💬 [START CHAT API] URL:", `${API_BASE_URL}/messaging/startChat/`);
-    
-    // Format: {"participant": "employeeId"} - Backend expects Employee_id as string directly, not nested object
+    // Verify we're preserving the format (especially leading zeros)// Format: {"participant": "employeeId"} - Backend expects Employee_id as string directly, not nested object
     // This format works for ALL roles: MD, Admin, TeamLead, Employee, Intern
     // The Employee_id is sent as a STRING to preserve leading zeros (e.g., "00011")
     requestBody = {
       participant: cleanEmployeeId  // String value directly, preserves "00011" format
-    };
-    
-    console.log("💬 [START CHAT API] Request body:", JSON.stringify(requestBody, null, 2));
-    console.log("💬 [START CHAT API] Request body (compact):", JSON.stringify(requestBody));
-    console.log("💬 [START CHAT API] Participant (Employee_id) in request:", requestBody.participant);
-    console.log("💬 [START CHAT API] Participant type in request:", typeof requestBody.participant);
-    console.log("💬 [START CHAT API] Participant length in request:", requestBody.participant.length);
-    console.log("💬 [START CHAT API] Participant JSON representation:", JSON.stringify(requestBody.participant));
-    console.log("💬 [START CHAT API] Using base URL:", API_BASE_URL);
-    console.log("💬 [START CHAT API] Full endpoint:", `${API_BASE_URL}/messaging/startChat/`);
-    
-    // CRITICAL: Check if auth token exists before making request
+    };// CRITICAL: Check if auth token exists before making request
     // Note: Backend might use session-based auth (cookies) instead of JWT tokens
     // If using cookies, withCredentials: true will send them automatically
-    const authToken = getAuthToken();
-    console.log("💬 [START CHAT API] Auth token present:", !!authToken);
-    console.log("💬 [START CHAT API] Auth token (first 20 chars):", authToken?.substring(0, 20) || 'N/A');
-    console.log("💬 [START CHAT API] Using withCredentials (for session cookies):", true);
-    
-    // Warn if no token, but don't block - backend might use session cookies
-    if (!authToken) {
-      console.warn("⚠️ [START CHAT API] No auth token in localStorage. Backend might use session-based auth (cookies).");
-      console.warn("⚠️ [START CHAT API] If you get authentication errors, try logging out and back in.");
-    }
+    const authToken = getAuthToken();// Warn if no token, but don't block - backend might use session cookies
+    if (!authToken) {}
 
     let response;
     try {
       response = await api.post("/messaging/startChat/", requestBody);
     } catch (firstError: any) {
       // If we get a 404 and we're using the proxy, try direct URL as fallback
-      if (firstError.response?.status === 404 && API_BASE_URL === '/api') {
-        console.warn("⚠️ [START CHAT API] Proxy returned 404, trying direct URL as fallback...");
-        const directApi = axios.create({
+      if (firstError.response?.status === 404 && API_BASE_URL === '/api') {const directApi = axios.create({
           baseURL: 'https://employee-management-system-tmrl.onrender.com',
           headers: {
             "Content-Type": "application/json",
@@ -2545,9 +2262,7 @@ export const startChat = async (
         });
         
         try {
-          response = await directApi.post("/messaging/startChat/", requestBody);
-          console.log("✅ [START CHAT API] Direct URL request succeeded");
-        } catch (directError: any) {
+          response = await directApi.post("/messaging/startChat/", requestBody);} catch (directError: any) {
           // If direct URL also fails, throw the original error
           console.error("❌ [START CHAT API] Direct URL also failed:", directError);
           throw firstError;
@@ -2555,40 +2270,26 @@ export const startChat = async (
       } else {
         throw firstError;
       }
-    }
-
-    console.log("✅ [START CHAT API] Response Status:", response.status);
-    console.log("✅ [START CHAT API] Response Data:", response.data);
-    console.log("✅ [START CHAT API] Response Headers:", response.headers);
-
-    // Handle success cases:
+    }// Handle success cases:
     // Response 1: [{}] - New chat created successfully
     // Response 2: If chat already exists - loads existing chat data
     if (response.status === 200 || response.status === 201) {
       const responseData = response.data;
       
       // Check if response is [{}] (new chat created - Response 1)
-      if (Array.isArray(responseData) && responseData.length === 1 && Object.keys(responseData[0]).length === 0) {
-        console.log("✅ [START CHAT API] Response 1: New chat created successfully (response: [{}])");
-        return { success: true, isNewChat: true, data: responseData };
+      if (Array.isArray(responseData) && responseData.length === 1 && Object.keys(responseData[0]).length === 0) {return { success: true, isNewChat: true, data: responseData };
       }
       
       // Response 2: If chat already exists, backend loads existing chat
       // This could be an array with chat data, or an object with chat info
-      if (Array.isArray(responseData) && responseData.length > 0 && Object.keys(responseData[0]).length > 0) {
-        console.log("✅ [START CHAT API] Response 2: Existing chat loaded (array with data)");
-        return { success: true, isNewChat: false, data: responseData };
+      if (Array.isArray(responseData) && responseData.length > 0 && Object.keys(responseData[0]).length > 0) {return { success: true, isNewChat: false, data: responseData };
       }
       
       // Response 2: Object format with existing chat data
-      if (responseData && typeof responseData === 'object' && !Array.isArray(responseData)) {
-        console.log("✅ [START CHAT API] Response 2: Existing chat loaded (object format)");
-        return { success: true, isNewChat: false, data: responseData };
+      if (responseData && typeof responseData === 'object' && !Array.isArray(responseData)) {return { success: true, isNewChat: false, data: responseData };
       }
       
-      // Default: return response data
-      console.log("✅ [START CHAT API] Success response:", responseData);
-      return { success: true, isNewChat: false, data: responseData };
+      // Default: return response datareturn { success: true, isNewChat: false, data: responseData };
     }
 
     return response.data;
@@ -2787,11 +2488,7 @@ export const loadChats = async (): Promise<{
     with: string;
   }>;
 }> => {
-  try {
-    console.log("💬 [LOAD CHATS API] Fetching user's groups and chats...");
-    console.log("💬 [LOAD CHATS API] URL:", `${API_BASE_URL}/messaging/loadChats/`);
-
-    const response = await api.get("/messaging/loadChats/");
+  try {const response = await api.get("/messaging/loadChats/");
     const data = response.data;
 
     // Handle new response format with Group_info and chats_info
@@ -2809,13 +2506,7 @@ export const loadChats = async (): Promise<{
 
     if (data.chats_info && Array.isArray(data.chats_info)) {
       chats = data.chats_info;
-    }
-
-    console.log("✅ [LOAD CHATS API] Successfully fetched", groups.length, "groups and", chats.length, "chats");
-    console.log("💬 [LOAD CHATS API] Groups:", groups);
-    console.log("💬 [LOAD CHATS API] Chats:", chats);
-
-    return {
+    }return {
       Group_info: groups,
       chats_info: chats
     };
@@ -2823,9 +2514,7 @@ export const loadChats = async (): Promise<{
     console.error("❌ [LOAD CHATS API] Exception:", error);
     console.error("❌ [LOAD CHATS API] Error Response:", error.response?.data);
 
-    if (error.response?.status === 404) {
-      console.warn("⚠️ [LOAD CHATS API] No groups or chats found for user");
-      return {
+    if (error.response?.status === 404) {return {
         Group_info: [],
         chats_info: []
       };
@@ -2846,18 +2535,9 @@ export const addUserToGroup = async (
   groupId: number,
   employeeId: string
 ): Promise<{ Message: string }> => {
-  try {
-    console.log("👤 [ADD USER TO GROUP API] Adding user to group...");
-    console.log("👤 [ADD USER TO GROUP API] Group ID:", groupId);
-    console.log("👤 [ADD USER TO GROUP API] Employee ID:", employeeId);
-    console.log("👤 [ADD USER TO GROUP API] URL:", `${API_BASE_URL}/messaging/addUser/${groupId}/`);
-
-    const response = await api.post(`/messaging/addUser/${groupId}/`, {
+  try {const response = await api.post(`/messaging/addUser/${groupId}/`, {
       participant: employeeId,
-    });
-
-    console.log("✅ [ADD USER TO GROUP API] Success Response:", response.data);
-    return response.data;
+    });return response.data;
   } catch (error: any) {
     console.error("❌ [ADD USER TO GROUP API] Exception:", error);
     console.error("❌ [ADD USER TO GROUP API] Error Response:", error.response?.data);
@@ -2906,16 +2586,7 @@ export const deleteUserFromGroup = async (
   groupId: number,
   userId: string
 ): Promise<{ Message: string }> => {
-  try {
-    console.log("🗑️ [DELETE USER FROM GROUP API] Deleting user from group...");
-    console.log("🗑️ [DELETE USER FROM GROUP API] Group ID:", groupId);
-    console.log("🗑️ [DELETE USER FROM GROUP API] User ID:", userId);
-    console.log("🗑️ [DELETE USER FROM GROUP API] URL:", `${API_BASE_URL}/messaging/deleteUser/${groupId}/${userId}/`);
-
-    const response = await api.delete(`/messaging/deleteUser/${groupId}/${userId}/`);
-
-    console.log("✅ [DELETE USER FROM GROUP API] Success Response:", response.data);
-    return response.data;
+  try {const response = await api.delete(`/messaging/deleteUser/${groupId}/${userId}/`);return response.data;
   } catch (error: any) {
     console.error("❌ [DELETE USER FROM GROUP API] Exception:", error);
     console.error("❌ [DELETE USER FROM GROUP API] Error Response:", error.response?.data);
@@ -2983,15 +2654,7 @@ export const deleteUserFromGroup = async (
 export const deleteGroup = async (
   groupId: number
 ): Promise<{ message: string }> => {
-  try {
-    console.log("🗑️ [DELETE GROUP API] Deleting group...");
-    console.log("🗑️ [DELETE GROUP API] Group ID:", groupId);
-    console.log("🗑️ [DELETE GROUP API] URL:", `${API_BASE_URL}/messaging/deleteGroup/${groupId}/`);
-
-    const response = await api.delete(`/messaging/deleteGroup/${groupId}/`);
-
-    console.log("✅ [DELETE GROUP API] Success Response:", response.data);
-    return response.data;
+  try {const response = await api.delete(`/messaging/deleteGroup/${groupId}/`);return response.data;
   } catch (error: any) {
     console.error("❌ [DELETE GROUP API] Exception:", error);
     console.error("❌ [DELETE GROUP API] Error Response:", error.response?.data);
@@ -3065,10 +2728,7 @@ export const postMessages = async (
     let chatIdToUse: string | number = chatIdStr;
     
     // Check if it has a prefix like 'C' - try original format first
-    if (typeof chatId === 'string' && /^[A-Za-z]/.test(chatIdStr)) {
-      console.log(`💬 [POST MESSAGES API] Chat ID has prefix: "${chatIdStr}"`);
-      console.log(`💬 [POST MESSAGES API] Extracted numeric ID: ${numericChatId}`);
-      chatIdToUse = chatIdStr;
+    if (typeof chatId === 'string' && /^[A-Za-z]/.test(chatIdStr)) {chatIdToUse = chatIdStr;
     } else if (typeof chatId === 'number') {
       chatIdToUse = chatId;
       numericChatId = chatId;
@@ -3083,10 +2743,7 @@ export const postMessages = async (
           chatIdToUse = chatIdStr; // Try "C02569527" format
         } else {
           chatIdToUse = numericChatId!; // Use numeric
-        }
-        
-        console.log(`💬 [POST MESSAGES API] Extracted: "${chatIdStr}" → numeric part: "${numericPart}" → number: ${numericChatId}`);
-      } else {
+        }} else {
         if (isNaN(numericChatId!)) {
           throw new Error(`Invalid chat ID format: "${chatId}". Expected numeric ID or format like "C123".`);
         }
@@ -3097,15 +2754,7 @@ export const postMessages = async (
       if (numericChatId && (isNaN(numericChatId) || numericChatId <= 0)) {
         throw new Error(`Invalid chat ID: "${chatId}" (extracted as ${numericChatId}). Chat ID must be a positive number.`);
       }
-    }
-
-    console.log("💬 [POST MESSAGES API] Original chat ID:", originalChatId);
-    console.log("💬 [POST MESSAGES API] Chat ID to use:", chatIdToUse);
-    console.log("💬 [POST MESSAGES API] Numeric chat ID:", numericChatId);
-    console.log("💬 [POST MESSAGES API] Message:", message);
-    console.log("💬 [POST MESSAGES API] URL:", `${API_BASE_URL}/messaging/postMessages/${chatIdToUse}/`);
-
-    // Determine chat type and use appropriate format:
+    }// Determine chat type and use appropriate format:
     // - 'C' prefix (e.g., "C02569527") = IndividualChat - use ORIGINAL FORMAT with 'C' prefix ("C02569527")
     // - 'G' prefix (e.g., "G09381") = GroupChat - use original format with 'G' prefix ("G09381")
     // - Numeric = Legacy format - use numeric
@@ -3113,39 +2762,22 @@ export const postMessages = async (
     
     if (typeof chatIdToUse === 'string') {
       if (/^C/i.test(chatIdToUse)) {
-        // IndividualChat - use original format with 'C' prefix (e.g., "C02569527")
-        console.log(`💬 [POST MESSAGES API] IndividualChat detected (C prefix), using original format: "${chatIdToUse}"`);
-        finalChatId = chatIdToUse;
+        // IndividualChat - use original format with 'C' prefix (e.g., "C02569527")finalChatId = chatIdToUse;
       } else if (/^G/i.test(chatIdToUse)) {
-        // GroupChat - use "G09381" format (with 'G' prefix)
-        console.log(`💬 [POST MESSAGES API] GroupChat detected (G prefix), using original format: "${chatIdToUse}"`);
-        finalChatId = chatIdToUse;
+        // GroupChat - use "G09381" format (with 'G' prefix)finalChatId = chatIdToUse;
       } else {
         // No prefix - use as-is
         finalChatId = chatIdToUse;
       }
     } else if (typeof chatIdToUse === 'number') {
       // Numeric ID - legacy format
+      finalChatId = chatIdToUse;} else {
       finalChatId = chatIdToUse;
-      console.log(`💬 [POST MESSAGES API] Numeric chat ID (legacy format), using: ${finalChatId}`);
-    } else {
-      finalChatId = chatIdToUse;
-    }
-    
-    console.log("💬 [POST MESSAGES API] Final chat ID to use:", finalChatId);
-    console.log("💬 [POST MESSAGES API] Final URL:", `${API_BASE_URL}/messaging/postMessages/${finalChatId}/`);
-    console.log("💬 [POST MESSAGES API] Message to send:", message);
-    
-    // Backend expects: body_field-["Message"]
+    }// Backend expects: body_field-["Message"]
     // Try object format first: {"Message": "text"} (backend uses .get() method)
     // If that fails, we can try array format: ["text"]
     const messageString = String(message).trim();
-    const requestBody = { Message: messageString };
-    console.log("💬 [POST MESSAGES API] Request body (object format):", JSON.stringify(requestBody));
-    console.log("💬 [POST MESSAGES API] Request body type:", typeof requestBody);
-    console.log("💬 [POST MESSAGES API] Message field:", requestBody.Message);
-    
-    let response;
+    const requestBody = { Message: messageString };let response;
     try {
       response = await api.post(`/messaging/postMessages/${finalChatId}/`, requestBody, {
         headers: {
@@ -3154,28 +2786,19 @@ export const postMessages = async (
       });
     } catch (firstError: any) {
       // If object format fails with 500, try array format as fallback
-      if (firstError.response?.status === 500) {
-        console.log("⚠️ [POST MESSAGES API] Object format failed, trying array format...");
-        const arrayBody = [messageString];
-        console.log("💬 [POST MESSAGES API] Retrying with array format:", JSON.stringify(arrayBody));
-        try {
+      if (firstError.response?.status === 500) {const arrayBody = [messageString];try {
           response = await api.post(`/messaging/postMessages/${finalChatId}/`, arrayBody, {
             headers: {
               'Content-Type': 'application/json'
             }
-          });
-          console.log("✅ [POST MESSAGES API] Array format succeeded");
-        } catch (arrayError: any) {
+          });} catch (arrayError: any) {
           // If both fail, throw the original error
           throw firstError;
         }
       } else {
         throw firstError;
       }
-    }
-
-    console.log("✅ [POST MESSAGES API] Response:", response.data);
-    return response.data;
+    }return response.data;
   } catch (error: any) {
     console.error("❌ [POST MESSAGES API] Error:", error);
     console.error("❌ [POST MESSAGES API] Error Response:", error.response?.data);
@@ -3292,9 +2915,7 @@ export const getMessages = async (
     let numericChatId: number | undefined;
     
     // Check if it has a prefix like 'C' - try original format first
-    if (typeof chatId === 'string' && /^[A-Za-z]/.test(chatIdStr)) {
-      console.log(`💬 [GET MESSAGES API] Chat ID has prefix, trying original format: "${chatIdStr}"`);
-      chatIdToUse = chatIdStr;
+    if (typeof chatId === 'string' && /^[A-Za-z]/.test(chatIdStr)) {chatIdToUse = chatIdStr;
       // Also extract numeric for fallback
       const numericMatch = chatIdStr.match(/\d+/);
       if (numericMatch) {
@@ -3308,30 +2929,17 @@ export const getMessages = async (
       const numericMatch = chatIdStr.match(/\d+/);
       if (numericMatch) {
         numericChatId = parseInt(numericMatch[0], 10);
-        chatIdToUse = numericChatId;
-        console.log(`💬 [GET MESSAGES API] Extracted numeric ID: "${chatIdStr}" → ${numericChatId}`);
-      } else {
+        chatIdToUse = numericChatId;} else {
         numericChatId = parseInt(chatIdStr, 10);
-        if (isNaN(numericChatId)) {
-          console.warn("⚠️ [GET MESSAGES API] Could not extract numeric ID from:", chatId);
-          return [];
+        if (isNaN(numericChatId)) {return [];
         }
         chatIdToUse = numericChatId;
       }
       
       // Validate
-      if (isNaN(numericChatId) || numericChatId <= 0) {
-        console.warn(`⚠️ [GET MESSAGES API] Invalid chat ID: "${chatId}" (extracted as ${numericChatId})`);
-        return [];
+      if (isNaN(numericChatId) || numericChatId <= 0) {return [];
       }
-    }
-
-    console.log("💬 [GET MESSAGES API] Original chat ID:", originalChatId);
-    console.log("💬 [GET MESSAGES API] Chat ID to use:", chatIdToUse);
-    console.log("💬 [GET MESSAGES API] Numeric chat ID:", numericChatId);
-    console.log("💬 [GET MESSAGES API] URL:", `${API_BASE_URL}/messaging/getMessages/${chatIdToUse}/`);
-
-    // Determine chat type and use appropriate format:
+    }// Determine chat type and use appropriate format:
     // - 'C' prefix (e.g., "C02569527") = IndividualChat - use ORIGINAL FORMAT with 'C' prefix ("C02569527")
     // - 'G' prefix (e.g., "G09381") = GroupChat - use original format with 'G' prefix ("G09381")
     // - Numeric = Legacy format - use numeric
@@ -3339,29 +2947,18 @@ export const getMessages = async (
     
     if (typeof chatIdToUse === 'string') {
       if (/^C/i.test(chatIdToUse)) {
-        // IndividualChat - use original format with 'C' prefix (e.g., "C02569527")
-        console.log(`💬 [GET MESSAGES API] IndividualChat detected (C prefix), using original format: "${chatIdToUse}"`);
-        finalChatId = chatIdToUse;
+        // IndividualChat - use original format with 'C' prefix (e.g., "C02569527")finalChatId = chatIdToUse;
       } else if (/^G/i.test(chatIdToUse)) {
-        // GroupChat - use "G09381" format (with 'G' prefix)
-        console.log(`💬 [GET MESSAGES API] GroupChat detected (G prefix), using original format: "${chatIdToUse}"`);
-        finalChatId = chatIdToUse;
+        // GroupChat - use "G09381" format (with 'G' prefix)finalChatId = chatIdToUse;
       } else {
         // No prefix - use as-is
         finalChatId = chatIdToUse;
       }
     } else if (typeof chatIdToUse === 'number') {
       // Numeric ID - legacy format
+      finalChatId = chatIdToUse;} else {
       finalChatId = chatIdToUse;
-      console.log(`💬 [GET MESSAGES API] Numeric chat ID (legacy format), using: ${finalChatId}`);
-    } else {
-      finalChatId = chatIdToUse;
-    }
-    
-    console.log("💬 [GET MESSAGES API] Final chat ID to use:", finalChatId);
-    console.log("💬 [GET MESSAGES API] Final URL:", `${API_BASE_URL}/messaging/getMessages/${finalChatId}/`);
-    
-    const response = await api.get(`/messaging/getMessages/${finalChatId}/`);
+    }const response = await api.get(`/messaging/getMessages/${finalChatId}/`);
     
     const data = response.data;
 
@@ -3374,13 +2971,8 @@ export const getMessages = async (
       messages = data.messages;
     } else if (data.data && Array.isArray(data.data)) {
       messages = data.data;
-    } else {
-      console.warn("⚠️ [GET MESSAGES API] Unexpected response format:", data);
-      return [];
-    }
-
-    console.log("✅ [GET MESSAGES API] Successfully fetched", messages.length, "messages");
-    return messages;
+    } else {return [];
+    }return messages;
   } catch (error: any) {
     console.error("❌ [GET MESSAGES API] Error:", error);
     console.error("❌ [GET MESSAGES API] Error Response:", error.response?.data);
@@ -3390,19 +2982,12 @@ export const getMessages = async (
     // Handle 403 Forbidden - "No GroupChats matches the given query" or permission denied
     if (error.response?.status === 403) {
       const errorData = error.response?.data;
-      const errorMsg = errorData?.message || errorData?.detail || errorData?.error || "Permission denied or chat not found";
-      
-      console.warn(`⚠️ [GET MESSAGES API] 403 Forbidden: ${errorMsg}`);
-      console.warn(`⚠️ [GET MESSAGES API] This usually means the chat doesn't exist or you don't have permission`);
-      
-      // Return empty array instead of throwing - allows UI to continue working
+      const errorMsg = errorData?.message || errorData?.detail || errorData?.error || "Permission denied or chat not found";// Return empty array instead of throwing - allows UI to continue working
       return [];
     }
 
     if (error.response?.status === 404) {
-      // Chat not found or no messages - return empty array
-      console.warn("⚠️ [GET MESSAGES API] Chat not found or no messages (404)");
-      return [];
+      // Chat not found or no messages - return empty arrayreturn [];
     }
 
     if (error.response?.status === 500) {
@@ -3458,4 +3043,6 @@ export const apiFunctions = {
   addDayEntries,
   changeEntryStatus,
   getUserEntries,
+  getUserEntriesByFilters,
+  getAssetTypes,
 };
