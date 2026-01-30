@@ -1,14 +1,7 @@
-<<<<<<< HEAD
-import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
-import { Asset, AssetType, StatusType } from '../../types';
-import { getAssetTypes } from '../../services/api';
-=======
 import React, { useState, useEffect } from "react";
 import api from "../../services/api";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { Asset, AssetType, StatusType } from "../../types";
->>>>>>> cce5cd92e05fafd461415dad584321594d954525
 
 interface AssetManagerProps {
   assets: Asset[];
@@ -17,48 +10,7 @@ interface AssetManagerProps {
 /* ----------------------------- UI STATES ----------------------------- */
 const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
   const [showForm, setShowForm] = useState(false);
-  const [assetTypes, setAssetTypes] = useState<Array<{ id: string; name: string }>>([]);
-  const [isLoadingAssetTypes, setIsLoadingAssetTypes] = useState(false);
   const [formData, setFormData] = useState({
-<<<<<<< HEAD
-    type: 'Hardware' as AssetType | string,
-    name: '',
-    author: '',
-    code: '',
-    status: 'Pending' as StatusType,
-  });
-
-  useEffect(() => {
-    const fetchAssetTypes = async () => {
-      setIsLoadingAssetTypes(true);
-      try {
-        const types = await getAssetTypes();
-        console.log('📋 [AssetManager] Asset types from API:', types);
-        setAssetTypes(types);
-      } catch (e) {
-        console.error('❌ [AssetManager] Failed to fetch asset types:', e);
-        setAssetTypes([]);
-      } finally {
-        setIsLoadingAssetTypes(false);
-      }
-    };
-    fetchAssetTypes();
-  }, []);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newAsset: Asset = {
-      ...formData,
-      type: (formData.type || 'Hardware') as AssetType,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setAssets([newAsset, ...assets]);
-    const defaultType = assetTypes.length > 0 ? assetTypes[0].name : 'Hardware';
-    setFormData({ type: defaultType, name: '', author: '', code: '', status: 'Pending' });
-    setShowForm(false);
-  };
-=======
     type: "" as AssetType,
     name: "",
     author: "",
@@ -89,8 +41,6 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
         console.error("❌ Failed to fetch asset types", error);
       }
     };
->>>>>>> cce5cd92e05fafd461415dad584321594d954525
-
     fetchAssetTypes();
   }, []);
   /* ------------------------- FETCH ASSETS ------------------------------- */
@@ -315,13 +265,8 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
               </label>
               <select
                 value={formData.type}
-<<<<<<< HEAD
-                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-=======
                 onChange={(e) => {
                   const selectedType = e.target.value as AssetType;
-
                   setFormData({
                     ...formData,
                     type: selectedType,
@@ -329,34 +274,14 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
                   });
                 }}
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl"
->>>>>>> cce5cd92e05fafd461415dad584321594d954525
                 required
-                disabled={isLoadingAssetTypes}
               >
-<<<<<<< HEAD
-                {isLoadingAssetTypes && <option value="Hardware">Loading…</option>}
-                {!isLoadingAssetTypes && assetTypes.length === 0 && (
-                  <>
-                    <option value="Hardware">Hardware</option>
-                    <option value="Software">Software</option>
-                  </>
-                )}
-                {!isLoadingAssetTypes &&
-                  assetTypes.length > 0 &&
-                  assetTypes.map((t) => (
-                    <option key={t.id} value={t.name}>
-                      {t.name}
-                    </option>
-                  ))}
-=======
                 <option value="">Select Asset Type</option>
-
                 {assetTypes.map((type) => (
                   <option key={type.id} value={type.name}>
                     {type.name}
                   </option>
                 ))}
->>>>>>> cce5cd92e05fafd461415dad584321594d954525
               </select>
             </div>
             <div>
