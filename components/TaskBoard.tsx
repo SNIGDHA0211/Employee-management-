@@ -1385,8 +1385,17 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         {/* Header with Create Task Button (for all roles except MD and Admin) */}
         <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
           <h2 className="text-2xl font-bold text-gray-800">
-            Task Reporting - All Tasks
+            {/* Task Reporting - All Tasks */}
           </h2>
+          {currentUser.role === UserRole.MD && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
+            >
+              <Plus size={18} />
+              <span>Assign Task</span>
+            </button>
+          )}
           {currentUser.role !== UserRole.MD && currentUser.role !== UserRole.ADMIN && (
             <button 
               onClick={() => setShowAddModal(true)}
@@ -1957,15 +1966,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
           </div>
           
           <div className="flex gap-2">
-             {canAssignTask && (
-              <button 
-                onClick={() => setShowAddModal(true)}
-                className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
-              >
-                <Plus size={18} />
-                <span>Assign Task</span>
-              </button>
-            )}
+            {/* Assign Task button only on Assigned Task page (viewMode reporting), not on Reporting Task page */}
           </div>
         </div>
       </div>

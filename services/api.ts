@@ -1902,6 +1902,70 @@ export const getUserEntries = async (
 };
 
 /**
+ * Get user entries by filters (for Report Review – display stored entries; note field shown in table).
+ * @endpoint GET /getUserEntries/?quater=Q1&month=April&department=Sales&username=3001&date=2026-01-21&month_quater_id=...
+ * @param params - Required: quater, month, department, username. Optional: date, month_quater_id (use for correct month id when backend supports it)
+ * @returns Array of entries with id, note, meeting_head, meeting_sub_head, username, date, status, month_quater_id
+ */
+export const getUserEntriesByFilters = async (params: {
+  quater: string;
+  month: string;
+  department: string;
+  username: string;
+  date?: string;
+  month_quater_id?: string | number;
+}): Promise<Array<{
+  id: number;
+  note: string;
+  meeting_head: string;
+  meeting_sub_head: string;
+  username: string;
+  date: string;
+  status: string;
+  month_quater_id: string;
+}>> => {
+  try {
+    const qs = new URLSearchParams();
+    qs.set("quater", params.quater);
+    qs.set("month", params.month);
+    qs.set("department", params.department);
+    qs.set("username", params.username);
+    if (params.date) qs.set("date", params.date);
+    if (params.month_quater_id != null && params.month_quater_id !== '') qs.set("month_quater_id", String(params.month_quater_id));
+    const endpoint = `/getUserEntries/?${qs.toString()}`;
+    console.log("📖 [GET USER ENTRIES BY FILTERS] Fetching:", endpoint);
+    const response = await api.get(endpoint);
+    const data = response.data;
+    let entriesArray: any[] = [];
+    if (data == null) {
+      return [];
+    }
+    if (Array.isArray(data)) {
+      entriesArray = data;
+    } else if (typeof data === 'object') {
+      if (Array.isArray(data.entries)) entriesArray = data.entries;
+      else if (Array.isArray(data.data)) entriesArray = data.data;
+      else if (Array.isArray(data.results)) entriesArray = data.results;
+      else {
+        const key = Object.keys(data).find(k => Array.isArray((data as any)[k]));
+        if (key) entriesArray = (data as any)[key];
+        else console.warn("⚠️ [GET USER ENTRIES BY FILTERS] Response not an array or known shape:", typeof data, data);
+      }
+    } else {
+      console.warn("⚠️ [GET USER ENTRIES BY FILTERS] Unexpected type:", typeof data, data);
+    }
+    return Array.isArray(entriesArray) ? entriesArray : [];
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      console.log("📖 [GET USER ENTRIES BY FILTERS] No entries (404)");
+      return [];
+    }
+    console.error("❌ [GET USER ENTRIES BY FILTERS] Error:", error);
+    throw error;
+  }
+};
+
+/**
  * Get names filtered by role and designation
  * @endpoint GET /tasks/getNamesfromRoleandDesignation/?role=&designation=
  * @param role - Role filter (optional, use empty string or "all" for all roles)
@@ -1949,6 +2013,41 @@ export const getNamesFromRoleAndDesignation = async (
     console.error("❌ [GET NAMES API] Exception caught:", error);
     console.error("❌ [GET NAMES API] Error Response:", error.response?.data);
     throw error;
+  }
+};
+
+/**
+ * Get asset types for Admin Ops Asset Manager (e.g. Hardware, Software).
+ * @endpoint GET /assets/types/ (fallback to default list if not implemented)
+ * @returns Array of { id, name } for dropdown
+ */
+export const getAssetTypes = async (): Promise<Array<{ id: string; name: string }>> => {
+  const defaultTypes: Array<{ id: string; name: string }> = [
+    { id: '1', name: 'Hardware' },
+    { id: '2', name: 'Software' },
+  ];
+  try {
+    const response = await api.get("/assets/types/");
+    const data = response.data;
+    if (Array.isArray(data)) {
+      return data.map((item: any) =>
+        typeof item === 'string'
+          ? { id: String(item).toLowerCase().replace(/\s+/g, '_'), name: item }
+          : { id: String(item?.id ?? item?.value ?? item?.name ?? ''), name: String(item?.name ?? item?.label ?? item ?? '') }
+      ).filter((t: { id: string; name: string }) => t.name);
+    }
+    if (data?.types && Array.isArray(data.types)) {
+      return data.types.map((item: any) =>
+        typeof item === 'string'
+          ? { id: String(item).toLowerCase().replace(/\s+/g, '_'), name: item }
+          : { id: String(item?.id ?? item?.value ?? item?.name ?? ''), name: String(item?.name ?? item?.label ?? item ?? '') }
+      ).filter((t: { id: string; name: string }) => t.name);
+    }
+    return defaultTypes;
+  } catch (error: any) {
+    if (error?.response?.status === 404 || error?.code === 'ERR_NETWORK') return defaultTypes;
+    console.warn("⚠️ [GET ASSET TYPES] Error, using defaults:", error?.message);
+    return defaultTypes;
   }
 };
 
@@ -3456,4 +3555,6 @@ export const apiFunctions = {
   addDayEntries,
   changeEntryStatus,
   getUserEntries,
+  getUserEntriesByFilters,
+  getAssetTypes,
 };

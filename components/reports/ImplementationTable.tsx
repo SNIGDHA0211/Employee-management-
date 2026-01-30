@@ -1,13 +1,15 @@
 import React, { useMemo } from 'react';
+import { Trash2 } from 'lucide-react';
 import { ImplementationRow } from './types';
 
 interface ImplementationTableProps {
   rows: ImplementationRow[];
   setRows: React.Dispatch<React.SetStateAction<ImplementationRow[]>>;
   onStatusChange?: (rowId: string, status: 'PENDING' | 'INPROCESS' | 'Completed') => void;
+  onRemoveRow?: (rowId: string) => void;
 }
 
-const ImplementationTable: React.FC<ImplementationTableProps> = ({ rows, setRows, onStatusChange }) => {
+const ImplementationTable: React.FC<ImplementationTableProps> = ({ rows, setRows, onStatusChange, onRemoveRow }) => {
   const updateRow = (id: string, field: keyof ImplementationRow, value: string) => {
     setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
   };
@@ -46,6 +48,7 @@ const ImplementationTable: React.FC<ImplementationTableProps> = ({ rows, setRows
              <th className="border border-gray-300 p-2 text-left text-xs font-bold text-gray-500 uppercase w-32">Deadline</th>
              <th className="border border-gray-300 p-2 text-left text-xs font-bold text-gray-500 uppercase w-48">Assigned Help</th>
              <th className="border border-gray-300 p-2 text-left text-xs font-bold text-gray-500 uppercase w-32">Status</th>
+             <th className="border border-gray-300 p-2 text-center text-xs font-bold text-gray-500 uppercase w-20 no-print">Remove</th>
           </tr>
         </thead>
         <tbody>
@@ -102,6 +105,18 @@ const ImplementationTable: React.FC<ImplementationTableProps> = ({ rows, setRows
                                       <option value="Completed">Completed</option>
                                       <option value="Delayed">Delayed</option>
                                   </select>
+                              </td>
+                              <td className="border border-gray-300 p-2 text-center align-middle no-print w-20">
+                                  {onRemoveRow && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onRemoveRow(row.id)}
+                                      className="p-1.5 rounded-md text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                                      title="Remove row"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
                               </td>
                           </tr>
                       ))}

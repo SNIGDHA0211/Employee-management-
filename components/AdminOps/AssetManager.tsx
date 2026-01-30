@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { Asset, AssetType, StatusType } from '../../types';
+import { getAssetTypes } from '../../services/api';
 
 interface AssetManagerProps {
   assets: Asset[];
@@ -9,23 +10,44 @@ interface AssetManagerProps {
 
 const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
   const [showForm, setShowForm] = useState(false);
+  const [assetTypes, setAssetTypes] = useState<Array<{ id: string; name: string }>>([]);
+  const [isLoadingAssetTypes, setIsLoadingAssetTypes] = useState(false);
   const [formData, setFormData] = useState({
-    type: 'Hardware' as AssetType,
+    type: 'Hardware' as AssetType | string,
     name: '',
     author: '',
     code: '',
     status: 'Pending' as StatusType,
   });
 
+  useEffect(() => {
+    const fetchAssetTypes = async () => {
+      setIsLoadingAssetTypes(true);
+      try {
+        const types = await getAssetTypes();
+        console.log('📋 [AssetManager] Asset types from API:', types);
+        setAssetTypes(types);
+      } catch (e) {
+        console.error('❌ [AssetManager] Failed to fetch asset types:', e);
+        setAssetTypes([]);
+      } finally {
+        setIsLoadingAssetTypes(false);
+      }
+    };
+    fetchAssetTypes();
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const newAsset: Asset = {
       ...formData,
+      type: (formData.type || 'Hardware') as AssetType,
       id: Date.now().toString(),
       createdAt: new Date().toISOString().split('T')[0],
     };
     setAssets([newAsset, ...assets]);
-    setFormData({ type: 'Hardware', name: '', author: '', code: '', status: 'Pending' });
+    const defaultType = assetTypes.length > 0 ? assetTypes[0].name : 'Hardware';
+    setFormData({ type: defaultType, name: '', author: '', code: '', status: 'Pending' });
     setShowForm(false);
   };
 
@@ -69,12 +91,25 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
               <label className="block text-sm font-semibold text-gray-700 mb-2">Asset Type</label>
               <select
                 value={formData.type}
-                onChange={(e) => setFormData({ ...formData, type: e.target.value as AssetType })}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                 required
+                disabled={isLoadingAssetTypes}
               >
-                <option value="Hardware">Hardware</option>
-                <option value="Software">Software</option>
+                {isLoadingAssetTypes && <option value="Hardware">Loading…</option>}
+                {!isLoadingAssetTypes && assetTypes.length === 0 && (
+                  <>
+                    <option value="Hardware">Hardware</option>
+                    <option value="Software">Software</option>
+                  </>
+                )}
+                {!isLoadingAssetTypes &&
+                  assetTypes.length > 0 &&
+                  assetTypes.map((t) => (
+                    <option key={t.id} value={t.name}>
+                      {t.name}
+                    </option>
+                  ))}
               </select>
             </div>
             <div>
