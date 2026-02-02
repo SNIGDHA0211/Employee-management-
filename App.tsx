@@ -1486,7 +1486,7 @@ export default function App() {
         return renderDashboard();
 
       case 'admin-dashboard':
-        if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
+        if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.MD) return <div>Access Denied</div>;
         return <AdminDashboard assets={assets} bills={bills} expenses={expenses} vendors={vendors} />;
 
       case 'admin-assets':
