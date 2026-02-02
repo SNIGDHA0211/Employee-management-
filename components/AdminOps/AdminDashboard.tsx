@@ -129,7 +129,7 @@ const AdminDashboard: React.FC<DashboardProps> = ({
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
           <div className="p-3 bg-red-50 text-red-600 rounded-xl">
             <span className="text-2xl font-bold">
-              ${totalExpense.toLocaleString()}
+            ₹{totalExpense.toLocaleString()}
             </span>
           </div>
           <div>

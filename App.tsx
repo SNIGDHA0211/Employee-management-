@@ -26,6 +26,9 @@ import ExpenseManager from './components/AdminOps/ExpenseManager';
 import BillsManager from './components/AdminOps/BillsManager';
 import { Users, Briefcase, CheckSquare, AlertTriangle, ShieldCheck, Activity, Lock, User as UserIcon, ArrowRight, Clock, CheckCircle2, XCircle, Leaf, Building2, Cpu, Database, Fingerprint, X, Mail, Calendar, Briefcase as BriefcaseIcon, Eye, EyeOff, Shield } from 'lucide-react';
 import { Asset, Bill, Expense, Vendor } from './types';
+import { getBills } from './services/bill.service';
+import { getExpenses } from './services/expense.service';
+import { getVendors } from './services/vendor.service';
 
 // Helper function to convert Photo_link to absolute URL with /media/ prefix for Django
 const convertPhotoLinkToUrl = (photoLink: string | null | undefined): string => {
@@ -701,6 +704,26 @@ export default function App() {
     };
     fetchBranches();
   }, [activeTab, currentUser]);
+
+  // Fetch bills, expenses, vendors when Admin opens Admin Dashboard so dashboard has data initially
+  useEffect(() => {
+    const fetchAdminDashboardData = async () => {
+      if (currentUser?.role !== UserRole.ADMIN || activeTab !== 'admin-dashboard') return;
+      try {
+        const [billsData, expensesData, vendorsData] = await Promise.all([
+          getBills(),
+          getExpenses(),
+          getVendors(),
+        ]);
+        setBills(Array.isArray(billsData) ? billsData : []);
+        setExpenses(Array.isArray(expensesData) ? expensesData : []);
+        setVendors(Array.isArray(vendorsData) ? vendorsData : []);
+      } catch (err: any) {
+        console.error('Error fetching admin dashboard data:', err);
+      }
+    };
+    fetchAdminDashboardData();
+  }, [activeTab, currentUser?.role]);
 
   // Fetch employees from API when switching to team tab
   useEffect(() => {

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Calendar, DollarSign, FileText, Pencil, Plus, Tag, Trash2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Calendar, DollarSign, FileText, Loader2, Pencil, Plus, Tag, Trash2, X } from 'lucide-react';
 import { Expense, StatusType } from '../../types';
+import { createExpense, deleteExpense, getExpenses, updateExpense, uiToBackendStatus } from '../../services/expense.service';
 
 interface ExpenseManagerProps {
   expenses: Expense[];
@@ -9,6 +10,20 @@ interface ExpenseManagerProps {
 
 const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }) => {
   const [showForm, setShowForm] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    amount: '',
+    note: '',
+    paidDate: '',
+    status: 'Pending' as StatusType,
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     amount: '',
@@ -17,26 +32,105 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
     status: 'Pending' as StatusType,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newExpense: Expense = {
-      ...formData,
-      amount: parseFloat(formData.amount),
-      id: Date.now().toString(),
+  useEffect(() => {
+    const load = async () => {
+      setIsLoading(true);
+      setFetchError(null);
+      try {
+        const list = await getExpenses();
+        setExpenses(list);
+      } catch (err: any) {
+        setFetchError(err?.response?.data?.detail ?? err?.message ?? 'Failed to load expenses.');
+      } finally {
+        setIsLoading(false);
+      }
     };
-    setExpenses([newExpense, ...expenses]);
-    setFormData({
-      title: '',
-      amount: '',
-      note: '',
-      paidDate: new Date().toISOString().split('T')[0],
-      status: 'Pending',
-    });
-    setShowForm(false);
+    load();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitError(null);
+    setIsSubmitting(true);
+    try {
+      const created = await createExpense({
+        title: formData.title.trim(),
+        amount: parseFloat(formData.amount) || 0,
+        note: formData.note.trim(),
+        paid_date: formData.paidDate,
+        status: formData.status.toUpperCase(),
+      });
+      setExpenses([created, ...expenses]);
+      setFormData({
+        title: '',
+        amount: '',
+        note: '',
+        paidDate: new Date().toISOString().split('T')[0],
+        status: 'Pending',
+      });
+      setShowForm(false);
+    } catch (err: any) {
+      setSubmitError(err?.response?.data?.detail ?? err?.message ?? 'Failed to create expense. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const updateStatus = (id: string, newStatus: StatusType) => {
-    setExpenses((prev) => prev.map((e) => (e.id === id ? { ...e, status: newStatus } : e)));
+  const openEditModal = (expense: Expense) => {
+    setEditingExpense(expense);
+    setEditFormData({
+      title: expense.title,
+      amount: String(expense.amount),
+      note: expense.note,
+      paidDate: expense.paidDate,
+      status: expense.status,
+    });
+    setUpdateError(null);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingExpense) return;
+    setUpdateError(null);
+    setIsUpdating(true);
+    try {
+      const updated = await updateExpense(editingExpense.id, {
+        title: editFormData.title.trim(),
+        amount: parseFloat(editFormData.amount) || 0,
+        note: editFormData.note.trim(),
+        paid_date: editFormData.paidDate,
+        status: uiToBackendStatus(editFormData.status),
+      });
+      setExpenses((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+      setEditingExpense(null);
+    } catch (err: any) {
+      setUpdateError(err?.response?.data?.detail ?? err?.message ?? 'Failed to update expense.');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const updateStatus = async (id: string, newStatus: StatusType) => {
+    try {
+      const updated = await updateExpense(id, { status: uiToBackendStatus(newStatus) });
+      setExpenses((prev) => prev.map((e) => (e.id === id ? updated : e)));
+    } catch {
+      // Keep local state on error; user can retry
+    }
+  };
+
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDelete = async (expense: Expense) => {
+    setDeletingId(expense.id);
+    try {
+      await deleteExpense(expense.id);
+      setExpenses((prev) => prev.filter((e) => e.id !== expense.id));
+    } catch {
+      // Optionally show error; for now just reset deletingId
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const getStatusStyle = (status: StatusType) => {
@@ -90,7 +184,7 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
               </div>
               <div className="relative">
                 <label className="flex items-center gap-2 text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">
-                  <DollarSign size={12} /> Amount
+                ₹ Amount
                 </label>
                 <input
                   type="number"
@@ -128,16 +222,144 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
                 required
               />
             </div>
+            {submitError && (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {submitError}
+              </div>
+            )}
             <button
               type="submit"
-              className="w-full bg-gray-900 text-white font-black py-5 rounded-2xl hover:bg-black shadow-2xl transition-all uppercase tracking-widest"
+              disabled={isSubmitting}
+              className="w-full bg-gray-900 text-white font-black py-5 rounded-2xl hover:bg-black shadow-2xl transition-all uppercase tracking-widest disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Register Expense
+              {isSubmitting ? 'Creating…' : 'Register Expense'}
             </button>
           </form>
         </div>
       )}
 
+      {editingExpense && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-gray-900">Edit Expense</h3>
+              <button
+                type="button"
+                onClick={() => { setEditingExpense(null); setUpdateError(null); }}
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleEditSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="flex items-center gap-2 text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">
+                    <Tag size={12} /> Title
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.title}
+                    onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
+                    placeholder="Marketing, Supplies, etc."
+                    className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-gray-300"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="flex items-center gap-2 text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">
+                    <DollarSign size={12} /> Amount
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editFormData.amount}
+                    onChange={(e) => setEditFormData({ ...editFormData, amount: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-gray-300"
+                    required
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="flex items-center gap-2 text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">
+                  <FileText size={12} /> Note / Description
+                </label>
+                <textarea
+                  value={editFormData.note}
+                  onChange={(e) => setEditFormData({ ...editFormData, note: e.target.value })}
+                  placeholder="What was this expense for?"
+                  rows={3}
+                  className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-gray-300 resize-none"
+                  required
+                />
+              </div>
+              <div>
+                <label className="flex items-center gap-2 text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">
+                  <Calendar size={12} /> Paid Date
+                </label>
+                <input
+                  type="date"
+                  value={editFormData.paidDate}
+                  onChange={(e) => setEditFormData({ ...editFormData, paidDate: e.target.value })}
+                  className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  required
+                />
+              </div>
+              <div>
+                <label className="flex items-center gap-2 text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">
+                  Status
+                </label>
+                <select
+                  value={editFormData.status}
+                  onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value as StatusType })}
+                  className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                >
+                  <option value="Pending">Pending</option>
+                  <option value="Inprocess">Inprocess</option>
+                  <option value="Completed">Completed</option>
+                </select>
+              </div>
+              {updateError && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {updateError}
+                </div>
+              )}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setEditingExpense(null); setUpdateError(null); }}
+                  className="flex-1 px-4 py-3 border border-gray-200 rounded-2xl font-bold text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdating}
+                  className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isUpdating ? <Loader2 size={18} className="animate-spin" /> : null}
+                  {isUpdating ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {fetchError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 mb-6">
+          {fetchError}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-24 gap-3 text-gray-500">
+          <Loader2 size={24} className="animate-spin" />
+          <span className="font-medium">Loading expenses…</span>
+        </div>
+      ) : (
+      <>
       <div className="space-y-4">
         {expenses.map((expense) => (
           <div
@@ -168,18 +390,28 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
               </div>
             </div>
             <div className="mt-4 md:mt-0 flex flex-col items-end">
-              <span className="text-2xl font-black text-indigo-600">${Number(expense.amount).toLocaleString()}</span>
+              <span className="text-2xl font-black text-indigo-600">₹{Number(expense.amount).toLocaleString()}</span>
               <div className="flex items-center space-x-6 mt-4 text-gray-300">
-                <button className="hover:text-indigo-600 transition-colors" title="Edit" type="button">
+                <button
+                  onClick={() => openEditModal(expense)}
+                  className="hover:text-indigo-600 transition-colors"
+                  title="Edit"
+                  type="button"
+                >
                   <Pencil size={18} />
                 </button>
                 <button
-                  onClick={() => setExpenses(expenses.filter((e) => e.id !== expense.id))}
-                  className="hover:text-red-500 transition-colors"
+                  onClick={() => handleDelete(expense)}
+                  disabled={deletingId === expense.id}
+                  className="hover:text-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title="Delete"
                   type="button"
                 >
-                  <Trash2 size={18} />
+                  {deletingId === expense.id ? (
+                    <Loader2 size={18} className="animate-spin text-red-500" />
+                  ) : (
+                    <Trash2 size={18} />
+                  )}
                 </button>
               </div>
             </div>
@@ -190,10 +422,12 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
       {expenses.length === 0 && (
         <div className="text-center py-24">
           <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
-            <DollarSign className="text-gray-200" size={40} />
+              <DollarSign className="text-gray-200" size={40} />
           </div>
           <p className="text-gray-400 font-medium">No expenses logged this period.</p>
         </div>
+      )}
+      </>
       )}
     </div>
   );

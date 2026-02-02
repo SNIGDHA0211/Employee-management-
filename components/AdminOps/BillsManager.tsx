@@ -285,7 +285,7 @@ const BillsManager: React.FC<BillsManagerProps> = ({ bills, setBills }) => {
                 </span>
               </div>
               <span className="text-lg font-black text-gray-800">
-                {Number(bill.amount).toLocaleString()}
+              ₹ {Number(bill.amount).toLocaleString()}
               </span>
             </div>
             <div className="space-y-3">
