@@ -124,6 +124,7 @@ export interface Task {
   assigneeId: string; // Primary owner
   assigneeIds?: string[]; // For Group tasks
   reporterId: string; // Who assigned it
+  createdByName?: string; // Name from API created_by (e.g. viewAssignedTasks), shown for MD
   projectId?: string;
   dueDate: string;
   createdAt: string;
