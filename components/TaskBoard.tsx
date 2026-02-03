@@ -507,6 +507,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
           // Store the backend ID separately if we have it, otherwise use fallback
           const taskIdString = backendTaskId ? String(backendTaskId) : `t${Date.now()}-${Math.random()}`;
           
+          const createdByName = apiTask.created_by ?? apiTask['created_by'] ?? undefined;
           const task: Task & { _backendTaskId?: string | null } = {
             id: taskIdString,
             _backendTaskId: backendTaskId ? String(backendTaskId) : null, // Store actual backend ID for API calls
@@ -516,13 +517,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
             status: mappedStatus,
             assigneeId: rawAssignedTo,
             reporterId: reporterId || undefined,
+            createdByName: typeof createdByName === 'string' ? createdByName : undefined,
             dueDate: apiTask.due_date || apiTask['due_date'] || apiTask['due-date'] || apiTask.dueDate || new Date().toISOString().split('T')[0],
             createdAt: apiTask.created_at || apiTask['created_at'] || apiTask.createdAt || new Date().toISOString(),
             comments: apiTask.comments || apiTask['comments'] || [],
             priority: (apiTask.priority || apiTask['priority'] || 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
             projectId: apiTask.projectId || apiTask['projectId'] || apiTask.project_id || undefined,
           };
-          
           return task;
         });
         
@@ -986,29 +987,28 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         // Store the backend ID separately if we have it, otherwise use fallback
         const taskIdString = backendTaskId ? String(backendTaskId) : `t${Date.now()}-${Math.random()}`;
         
+        const createdByNameRefresh = apiTask.created_by ?? apiTask['created_by'] ?? undefined;
         const task: Task & { _backendTaskId?: string | null } = {
           id: taskIdString,
-          _backendTaskId: backendTaskId ? String(backendTaskId) : null, // Store actual backend ID for API calls
+          _backendTaskId: backendTaskId ? String(backendTaskId) : null,
           title: apiTask.title || apiTask['title'] || 'Untitled Task',
           description: cleanDescription,
           type: mappedType,
           status: mappedStatus,
           assigneeId: rawAssignedTo,
           reporterId: reporterId || undefined,
+          createdByName: typeof createdByNameRefresh === 'string' ? createdByNameRefresh : undefined,
           dueDate: apiTask.due_date || apiTask['due_date'] || apiTask['due-date'] || apiTask.dueDate || new Date().toISOString().split('T')[0],
           createdAt: apiTask.created_at || apiTask['created_at'] || apiTask.createdAt || new Date().toISOString(),
           comments: apiTask.comments || apiTask['comments'] || [],
           priority: (apiTask.priority || apiTask['priority'] || 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
           projectId: apiTask.projectId || apiTask['projectId'] || apiTask.project_id || undefined,
         };
-        
         return task;
       });
-      
       const uniqueTasks = convertedTasks.filter((task, index, self) => 
         index === self.findIndex(t => t.id === task.id)
       );
-      
       setTasks(uniqueTasks);
     } catch (err: any) {
       console.error('❌ [REFRESH TASKS ERROR]', err);
@@ -1379,8 +1379,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                   </div>
 
                   {/* Display assigner and assignee names */}
-                  {/* Always show "Assigned by" if reporter exists - this is who created/assigned the task */}
-                  {reporter && (
+                  {/* For MD: show Created by from API (created_by); else show Assigned by if reporter exists */}
+                  {currentUser.role === UserRole.MD && (task.createdByName || reporter?.name) && (
+                    <div className="text-xs text-gray-500 mb-1.5">
+                      Created by: <strong className="text-brand-600">{task.createdByName || reporter?.name}</strong>
+                    </div>
+                  )}
+                  {currentUser.role !== UserRole.MD && reporter && (
                     <div className="text-xs text-gray-500 mb-1.5">
                       Assigned by: <strong className="text-brand-600">{reporter.name}</strong>
                     </div>
@@ -1936,9 +1941,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                       <span className={isOverdue ? "text-red-500 font-bold" : ""}>Due: {new Date(task.dueDate).toLocaleDateString()}</span>
                     </div>
                     
-                    {/* Display assigner and assignee names */}
-                    {/* Always show "Assigned by" if reporter exists - this is who created/assigned the task */}
-                    {reporter && (
+                    {/* For MD: show Created by from API (created_by); else show Assigned by if reporter exists */}
+                    {currentUser.role === UserRole.MD && (task.createdByName || reporter?.name) && (
+                      <div className="flex items-center space-x-1 text-gray-500">
+                        <span className="text-[10px]">Created by: <strong className="text-brand-600">{task.createdByName || reporter?.name}</strong></span>
+                      </div>
+                    )}
+                    {currentUser.role !== UserRole.MD && reporter && (
                       <div className="flex items-center space-x-1 text-gray-500">
                         <span className="text-[10px]">Assigned by: <strong className="text-brand-600">{reporter.name}</strong></span>
                       </div>
