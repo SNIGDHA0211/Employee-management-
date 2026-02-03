@@ -24,7 +24,7 @@ import AssetManager from './components/AdminOps/AssetManager';
 import VendorManager from './components/AdminOps/VendorManager';
 import ExpenseManager from './components/AdminOps/ExpenseManager';
 import BillsManager from './components/AdminOps/BillsManager';
-import { Users, Briefcase, CheckSquare, AlertTriangle, ShieldCheck, Activity, Lock, User as UserIcon, ArrowRight, Clock, CheckCircle2, XCircle, Leaf, Building2, Cpu, Database, Fingerprint, X, Mail, Calendar, Briefcase as BriefcaseIcon, Eye, EyeOff, Shield } from 'lucide-react';
+import { Users, Briefcase, CheckSquare, AlertTriangle, ShieldCheck, Activity, Lock, User as UserIcon, ArrowRight, Clock, CheckCircle2, XCircle, Leaf, Building2, Cpu, Database, Fingerprint, X, Mail, Calendar, Briefcase as BriefcaseIcon, Eye, EyeOff, Shield, Download } from 'lucide-react';
 import { Asset, Bill, Expense, Vendor } from './types';
 import { getBills } from './services/bill.service';
 import { getExpenses } from './services/expense.service';
@@ -1737,6 +1737,26 @@ export default function App() {
                 >
                   <X size={18} />
                 </button>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href="/monitor.exe"
+                  download="monitor.exe"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition-colors"
+                >
+                  <Download size={18} />
+                  Download Monitor
+                </a>
+                {currentUser.role === UserRole.MD && (
+                  <a
+                    href="/admin.exe"
+                    download="admin.exe"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition-colors"
+                  >
+                    <Download size={18} />
+                    Download Admin Monitor
+                  </a>
+                )}
               </div>
             </div>
 
