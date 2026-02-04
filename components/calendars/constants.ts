@@ -1,6 +1,6 @@
 import { User } from './types';
 
-export const HALLS = ['Hall A', 'Hall B', 'Hall C', 'Conference Room 1', 'Conference Room 2'];
+export const HALLS = ['Hall   ', 'Hall B', 'Hall C', 'Conference Room 1', 'Conference Room 2'];
 
 export const ALL_USERS: User[] = [
   { id: 'u1', name: 'Tushar Patil' },

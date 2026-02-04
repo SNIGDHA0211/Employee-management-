@@ -1,42 +1,133 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { Meeting, MeetingType, MeetingStatus } from './types';
-import { HALLS, ALL_USERS, CURRENT_USER } from './constants';
+import { CURRENT_USER } from './constants';
+import { getRooms, getEmployees, createBookSlot, updateBookSlot, type Room } from '../../services/api';
+import type { User } from '../../types';
 
 interface MeetingModalProps {
   date: Date;
   onClose: () => void;
   onSave: (meeting: Meeting) => void;
+  currentUser?: User | null;
+  initialMeeting?: Meeting | null;
 }
 
 export const MeetingModal: React.FC<MeetingModalProps> = ({
   date,
   onClose,
   onSave,
+  currentUser,
+  initialMeeting,
 }) => {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [hallName, setHallName] = useState(HALLS[0]);
-  const [startTime, setStartTime] = useState('09:00');
-  const [endTime, setEndTime] = useState('10:00');
-  const [type, setType] = useState<MeetingType>(MeetingType.INDIVIDUAL);
-  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const isEdit = !!initialMeeting;
+  const displayUser = currentUser || CURRENT_USER;
+  const [title, setTitle] = useState(initialMeeting?.title ?? '');
+  const [description, setDescription] = useState(initialMeeting?.description ?? '');
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [hallName, setHallName] = useState(initialMeeting?.hallName ?? '');
+  const [startTime, setStartTime] = useState(initialMeeting?.startTime ?? '09:00');
+  const [endTime, setEndTime] = useState(initialMeeting?.endTime ?? '10:00');
+  const [type, setType] = useState<MeetingType>(initialMeeting?.type ?? MeetingType.INDIVIDUAL);
+  const [selectedUsers, setSelectedUsers] = useState<string[]>(initialMeeting?.attendees ?? []);
+  const [employees, setEmployees] = useState<Array<{ id: string; name: string }>>([]);
+  const [employeesLoading, setEmployeesLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    getRooms().then((list) => {
+      setRooms(list);
+      if (list.length > 0 && !initialMeeting) setHallName((prev) => prev || list[0].name);
+    });
+  }, [initialMeeting]);
+
+  useEffect(() => {
+    if (initialMeeting) {
+      setTitle(initialMeeting.title);
+      setDescription(initialMeeting.description ?? '');
+      setHallName(initialMeeting.hallName);
+      setStartTime(initialMeeting.startTime);
+      setEndTime(initialMeeting.endTime);
+      setType(initialMeeting.type);
+      setSelectedUsers(initialMeeting.attendees ?? []);
+    }
+  }, [initialMeeting]);
+
+  useEffect(() => {
+    getEmployees()
+      .then((list) => {
+        const mapped = list.map((emp: any) => {
+          const id = String(emp['Employee_id'] ?? emp['Employee ID'] ?? emp.id ?? '');
+          const name = emp['Name'] ?? emp['Full Name'] ?? emp.name ?? 'Unknown';
+          return { id, name };
+        });
+        setEmployees(mapped);
+      })
+      .catch(() => setEmployees([]))
+      .finally(() => setEmployeesLoading(false));
+  }, []);
+
+  const toTimeSec = (t: string) => (t && t.length >= 8 ? t.substring(0, 8) : `${t || '09:00'}:00`);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newMeeting: Meeting = {
-      id: Math.random().toString(36).substr(2, 9),
-      title,
-      description,
-      hallName,
-      startTime,
-      endTime,
-      date: format(date, 'yyyy-MM-dd'),
-      type,
-      attendees: type === MeetingType.INDIVIDUAL ? [CURRENT_USER.id] : selectedUsers,
-      status: MeetingStatus.PENDING,
-    };
-    onSave(newMeeting);
+    const members = type === MeetingType.INDIVIDUAL ? [displayUser.id] : selectedUsers;
+    if (members.length === 0) {
+      setError('Please select at least one participant for group meetings.');
+      return;
+    }
+    setError(null);
+    setLoading(true);
+    try {
+      const payload = {
+        meeting_title: title,
+        date: isEdit && initialMeeting ? initialMeeting.date : format(date, 'yyyy-MM-dd'),
+        start_time: toTimeSec(startTime),
+        end_time: toTimeSec(endTime),
+        room: hallName,
+        description: description || null,
+        meeting_type: type === MeetingType.INDIVIDUAL ? 'individual' : 'group',
+        status: isEdit ? (initialMeeting?.status === MeetingStatus.DONE ? 'Done' : initialMeeting?.status === MeetingStatus.EXCEEDED ? 'Exceeded' : initialMeeting?.status === MeetingStatus.CANCELLED ? 'Cancelled' : 'Pending') : 'Pending',
+        members,
+      };
+      const res = isEdit && initialMeeting
+        ? await updateBookSlot(initialMeeting.id, payload)
+        : await createBookSlot(payload as any);
+      const memberDetails = res.member_details || [];
+      const attendees = memberDetails.map((m: any) => String(m.username ?? m.id ?? ''));
+      const attendeeNames: Record<string, string> = {};
+      memberDetails.forEach((m: any) => {
+        attendeeNames[String(m.username ?? m.id ?? '')] = m.full_name ?? m.name ?? 'Unknown';
+      });
+      const statusStr = (res.status || '').toLowerCase();
+      const status =
+        statusStr === 'done' ? MeetingStatus.DONE :
+        statusStr === 'cancelled' ? MeetingStatus.CANCELLED :
+        statusStr === 'exceeded' ? MeetingStatus.EXCEEDED :
+        MeetingStatus.PENDING;
+      const meeting: Meeting = {
+        id: String(res.id),
+        title: res.meeting_title || title,
+        description: res.description ?? undefined,
+        hallName: res.room || hallName,
+        startTime: res.start_time ? String(res.start_time).substring(0, 5) : startTime,
+        endTime: res.end_time ? String(res.end_time).substring(0, 5) : endTime,
+        date: res.date || format(date, 'yyyy-MM-dd'),
+        type: res.meeting_type === 'group' ? MeetingType.GROUP : MeetingType.INDIVIDUAL,
+        attendees,
+        status,
+        attendeeNames,
+        createdByName: res.creater_details?.full_name,
+      };
+      onSave(meeting);
+      onClose();
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.response?.data?.detail || err?.message || (isEdit ? 'Failed to update book slot' : 'Failed to create book slot');
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const toggleUser = (id: string) => {
@@ -63,7 +154,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                 d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
               />
             </svg>
-            Book Meeting Slot
+            {isEdit ? 'Edit' : 'Book'} Meeting Slot
           </h2>
           <button onClick={onClose} className="text-white/80 hover:text-white">
             <svg
@@ -130,9 +221,12 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                 onChange={(e) => setHallName(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               >
-                {HALLS.map((h) => (
-                  <option key={h} value={h}>
-                    {h}
+                {rooms.length === 0 && (
+                  <option value="">Loading rooms…</option>
+                )}
+                {rooms.map((r) => (
+                  <option key={r.id} value={r.name}>
+                    {r.name}
                   </option>
                 ))}
               </select>
@@ -183,7 +277,10 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                   Select Participants
                 </label>
                 <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-2 border rounded-xl bg-slate-50">
-                  {ALL_USERS.map((user) => (
+                  {employeesLoading ? (
+                    <span className="col-span-2 text-sm text-slate-500 p-2">Loading employees…</span>
+                  ) : (
+                  employees.map((user) => (
                     <label
                       key={user.id}
                       className="flex items-center gap-2 p-1 hover:bg-white rounded cursor-pointer"
@@ -196,7 +293,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                       />
                       <span className="text-xs">{user.name}</span>
                     </label>
-                  ))}
+                  )))}
                 </div>
               </div>
             ) : (
@@ -215,8 +312,13 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                       d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
                     />
                   </svg>
-                  Individual Booking for: {CURRENT_USER.name}
+                  Individual Booking for: {displayUser.name}
                 </p>
+              </div>
+            )}
+            {error && (
+              <div className="col-span-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                {error}
               </div>
             )}
           </div>
@@ -231,9 +333,10 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
             </button>
             <button
               type="submit"
-              className="flex-[2] px-4 py-3 text-sm font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-600/20 transition-all"
+              disabled={loading}
+              className="flex-[2] px-4 py-3 text-sm font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Book Slot
+              {loading ? (isEdit ? 'Saving...' : 'Booking...') : (isEdit ? 'Save' : 'Book Slot')}
             </button>
           </div>
         </form>

@@ -11,6 +11,7 @@ interface DayViewModalProps {
   onMeetingStatusUpdate: (id: string, status: MeetingStatus) => void;
   onCancelMeeting: (id: string) => void;
   onExceedMeeting: (id: string) => void;
+  onEditMeeting?: (meeting: Meeting) => void;
 }
 
 const START_HOUR = 9;
@@ -28,8 +29,10 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
   onMeetingStatusUpdate,
   onCancelMeeting,
   onExceedMeeting,
+  onEditMeeting,
 }) => {
-  const getAttendeeName = (id: string) => {
+  const getAttendeeName = (m: Meeting, id: string) => {
+    if (m.attendeeNames?.[id]) return m.attendeeNames[id];
     return ALL_USERS.find((u) => u.id === id)?.name || 'Unknown User';
   };
 
@@ -156,46 +159,71 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
                             {m.title}
                           </h4>
 
-                          {!isDone && (
-                            <div className="flex flex-wrap gap-2 mb-6">
+                          <div className="flex flex-wrap gap-2 mb-6">
+                            {!isDone && (
+                              <>
+                                <button
+                                  onClick={() =>
+                                    onMeetingStatusUpdate(m.id, MeetingStatus.DONE)
+                                  }
+                                  className="px-6 py-2.5 bg-[#10b981] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
+                                >
+                                  Done
+                                </button>
+                                {/* <button
+                                  onClick={() => onExceedMeeting(m.id)}
+                                  className="px-6 py-2.5 bg-[#6366f1] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
+                                >
+                                  Exceed
+                                </button> */}
+                              </>
+                            )}
+                            {onEditMeeting && !isDone && (
                               <button
-                                onClick={() =>
-                                  onMeetingStatusUpdate(m.id, MeetingStatus.DONE)
-                                }
-                                className="px-6 py-2.5 bg-[#10b981] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
+                                onClick={() => onEditMeeting(m)}
+                                className="px-6 py-2.5 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
                               >
-                                Done
+                                Edit
                               </button>
-                              <button
-                                onClick={() => onExceedMeeting(m.id)}
-                                className="px-6 py-2.5 bg-[#6366f1] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
-                              >
-                                Exceed
-                              </button>
+                            )}
+                            {!isDone && (
                               <button
                                 onClick={() => onCancelMeeting(m.id)}
                                 className="px-6 py-2.5 bg-[#ef4444] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
                               >
                                 Cancel
                               </button>
-                            </div>
-                          )}
+                            )}
+                          </div>
 
-                          <div className="pt-5 border-t border-slate-50 flex items-center">
+                          <div className="pt-5 border-t border-slate-50 space-y-4">
+                            {m.attendees?.length > 0 && (
+                              <div>
+                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                                  Participants
+                                </span>
+                                <div className="flex flex-wrap gap-2">
+                                  {m.attendees.map((aid) => (
+                                    <span
+                                      key={aid}
+                                      className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-semibold"
+                                    >
+                                      {getAttendeeName(m, aid)}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-indigo-600 border-2 border-white shadow-sm flex items-center justify-center text-[12px] font-black text-white">
-                                {m.attendees[0]
-                                  ? getAttendeeName(m.attendees[0]).charAt(0)
-                                  : '?'}
+                              <div className="w-10 h-10 rounded-full bg-indigo-600 border-2 border-white shadow-sm flex items-center justify-center text-[12px] font-black text-white shrink-0">
+                                {(m.createdByName || (m.attendees[0] && getAttendeeName(m, m.attendees[0])) || '?').charAt(0)}
                               </div>
                               <div className="flex flex-col">
                                 <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                                   Booked by
                                 </span>
                                 <span className="text-[12px] font-black text-slate-700 uppercase">
-                                  {m.attendees[0]
-                                    ? getAttendeeName(m.attendees[0])
-                                    : 'Unknown'}
+                                  {m.createdByName || (m.attendees[0] ? getAttendeeName(m, m.attendees[0]) : 'Unknown')}
                                 </span>
                               </div>
                             </div>
@@ -209,39 +237,22 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
                         onClick={onNewBooking}
                         className="w-full text-left p-6 rounded-[2rem] bg-slate-50/50 border-2 border-slate-200 border-dashed hover:bg-slate-50 hover:border-indigo-200 transition-all group cursor-pointer"
                       >
-                        <div className="flex flex-col gap-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-3 group-hover:text-indigo-400 transition-colors">
-                              <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth="4"
-                                  d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                                />
-                              </svg>
-                              Open Slot
-                            </span>
-                            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">
-                              Available Halls: {availableHalls.length}
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {availableHalls.map((hall) => (
-                              <span
-                                key={hall}
-                                className="px-3 py-1 bg-white border border-slate-100 rounded-lg text-[10px] font-black text-slate-400 uppercase tracking-tighter shadow-sm group-hover:border-indigo-100 group-hover:text-indigo-500 transition-all"
-                              >
-                                {hall}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
+                        <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-3 group-hover:text-indigo-400 transition-colors">
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="4"
+                              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                            />
+                          </svg>
+                          This slot of meeting is available
+                        </span>
                       </div>
                     )}
                   </div>

@@ -20,8 +20,9 @@ const isDevelopment = typeof window !== 'undefined' &&
    
 const API_BASE_URL = isDevelopment
   ? '/api'  // Use Vite proxy in development (bypasses CORS)
-  : 'https://employee-management-system-tmrl.onrender.com';  // Direct URL in production
-
+  : 'http://employee-management-system-tmrl.onrender.com';  // Direct URL in production
+//http://employee-management-system-tmrl.onrender.com
+//http://192.168.41.97:8000
   
 // Create axios instance for authenticated requests
  const api = axios.create({
@@ -1811,6 +1812,253 @@ export const getAssetTypes = async (): Promise<Array<{ id: string; name: string 
   } catch (error: any) {
     if (error?.response?.status === 404 || error?.code === 'ERR_NETWORK') return defaultTypes;return defaultTypes;
   }
+};
+
+/** Room from events API (for calendar halls dropdown) */
+export interface Room {
+  id: number;
+  name: string;
+}
+
+/**
+ * Get rooms for calendar "Select Hall" dropdown.
+ * @endpoint GET /eventsapi/rooms/
+ * @returns Array of { id, name } e.g. Gateway, Horizon, Conference
+ */
+export const getRooms = async (): Promise<Room[]> => {
+  try {
+    const response = await api.get<Room[]>("/eventsapi/rooms/");
+    const data = response.data;
+    const list = Array.isArray(data) ? data : data ? [data] : [];
+    return list.map((item: any) => ({
+      id: Number(item.id),
+      name: String(item.name ?? ""),
+    }));
+  } catch (error: any) {
+    console.error("❌ [GET ROOMS] Error:", error);
+    return [];
+  }
+};
+
+/**
+ * Create a holiday. POST /eventsapi/holidays/
+ */
+export const createHoliday = async (payload: {
+  date: string;
+  name: string;
+  holiday_type?: 'fixed' | 'unfixed';
+}): Promise<{ id: number; date: string; name: string; holiday_type?: string }> => {
+  const body = { ...payload, holiday_type: payload.holiday_type ?? 'unfixed' };
+  const response = await api.post("/eventsapi/holidays/", body);
+  return response.data;
+};
+
+/**
+ * Get holidays for calendar grid (all users).
+ * @endpoint GET /eventsapi/holidays/
+ * @returns Array of { id, date, name, type } e.g. Republic Day, Independence Day
+ */
+export const getHolidays = async (): Promise<Array<{ id: string; name: string; date: string; type: 'holiday' | 'event' }>> => {
+  try {
+    const response = await api.get("/eventsapi/holidays/");
+    const data = response.data;
+    const list = Array.isArray(data) ? data : data ? [data] : [];
+    return list.map((item: any) => ({
+      id: String(item.id),
+      name: String(item.name ?? ""),
+      date: String(item.date ?? ""),
+      type: (item.holiday_type === "fixed" ? "holiday" : "event") as "holiday" | "event",
+    }));
+  } catch (error: any) {
+    const status = error?.response?.status;
+    if (status === 403 || status === 401) return [];
+    console.error("❌ [GET HOLIDAYS] Error:", error);
+    return [];
+  }
+};
+
+/**
+ * Update a holiday. PUT/PATCH /eventsapi/holidays/{id}/
+ */
+export const updateHoliday = async (
+  id: string | number,
+  payload: { date?: string; name?: string; holiday_type?: 'fixed' | 'unfixed' }
+): Promise<{ id: number; date: string; name: string; holiday_type: string }> => {
+  const response = await api.patch(`/eventsapi/holidays/${id}/`, payload);
+  return response.data;
+};
+
+/**
+ * Delete a holiday. DELETE /eventsapi/holidays/{id}/
+ */
+export const deleteHoliday = async (id: string | number): Promise<void> => {
+  await api.delete(`/eventsapi/holidays/${id}/`);
+};
+
+/**
+ * Get all events. GET /eventsapi/events/
+ */
+export const getEvents = async (): Promise<Array<{ id: number; title: string; motive: string; date: string; time: string }>> => {
+  try {
+    const response = await api.get("/eventsapi/events/");
+    const data = response.data;
+    const list = Array.isArray(data) ? data : data?.results ?? data?.data ?? [];
+    return list;
+  } catch (error: any) {
+    if (error?.response?.status === 403 || error?.response?.status === 401) return [];
+    console.error("❌ [GET EVENTS] Error:", error);
+    return [];
+  }
+};
+
+/**
+ * Create an event. POST /eventsapi/events/
+ */
+export const createEvent = async (payload: {
+  title: string;
+  motive: string;
+  date: string;
+  time: string;
+}): Promise<{ id: number; title: string; motive: string; date: string; time: string }> => {
+  const response = await api.post("/eventsapi/events/", payload);
+  return response.data;
+};
+
+/**
+ * Update an event. PATCH /eventsapi/events/{id}/
+ */
+export const updateEvent = async (
+  id: string | number,
+  payload: Partial<{ title: string; motive: string; date: string; time: string }>
+): Promise<{ id: number; title: string; motive: string; date: string; time: string }> => {
+  const response = await api.patch(`/eventsapi/events/${id}/`, payload);
+  return response.data;
+};
+
+/**
+ * Delete an event. DELETE /eventsapi/events/{id}/
+ */
+export const deleteEvent = async (id: string | number): Promise<void> => {
+  await api.delete(`/eventsapi/events/${id}/`);
+};
+
+/**
+ * Create a tour. POST /eventsapi/tours/
+ * Required: tour_name, location, starting_date, members
+ */
+export const createTour = async (payload: {
+  tour_name: string;
+  starting_date: string | null;
+  location: string;
+  duration_days: number;
+  description?: string | null;
+  members: string[];
+}): Promise<any> => {
+  const response = await api.post("/eventsapi/tours/", payload);
+  return response.data;
+};
+
+/**
+ * Update a tour. PATCH /eventsapi/tours/{id}/
+ */
+export const updateTour = async (
+  id: string | number,
+  payload: Partial<{
+    tour_name: string;
+    starting_date: string | null;
+    location: string;
+    duration_days: number;
+    description: string | null;
+    members: string[];
+  }>
+): Promise<any> => {
+  const response = await api.patch(`/eventsapi/tours/${id}/`, payload);
+  return response.data;
+};
+
+/**
+ * Delete a tour. DELETE /eventsapi/tours/{id}/
+ */
+export const deleteTour = async (id: string | number): Promise<void> => {
+  await api.delete(`/eventsapi/tours/${id}/`);
+};
+
+/**
+ * Get all tours. GET /eventsapi/tours/
+ */
+export const getTours = async (): Promise<any[]> => {
+  try {
+    const response = await api.get("/eventsapi/tours/");
+    const data = response.data;
+    return Array.isArray(data) ? data : data?.results ?? data?.data ?? [];
+  } catch (error: any) {
+    if (error?.response?.status === 403 || error?.response?.status === 401) return [];
+    console.error("❌ [GET TOURS] Error:", error);
+    return [];
+  }
+};
+
+/**
+ * Get all book slots. GET /eventsapi/bookslots/
+ */
+export const getBookSlots = async (): Promise<any[]> => {
+  try {
+    const response = await api.get("/eventsapi/bookslots/");
+    const data = response.data;
+    return Array.isArray(data) ? data : data ? [data] : [];
+  } catch (error: any) {
+    const status = error?.response?.status;
+    if (status === 403 || status === 401) return [];
+    console.error("❌ [GET BOOK SLOTS] Error:", error);
+    return [];
+  }
+};
+
+/**
+ * Create a book slot. POST /eventsapi/bookslots/
+ * Required: meeting_title, date, room, status, members
+ */
+export const createBookSlot = async (payload: {
+  meeting_title: string;
+  date: string;
+  start_time?: string;
+  end_time?: string;
+  room: string;
+  description?: string | null;
+  meeting_type: 'individual' | 'group';
+  status: string;
+  members: string[];
+}): Promise<any> => {
+  const response = await api.post("/eventsapi/bookslots/", payload);
+  return response.data;
+};
+
+/**
+ * Update a book slot. PATCH /eventsapi/bookslots/{id}/
+ */
+export const updateBookSlot = async (
+  id: string | number,
+  payload: Partial<{
+    meeting_title: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    room: string;
+    description: string | null;
+    meeting_type: string;
+    status: string;
+    members: string[];
+  }>
+): Promise<any> => {
+  const response = await api.patch(`/eventsapi/bookslots/${id}/`, payload);
+  return response.data;
+};
+
+/**
+ * Delete a book slot. DELETE /eventsapi/bookslots/{id}/
+ */
+export const deleteBookSlot = async (id: string | number): Promise<void> => {
+  await api.delete(`/eventsapi/bookslots/${id}/`);
 };
 
 /**

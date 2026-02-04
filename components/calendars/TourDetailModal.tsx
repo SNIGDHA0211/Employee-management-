@@ -1,19 +1,65 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { format, differenceInDays, parseISO } from 'date-fns';
+import { Pencil, Trash2 } from 'lucide-react';
 import { Tour } from './types';
 import { ALL_USERS } from './constants';
+import { getEmployees } from '../../services/api';
 
 interface TourDetailModalProps {
   tour: Tour;
   onClose: () => void;
+  onEdit?: (tour: Tour) => void;
+  onDelete?: (id: string) => Promise<void>;
+  canEdit?: boolean;
 }
 
 export const TourDetailModal: React.FC<TourDetailModalProps> = ({
   tour,
   onClose,
+  onEdit,
+  onDelete,
+  canEdit = false,
 }) => {
-  const getAttendeeName = (id: string) => {
-    return ALL_USERS.find((u) => u.id === id)?.name || 'Unknown Member';
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [employeeNames, setEmployeeNames] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!tour.attendeeNames || Object.keys(tour.attendeeNames).length === 0) {
+      getEmployees()
+        .then((list) => {
+          const map: Record<string, string> = {};
+          list.forEach((emp: any) => {
+            const id = String(emp['Employee_id'] ?? emp['Employee ID'] ?? emp.id ?? emp.username ?? '');
+            const name = emp['Full Name'] ?? emp['Name'] ?? emp.full_name ?? emp.name ?? '';
+            if (id) map[id] = name || 'Unknown';
+          });
+          setEmployeeNames(map);
+        })
+        .catch(() => {});
+    } else {
+      setEmployeeNames({});
+    }
+  }, [tour.id, tour.attendeeNames]);
+
+  const handleDelete = async () => {
+    if (!onDelete || !confirm(`Delete "${tour.name}"?`)) return;
+    setError(null);
+    setDeleting(true);
+    try {
+      await onDelete(tour.id);
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || err?.message || 'Failed to delete');
+    } finally {
+      setDeleting(false);
+    }
+  };
+  const getMemberName = (id: string) => {
+    // Always prefer full_name - from tour.attendeeNames (API member_details) or fetched employees
+    if (tour.attendeeNames?.[id]) return tour.attendeeNames[id];
+    if (employeeNames[id]) return employeeNames[id];
+    return ALL_USERS.find((u) => u.id === id)?.name || `Member ${id}`;
   };
 
   const daysCount =
@@ -113,7 +159,7 @@ export const TourDetailModal: React.FC<TourDetailModalProps> = ({
                     key={id}
                     className="w-6 h-6 rounded-full border-2 border-white bg-amber-500 flex items-center justify-center text-[8px] font-black text-white shadow-sm"
                   >
-                    {getAttendeeName(id).charAt(0)}
+                    {getMemberName(id).charAt(0)}
                   </div>
                 ))}
                 {(tour.attendees?.length || 0) > 3 && (
@@ -148,7 +194,7 @@ export const TourDetailModal: React.FC<TourDetailModalProps> = ({
                   key={id}
                   className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 shadow-sm hover:border-amber-300 transition-colors"
                 >
-                  {getAttendeeName(id)}
+                  {getMemberName(id)}
                 </div>
               ))}
               {(!tour.attendees || tour.attendees.length === 0) && (
@@ -182,13 +228,42 @@ export const TourDetailModal: React.FC<TourDetailModalProps> = ({
           </div>
         </div>
 
-        <div className="p-6 bg-white border-t text-center">
-          <button
-            onClick={onClose}
-            className="px-10 py-3 bg-slate-900 text-white rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
-          >
-            Close Preview
-          </button>
+        <div className="p-6 bg-white border-t flex flex-col gap-3">
+          {error && (
+            <div className="p-2 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
+              {error}
+            </div>
+          )}
+          <div className="flex gap-3 justify-center">
+            {canEdit && onEdit && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onEdit(tour);
+                }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 transition-all"
+              >
+                <Pencil className="w-4 h-4" />
+                Edit
+              </button>
+            )}
+            {canEdit && onDelete && (
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-700 transition-all disabled:opacity-60"
+              >
+                <Trash2 className="w-4 h-4" />
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            )}
+            {/* <button
+              onClick={onClose}
+              className="px-10 py-3 bg-slate-900 text-white rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
+            >
+              Close
+            </button> */}
+          </div>
         </div>
       </div>
     </div>

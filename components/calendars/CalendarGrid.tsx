@@ -22,11 +22,34 @@ interface CalendarGridProps {
   onCancelMeeting: (id: string) => void;
   onExceedMeeting: (id: string) => void;
   onTourClick?: (tour: Tour) => void;
+  onHolidayClick?: (holiday: Holiday) => void;
 }
 
 const START_HOUR = 9;
 const END_HOUR = 18;
 const TOTAL_DAILY_SLOTS = END_HOUR - START_HOUR;
+
+// Tour color palette - highly distinct, easy to differentiate
+const TOUR_COLORS = [
+  'bg-amber-500 hover:bg-amber-600 shadow-amber-500/25',
+  'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/25',
+  'bg-blue-600 hover:bg-blue-700 shadow-blue-600/25',
+  'bg-rose-500 hover:bg-rose-600 shadow-rose-500/25',
+  'bg-violet-600 hover:bg-violet-700 shadow-violet-600/25',
+  'bg-cyan-500 hover:bg-cyan-600 shadow-cyan-500/25',
+  'bg-orange-500 hover:bg-orange-600 shadow-orange-500/25',
+  'bg-fuchsia-500 hover:bg-fuchsia-600 shadow-fuchsia-500/25',
+  'bg-teal-600 hover:bg-teal-700 shadow-teal-600/25',
+  'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/25',
+  'bg-pink-500 hover:bg-pink-600 shadow-pink-500/25',
+  'bg-lime-600 hover:bg-lime-700 shadow-lime-600/25',
+];
+
+const getTourColorClass = (tourId: string): string => {
+  const num = parseInt(tourId, 10) || tourId.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  const idx = Math.abs(num) % TOUR_COLORS.length;
+  return TOUR_COLORS[idx];
+};
 
 export const CalendarGrid: React.FC<CalendarGridProps> = ({
   currentDate,
@@ -39,6 +62,7 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
   onCancelMeeting,
   onExceedMeeting,
   onTourClick,
+  onHolidayClick,
 }) => {
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(monthStart);
@@ -177,16 +201,26 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                     if (viewMode === ViewMode.HOLIDAY) {
                       const h = ev as Holiday;
                       const isHolidayType = h.type === 'holiday';
+                      const Wrapper = onHolidayClick ? 'button' : 'div';
+                      const wrapperProps = onHolidayClick
+                        ? { type: 'button' as const, onClick: () => onHolidayClick(h) }
+                        : {};
                       return (
-                        <div
+                        <Wrapper
                           key={idx}
-                          className="text-[10px] p-2 rounded-xl flex flex-col gap-0.5 text-white"
+                          {...wrapperProps}
+                          className={`text-left w-full text-[10px] p-2 rounded-xl flex flex-col gap-0.5 text-white ${onHolidayClick ? 'hover:opacity-90 cursor-pointer transition-opacity' : ''}`}
                         >
                           <div className="flex items-center justify-between">
                             <span className="font-black uppercase tracking-tighter truncate leading-tight">
                               {h.name}
                             </span>
                           </div>
+                          {h.isUrgent && (
+                            <div className="mt-1 px-1.5 py-0.5 bg-white text-red-600 rounded text-[8px] font-black uppercase w-fit">
+                              Urgent
+                            </div>
+                          )}
                           {!isHolidayType && (
                             <div className="bg-white/10 rounded-lg p-1.5 mt-1 border border-white/20">
                               {h.motive && (
@@ -209,29 +243,25 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                                       d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                                     />
                                   </svg>
-                                  {h.time}
+                                  {String(h.time).substring(0, 5)}
                                 </div>
                               )}
                             </div>
                           )}
-                          {isHolidayType && h.isUrgent && (
-                            <div className="mt-1 px-1.5 py-0.5 bg-white text-red-600 rounded text-[8px] font-black uppercase w-fit">
-                              Urgent
-                            </div>
-                          )}
-                        </div>
+                        </Wrapper>
                       );
                     }
                     if (viewMode === ViewMode.TOUR) {
                       const t = ev as Tour;
                       const memberCount = t.attendees?.length || 0;
+                      const colorClass = getTourColorClass(t.id);
                       return (
                         <button
-                          key={idx}
+                          key={`${t.id}-${idx}`}
                           onClick={() => onTourClick && onTourClick(t)}
                           className="flex items-center justify-center w-full mt-1 group"
                         >
-                          <div className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-full shadow-lg shadow-amber-500/20 transition-all transform hover:scale-105 active:scale-95">
+                          <div className={`flex items-center gap-2 text-white px-3 py-1.5 rounded-full shadow-lg transition-all transform hover:scale-105 active:scale-95 ${colorClass}`}>
                             <svg
                               className="w-3 h-3"
                               fill="currentColor"
