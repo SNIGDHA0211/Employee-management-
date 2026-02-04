@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole, User, Task, Project, Message, ChatGroup, AttendanceRecord, Tour, formatRoleForDisplay } from './types';
-import { MOCK_USERS, MOCK_TASKS, MOCK_GROUPS, MOCK_MESSAGES, MOCK_ATTENDANCE, MOCK_TOURS } from './services/mockData';
 import api, { 
   login as apiLogin, 
   getEmployeeDashboard,
@@ -114,12 +113,8 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
         }
         
         // If API login succeeds, use the response to create/login user
-        // Map API response to User type
-        let userProfile = MOCK_USERS.find(u => 
-          u.name.toLowerCase() === username.toLowerCase() ||
-          u.email.toLowerCase() === username.toLowerCase() || 
-          u.id.toLowerCase() === username.toLowerCase()
-        );
+        // Map API response to User type (no mock fallback - build from API only)
+        let userProfile: (User & { Employee_id?: string }) | null = null;
 
         // Helper function to extract role from API response (handles QuerySet, objects, strings)
         const extractRoleFromApiResponse = (apiRole: any): string => {
@@ -396,16 +391,10 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
           onLogin(newUser);
         }
     } catch (err: any) {
-        // Fallback to mock data if API fails (username can be fullName, email, or ID)
-        const user = MOCK_USERS.find(u => 
-          (u.name.toLowerCase() === username.toLowerCase() ||
-           u.email.toLowerCase() === username.toLowerCase() || 
-           u.id.toLowerCase() === username.toLowerCase()) && 
-          u.password === password
-        );
-        
+        // No mock fallback - API only; show error
+        const user: User | undefined = undefined;
         if (user) {
-           onLogin(user);
+          onLogin(user);
         } else {
           
           // Check if error is the QuerySet backend error
@@ -574,14 +563,13 @@ export default function App() {
     // Role monitoring removed - no console logs
   }, [currentUser]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [groups, setGroups] = useState<ChatGroup[]>(MOCK_GROUPS);
-  
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
-  const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
-  const [projects, setProjects] = useState<Project[]>([]); // No mock data - empty array
-  const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES);
-  const [attendance, setAttendance] = useState<AttendanceRecord[]>(MOCK_ATTENDANCE);
-  const [tours, setTours] = useState<Tour[]>(MOCK_TOURS);
+  const [groups, setGroups] = useState<ChatGroup[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [tours, setTours] = useState<Tour[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
