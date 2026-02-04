@@ -24,9 +24,10 @@ interface TaskBoardProps {
   projects: Project[];
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   viewMode?: 'assign' | 'reporting'; // New prop to control view mode
+  setActiveTab?: (tab: string) => void; // Optional: switch between Reporting Task / Assigned Task from header
 }
 
-export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users, projects, setTasks, viewMode = 'assign' }) => {
+export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users, projects, setTasks, viewMode = 'assign', setActiveTab }) => {
   const [filterType, setFilterType] = useState<string>('ALL');
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -55,6 +56,17 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
   const [isLoadingAssigneeNames, setIsLoadingAssigneeNames] = useState<Record<number, boolean>>({});
   // Store designations for each assignee (filtered by role)
   const [assigneeDesignations, setAssigneeDesignations] = useState<Record<number, string[]>>({});
+  // Reporting By / Reporting To (for role-based Create Task form)
+  const [reportingById, setReportingById] = useState<string>('');
+  const [reportingToId, setReportingToId] = useState<string>('');
+  const [tlCreateTaskMode, setTlCreateTaskMode] = useState<'ASSIGN_TO' | 'REPORTING_BY'>('ASSIGN_TO');
+  const [reportingByRole, setReportingByRole] = useState<string>('');
+  const [reportingByDesignation, setReportingByDesignation] = useState<string>('');
+  const [reportingByUserId, setReportingByUserId] = useState<string>('');
+  const [reportingByNames, setReportingByNames] = useState<any[]>([]);
+  const [isLoadingReportingByNames, setIsLoadingReportingByNames] = useState(false);
+  const [reportingByDesignations, setReportingByDesignations] = useState<string[]>([]);
+  const [isLoadingReportingByDesignations, setIsLoadingReportingByDesignations] = useState(false);
   
   // Role and Designation Filter State (for both modal and main view filters)
   const [selectedRole, setSelectedRole] = useState<string>('');
@@ -227,6 +239,14 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       setAssigneeFilteredNames({});
       setIsLoadingAssigneeNames({});
       setAssigneeDesignations({});
+      setReportingById('');
+      setReportingToId('');
+      setTlCreateTaskMode('ASSIGN_TO');
+      setReportingByRole('');
+      setReportingByDesignation('');
+      setReportingByUserId('');
+      setReportingByNames([]);
+      setReportingByDesignations([]);
     }
   }, [showAddModal, currentUser.id]);
 
@@ -375,10 +395,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
           const apiTypeLower = rawApiType.toLowerCase();
           const typeMap: Record<string, TaskType> = {
             'sos': TaskType.SOS, 'SOS': TaskType.SOS,
-            '1 day': TaskType.ONE_DAY, '1 Day': TaskType.ONE_DAY,
-            '10 day': TaskType.TEN_DAYS, '10 Day': TaskType.TEN_DAYS,
+            '1 day': TaskType.ONE_DAY, '1 Day': TaskType.ONE_DAY, '1day': TaskType.ONE_DAY, 'one day': TaskType.ONE_DAY,
+            '10 day': TaskType.TEN_DAYS, '10 Day': TaskType.TEN_DAYS, '10day': TaskType.TEN_DAYS, 'ten day': TaskType.TEN_DAYS,
             'monthly': TaskType.MONTHLY, 'Monthly': TaskType.MONTHLY,
-            'quaterly': TaskType.Quaterly, 'Quaterly': TaskType.Quaterly,
+            'quaterly': TaskType.Quaterly, 'Quaterly': TaskType.Quaterly, 'quarterly': TaskType.Quaterly, 'Quarterly': TaskType.Quaterly,
             'group': TaskType.GROUP, 'Group': TaskType.GROUP,
             'individual': TaskType.INDIVIDUAL, 'Individual': TaskType.INDIVIDUAL,
             'one_day': TaskType.ONE_DAY, 'ten_days': TaskType.TEN_DAYS,
@@ -691,11 +711,32 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         backendType = typeMap[newTaskType as TaskType] || 'Individual';
       }
       
-      // Collect all employee IDs from assignees
+      // Collect all employee IDs from assignees (role-specific: MD/TL Assign To vs TL Reporting By vs Employee vs Intern)
       const usersForDropdown = availableUsers.length > 0 ? availableUsers : users;
       const employeeIds: string[] = [];
       
-      if (newTaskType === TaskType.GROUP) {
+      const isTlReportingBy = currentUser.role === UserRole.TEAM_LEADER && tlCreateTaskMode === 'REPORTING_BY';
+      const isEmployee = currentUser.role === UserRole.EMPLOYEE;
+      const isIntern = currentUser.role === UserRole.INTERN;
+      
+      if (isTlReportingBy || isEmployee || isIntern) {
+        // TL (Reporting By), Employee (Reporting By), or Intern (Reporting To): use Role/Designation/User selection
+        const selectedUserId = reportingByUserId || reportingById || (isEmployee ? currentUser.id : '');
+        if (!selectedUserId && isIntern) {
+          alert("Please select the person you report to (Role, Designation, User).");
+          setIsCreatingTask(false);
+          return;
+        }
+        if (selectedUserId) {
+          const assigneeUser = usersForDropdown.find(u => u.id === selectedUserId || u.name === selectedUserId);
+          if (assigneeUser) {
+            const empId = getEmployeeIdFromUser(assigneeUser);
+            if (empId) employeeIds.push(empId);
+          } else {
+            employeeIds.push(String(selectedUserId).trim());
+          }
+        }
+      } else if (newTaskType === TaskType.GROUP) {
         // For GROUP tasks, use newTaskAssigneeIds
         for (const assigneeId of newTaskAssigneeIds) {
           const assigneeUser = usersForDropdown.find(u => u.id === assigneeId || u.name === assigneeId);
@@ -776,24 +817,14 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
           // Map backend type to frontend TaskType enum (reuse same logic)
           // Accept both new format (capitalized with spaces) and old formats (lowercase/underscores) for backward compatibility
           const typeMap: Record<string, TaskType> = {
-            // New format (capitalized with spaces)
-            'sos': TaskType.SOS,
-            'SOS': TaskType.SOS,
-            '1 day': TaskType.ONE_DAY,
-            '1 Day': TaskType.ONE_DAY,
-            '10 day': TaskType.TEN_DAYS,
-            '10 Day': TaskType.TEN_DAYS,
-            'monthly': TaskType.MONTHLY,
-            'Monthly': TaskType.MONTHLY,
-            'quaterly': TaskType.Quaterly,
-            'Quaterly': TaskType.Quaterly,
-            'group': TaskType.GROUP,
-            'Group': TaskType.GROUP,
-            'individual': TaskType.INDIVIDUAL,
-            'Individual': TaskType.INDIVIDUAL,
-            // Old format (for backward compatibility)
-            'one_day': TaskType.ONE_DAY,
-            'ten_days': TaskType.TEN_DAYS,
+            'sos': TaskType.SOS, 'SOS': TaskType.SOS,
+            '1 day': TaskType.ONE_DAY, '1 Day': TaskType.ONE_DAY, '1day': TaskType.ONE_DAY, 'one day': TaskType.ONE_DAY,
+            '10 day': TaskType.TEN_DAYS, '10 Day': TaskType.TEN_DAYS, '10day': TaskType.TEN_DAYS, 'ten day': TaskType.TEN_DAYS,
+            'monthly': TaskType.MONTHLY, 'Monthly': TaskType.MONTHLY,
+            'quaterly': TaskType.Quaterly, 'Quaterly': TaskType.Quaterly, 'quarterly': TaskType.Quaterly, 'Quarterly': TaskType.Quaterly,
+            'group': TaskType.GROUP, 'Group': TaskType.GROUP,
+            'individual': TaskType.INDIVIDUAL, 'Individual': TaskType.INDIVIDUAL,
+            'one_day': TaskType.ONE_DAY, 'ten_days': TaskType.TEN_DAYS,
           };
           const statusMap: Record<string, TaskStatus> = {
             'pending': TaskStatus.PENDING,
@@ -803,7 +834,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
           };
           
           const convertedTasks: Task[] = apiTasks.map((apiTask: any) => {
-            const rawApiType = (apiTask.type || apiTask['type'] || 'Individual').trim();
+            const rawApiType = (apiTask.task_type || apiTask.type || apiTask['task_type'] || apiTask['type'] || 'Individual').trim();
             const apiTypeLower = rawApiType.toLowerCase();
             const apiStatus = (apiTask.status || apiTask['status'] || 'pending').toLowerCase();
             
@@ -865,10 +896,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         const apiTypeLower = rawApiType.toLowerCase();
         const typeMap: Record<string, TaskType> = {
           'sos': TaskType.SOS, 'SOS': TaskType.SOS,
-          '1 day': TaskType.ONE_DAY, '1 Day': TaskType.ONE_DAY,
-          '10 day': TaskType.TEN_DAYS, '10 Day': TaskType.TEN_DAYS,
+          '1 day': TaskType.ONE_DAY, '1 Day': TaskType.ONE_DAY, '1day': TaskType.ONE_DAY, 'one day': TaskType.ONE_DAY,
+          '10 day': TaskType.TEN_DAYS, '10 Day': TaskType.TEN_DAYS, '10day': TaskType.TEN_DAYS, 'ten day': TaskType.TEN_DAYS,
           'monthly': TaskType.MONTHLY, 'Monthly': TaskType.MONTHLY,
-          'quaterly': TaskType.Quaterly, 'Quaterly': TaskType.Quaterly,
+          'quaterly': TaskType.Quaterly, 'Quaterly': TaskType.Quaterly, 'quarterly': TaskType.Quaterly, 'Quarterly': TaskType.Quaterly,
           'group': TaskType.GROUP, 'Group': TaskType.GROUP,
           'individual': TaskType.INDIVIDUAL, 'Individual': TaskType.INDIVIDUAL,
           'one_day': TaskType.ONE_DAY, 'ten_days': TaskType.TEN_DAYS,
@@ -1113,6 +1144,23 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
     }
   };
 
+  const fetchDesignationsForReportingBy = async (role: string) => {
+    setIsLoadingReportingByDesignations(true);
+    try {
+      if (role && role.trim() !== '' && role.toLowerCase() !== 'all roles') {
+        const designations = await apiGetDesignations(role);
+        setReportingByDesignations(designations || []);
+      } else {
+        const designations = await apiGetDesignations();
+        setReportingByDesignations(designations || []);
+      }
+    } catch {
+      setReportingByDesignations([]);
+    } finally {
+      setIsLoadingReportingByDesignations(false);
+    }
+  };
+
   // Fetch names for a specific assignee based on their role and designation
   const fetchNamesForAssignee = async (index: number, role: string, designation?: string) => {
     setIsLoadingAssigneeNames(prev => ({ ...prev, [index]: true }));
@@ -1127,6 +1175,21 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       setAssigneeFilteredNames(prev => ({ ...prev, [index]: [] }));
     } finally {
       setIsLoadingAssigneeNames(prev => ({ ...prev, [index]: false }));
+    }
+  };
+
+  const fetchNamesForReportingBy = async (role: string, designation?: string) => {
+    setIsLoadingReportingByNames(true);
+    try {
+      const roleParam = role && role.trim() !== '' && role.toLowerCase() !== 'all roles' ? role : '';
+      const designationParam =
+        designation && designation.trim() !== '' && designation.toLowerCase() !== 'all designations' ? designation : '';
+      const names = await apiGetNamesFromRoleAndDesignation(roleParam, designationParam);
+      setReportingByNames(names || []);
+    } catch {
+      setReportingByNames([]);
+    } finally {
+      setIsLoadingReportingByNames(false);
     }
   };
 
@@ -1277,29 +1340,50 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
 
     return (
       <div className="space-y-6">
-        {/* Header with Create Task Button (for all roles except MD and Admin) */}
-        <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+        {/* Task page header: Reporting Task | Assigned Task tabs + Create Task button on right */}
+        {setActiveTab && (
+          <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setActiveTab('reportingTask')}
+                className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-brand-600 text-white"
+              >
+                Reporting Task
+              </button>
+              <button
+                onClick={() => setActiveTab('assignTask')}
+                className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200"
+              >
+                Assigned Task
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              {currentUser.role === UserRole.MD && (
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
+                >
+                  <Plus size={18} />
+                  <span>Assign Task</span>
+                </button>
+              )}
+              {currentUser.role !== UserRole.MD && currentUser.role !== UserRole.ADMIN && (
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
+                >
+                  <Plus size={18} />
+                  <span>Create Task</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {/* Reporting Tasks title - direct display, no button here */}
+        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
           <h2 className="text-2xl font-bold text-gray-800">
-            {/* Task Reporting - All Tasks */}
+            Reporting Tasks
           </h2>
-          {currentUser.role === UserRole.MD && (
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
-            >
-              <Plus size={18} />
-              <span>Assign Task</span>
-            </button>
-          )}
-          {currentUser.role !== UserRole.MD && currentUser.role !== UserRole.ADMIN && (
-            <button 
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
-            >
-              <Plus size={18} />
-              <span>Create Task</span>
-            </button>
-          )}
         </div>
 
         {/* Filter Buttons */}
@@ -1358,14 +1442,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                     <span className="text-[10px] font-semibold text-gray-500 uppercase bg-gray-100 px-1.5 py-0.5 rounded">
                       {typeLabels[task.type]}
                     </span>
-                    <div className="flex flex-col items-end gap-1">
-                      {isOverdue && (
-                        <span className="bg-red-100 text-red-700 text-xs font-semibold px-2 py-1 rounded-full flex items-center gap-1">
-                          <AlertCircle size={12} />
-                          OVERDUE
-                        </span>
-                      )}
-                    </div>
                   </div>
 
                   <h3 className="font-bold text-gray-800 mb-1.5 text-sm">{task.title}</h3>
@@ -1587,9 +1663,26 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                     </div>
                  </div>
 
-                 {/* Assignee Selection Section */}
+                 {/* Assignee / Reporting section - role based: TL = Assigned To + Reporting By, Intern = Reporting To only, Employee = Reporting By only, MD = Assigned To only */}
                  <div className="space-y-3">
-                    {newTaskType === TaskType.GROUP ? (
+                   {/* Team Leader: choose what to configure first */}
+                   {currentUser.role === UserRole.TEAM_LEADER && (
+                     <div>
+                       <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Select</label>
+                       <select
+                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                         value={tlCreateTaskMode}
+                         onChange={(e) => setTlCreateTaskMode(e.target.value as any)}
+                       >
+                         <option value="ASSIGN_TO">Assigned To</option>
+                         <option value="REPORTING_BY">Reporting By</option>
+                       </select>
+                     </div>
+                   )}
+
+                   {/* MD: always show Assigned To. Team Leader: show Assigned To only if selected */}
+                   {(currentUser.role === UserRole.MD || (currentUser.role === UserRole.TEAM_LEADER && tlCreateTaskMode === 'ASSIGN_TO')) && (
+                    <>{newTaskType === TaskType.GROUP ? (
                         <>
                             <div className="max-h-40 overflow-y-auto space-y-2 border rounded-lg p-2 bg-white">
                                 {filteredUsersForAssign.map(u => (
@@ -1799,6 +1892,299 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                             })}
                         </div>
                     )}
+                   </>)}
+                   {/* Team Leader: Reporting By (shown when selected) */}
+                   {currentUser.role === UserRole.TEAM_LEADER && tlCreateTaskMode === 'REPORTING_BY' && (
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Reporting By</label>
+
+                      <div className="flex items-center gap-2">
+                        <div className="w-32">
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Role</label>
+                        </div>
+                        <div className="w-40">
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Designation</label>
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-sm font-bold text-gray-700 mb-1">User</label>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="w-32">
+                          <select
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                            value={reportingByRole}
+                            onChange={async (e) => {
+                              const role = e.target.value;
+                              setReportingByRole(role);
+                              setReportingByDesignation('');
+                              setReportingByUserId('');
+                              setReportingById('');
+                              await fetchDesignationsForReportingBy(role);
+                              await fetchNamesForReportingBy(role, '');
+                            }}
+                          >
+                            <option value="">All Roles</option>
+                            {availableRoles.map(role => (
+                              <option key={role} value={role}>{role}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="w-40">
+                          <select
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                            value={reportingByDesignation}
+                            onChange={async (e) => {
+                              const des = e.target.value;
+                              setReportingByDesignation(des);
+                              setReportingByUserId('');
+                              setReportingById('');
+                              await fetchNamesForReportingBy(reportingByRole, des);
+                            }}
+                            disabled={!reportingByRole}
+                          >
+                            <option value="">{reportingByRole ? 'All Designations' : 'Select role first'}</option>
+                            {reportingByDesignations.map(designation => (
+                              <option key={designation} value={designation}>{designation}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="flex-1">
+                          <select
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                            value={reportingByUserId}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setReportingByUserId(v);
+                              setReportingById(v);
+                            }}
+                            disabled={isLoadingReportingByNames || reportingByNames.length === 0}
+                          >
+                            {isLoadingReportingByNames ? (
+                              <option value="">Loading users...</option>
+                            ) : reportingByNames.length === 0 ? (
+                              <option value="">{reportingByRole ? (reportingByDesignation ? 'No users found' : 'Select designation') : 'Select role first'}</option>
+                            ) : (
+                              <>
+                                <option value="">Select User</option>
+                                {reportingByNames.map((nameItem: any, nameIndex: number) => {
+                                  const name = typeof nameItem === 'string'
+                                    ? nameItem
+                                    : (nameItem?.name || nameItem?.Name || nameItem?.fullName || nameItem?.employee_name || 'Unknown');
+                                  const id = nameItem?.id || nameItem?.Employee_id || nameItem?.employee_id || name || `reportingby-${nameIndex}`;
+                                  const usersForDropdown = availableUsers.length > 0 ? availableUsers : users;
+                                  const user = usersForDropdown.find(u => u.name === name || u.id === id || u.id === name);
+                                  const userId = user?.id || id || name;
+                                  return (
+                                    <option key={`${id}-${nameIndex}`} value={userId}>{name}</option>
+                                  );
+                                })}
+                              </>
+                            )}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                   )}
+                   {/* Intern: Reporting To (Role → Designation → User) */}
+                   {currentUser.role === UserRole.INTERN && (
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Reporting To</label>
+                      <div className="flex items-center gap-2">
+                        <div className="w-32">
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Role</label>
+                        </div>
+                        <div className="w-40">
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Designation</label>
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-sm font-bold text-gray-700 mb-1">User</label>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-32">
+                          <select
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                            value={reportingByRole}
+                            onChange={async (e) => {
+                              const role = e.target.value;
+                              setReportingByRole(role);
+                              setReportingByDesignation('');
+                              setReportingByUserId('');
+                              setReportingById('');
+                              setReportingToId('');
+                              await fetchDesignationsForReportingBy(role);
+                              await fetchNamesForReportingBy(role, '');
+                            }}
+                          >
+                            <option value="">All Roles</option>
+                            {availableRoles.map(role => (
+                              <option key={role} value={role}>{role}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="w-40">
+                          <select
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                            value={reportingByDesignation}
+                            onChange={async (e) => {
+                              const des = e.target.value;
+                              setReportingByDesignation(des);
+                              setReportingByUserId('');
+                              setReportingById('');
+                              setReportingToId('');
+                              await fetchNamesForReportingBy(reportingByRole, des);
+                            }}
+                            disabled={!reportingByRole}
+                          >
+                            <option value="">{reportingByRole ? 'All Designations' : 'Select role first'}</option>
+                            {reportingByDesignations.map(designation => (
+                              <option key={designation} value={designation}>{designation}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex-1">
+                          <select
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                            value={reportingByUserId}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setReportingByUserId(v);
+                              setReportingById(v);
+                              setReportingToId(v);
+                            }}
+                            disabled={isLoadingReportingByNames || reportingByNames.length === 0}
+                          >
+                            {isLoadingReportingByNames ? (
+                              <option value="">Loading users...</option>
+                            ) : reportingByNames.length === 0 ? (
+                              <option value="">{reportingByRole ? (reportingByDesignation ? 'No users found' : 'Select designation') : 'Select role first'}</option>
+                            ) : (
+                              <>
+                                <option value="">Select User</option>
+                                {reportingByNames.map((nameItem: any, nameIndex: number) => {
+                                  const name = typeof nameItem === 'string'
+                                    ? nameItem
+                                    : (nameItem?.name || nameItem?.Name || nameItem?.fullName || nameItem?.employee_name || 'Unknown');
+                                  const id = nameItem?.id || nameItem?.Employee_id || nameItem?.employee_id || name || `reportingto-${nameIndex}`;
+                                  const usersForDropdown = availableUsers.length > 0 ? availableUsers : users;
+                                  const user = usersForDropdown.find(u => u.name === name || u.id === id || u.id === name);
+                                  const userId = user?.id || id || name;
+                                  return (
+                                    <option key={`${id}-${nameIndex}`} value={userId}>{name}</option>
+                                  );
+                                })}
+                              </>
+                            )}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                   )}
+                   {/* Employee: Reporting By (Role → Designation → User) */}
+                   {currentUser.role === UserRole.EMPLOYEE && (
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Reporting By</label>
+                      <div className="flex items-center gap-2">
+                        <div className="w-32">
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Role</label>
+                        </div>
+                        <div className="w-40">
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Designation</label>
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-sm font-bold text-gray-700 mb-1">User</label>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-32">
+                          <select
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                            value={reportingByRole}
+                            onChange={async (e) => {
+                              const role = e.target.value;
+                              setReportingByRole(role);
+                              setReportingByDesignation('');
+                              setReportingByUserId('');
+                              setReportingById('');
+                              await fetchDesignationsForReportingBy(role);
+                              await fetchNamesForReportingBy(role, '');
+                            }}
+                          >
+                            <option value="">All Roles</option>
+                            {availableRoles.map(role => (
+                              <option key={role} value={role}>{role}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="w-40">
+                          <select
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                            value={reportingByDesignation}
+                            onChange={async (e) => {
+                              const des = e.target.value;
+                              setReportingByDesignation(des);
+                              setReportingByUserId('');
+                              setReportingById('');
+                              await fetchNamesForReportingBy(reportingByRole, des);
+                            }}
+                            disabled={!reportingByRole}
+                          >
+                            <option value="">{reportingByRole ? 'All Designations' : 'Select role first'}</option>
+                            {reportingByDesignations.map(designation => (
+                              <option key={designation} value={designation}>{designation}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex-1">
+                          <select
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                            value={reportingByUserId || (reportingByNames.length === 0 && !reportingByRole ? currentUser.id : '')}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setReportingByUserId(v);
+                              setReportingById(v);
+                            }}
+                            disabled={isLoadingReportingByNames || (reportingByNames.length === 0 && reportingByRole !== '')}
+                          >
+                            {isLoadingReportingByNames ? (
+                              <option value="">Loading users...</option>
+                            ) : reportingByNames.length === 0 && reportingByRole ? (
+                              <option value="">{reportingByDesignation ? 'No users found' : 'Select designation'}</option>
+                            ) : reportingByNames.length === 0 && !reportingByRole ? (
+                              <>
+                                <option value={currentUser.id}>{currentUser.name} (me)</option>
+                                {(availableUsers.length > 0 ? availableUsers : users).filter(u => u.id !== currentUser.id).map(u => (
+                                  <option key={u.id} value={u.id}>{u.name}</option>
+                                ))}
+                              </>
+                            ) : (
+                              <>
+                                <option value="">Select User</option>
+                                <option value={currentUser.id}>{currentUser.name} (me)</option>
+                                {reportingByNames.map((nameItem: any, nameIndex: number) => {
+                                  const name = typeof nameItem === 'string'
+                                    ? nameItem
+                                    : (nameItem?.name || nameItem?.Name || nameItem?.fullName || nameItem?.employee_name || 'Unknown');
+                                  const id = nameItem?.id || nameItem?.Employee_id || nameItem?.employee_id || name || `reportingby-${nameIndex}`;
+                                  const usersForDropdown = availableUsers.length > 0 ? availableUsers : users;
+                                  const user = usersForDropdown.find(u => u.name === name || u.id === id || u.id === name);
+                                  const userId = user?.id || id || name;
+                                  if (userId === currentUser.id) return null;
+                                  return (
+                                    <option key={`${id}-${nameIndex}`} value={userId}>{name}</option>
+                                  );
+                                })}
+                              </>
+                            )}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                   )}
                  </div>
               </div>
 
@@ -1835,12 +2221,51 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
   // Default: Assign Task view (current implementation)
   return (
     <div className="space-y-6">
+      {/* Task page header: Reporting Task | Assigned Task tabs + Create Task button on right */}
+      {setActiveTab && (
+        <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setActiveTab('reportingTask')}
+              className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200"
+            >
+              Reporting Task
+            </button>
+            <button
+              onClick={() => setActiveTab('assignTask')}
+              className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-brand-600 text-white"
+            >
+              Assigned Task
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            {currentUser.role === UserRole.MD && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
+              >
+                <Plus size={18} />
+                <span>Assign Task</span>
+              </button>
+            )}
+            {currentUser.role !== UserRole.MD && currentUser.role !== UserRole.ADMIN && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
+              >
+                <Plus size={18} />
+                <span>Create Task</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {/* Controls */}
       <div className="flex flex-col gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-2">
-              {viewMode === 'assign' ? 'Reporting Tasks' : 'Assigned Tasks'}
+              Assigned Tasks
             </h2>
             <div className="flex flex-wrap gap-2">
               {['ALL', TaskType.SOS, TaskType.ONE_DAY, TaskType.TEN_DAYS, TaskType.MONTHLY, TaskType.Quaterly].map(type => {
@@ -1897,7 +2322,15 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
            </div>
         ) : (
           filteredTasks.map(task => {
-            const assignee = users.find(u => u.id === task.assigneeId);
+            // Resolve assignee by id, name, email, or Employee_id so "Assigned to" shows correct name for MD/TL
+            const assignee = users.find(u =>
+              u.id === task.assigneeId ||
+              u.name === task.assigneeId ||
+              (typeof task.assigneeId === 'string' && u.email === task.assigneeId) ||
+              String(u.id).toLowerCase() === String(task.assigneeId).toLowerCase() ||
+              (u as any).Employee_id === task.assigneeId ||
+              (u as any)['Employee ID'] === task.assigneeId
+            );
             // Find reporter - try to find by ID, name, or email
             const reporter = task.reporterId ? users.find(u => 
               u.id === task.reporterId || 
@@ -1907,17 +2340,18 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
             ) : null;
             const isOverdue = new Date(task.dueDate) < new Date() && task.status !== TaskStatus.COMPLETED;
             
-            // Handle multiple assignees for display
-            const allAssignees = task.assigneeIds ? users.filter(u => task.assigneeIds?.includes(u.id)) : (assignee ? [assignee] : []);
+            // Handle multiple assignees for display (match by id, name, or Employee_id)
+            const allAssignees = task.assigneeIds
+              ? users.filter(u => task.assigneeIds?.some(id =>
+                  u.id === id || u.name === id || String((u as any).Employee_id) === String(id) || String((u as any)['Employee ID']) === String(id)
+                ))
+              : (assignee ? [assignee] : []);
+            const assigneeDisplayName = allAssignees.length > 0
+              ? allAssignees.map(a => a.name).join(', ')
+              : (assignee?.name || (typeof task.assigneeId === 'string' ? String(task.assigneeId).trim() : '') || 'Unknown');
 
             return (
               <div key={task.id} className={`bg-white rounded-xl border ${task.type === TaskType.SOS ? 'border-red-400 shadow-red-100 ring-2 ring-red-100' : 'border-gray-200'} shadow-sm hover:shadow-lg transition-all p-3 flex flex-col justify-between h-full relative group`}>
-                 {isOverdue && (
-                   <div className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-sm animate-pulse flex items-center">
-                     <AlertCircle size={10} className="mr-1"/> OVERDUE
-                   </div>
-                 )}
-
                 <div>
                   <div className="flex justify-between items-start mb-2">
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${task.type === TaskType.SOS ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
@@ -1952,15 +2386,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                         <span className="text-[10px]">Assigned by: <strong className="text-brand-600">{reporter.name}</strong></span>
                       </div>
                     )}
-                    {allAssignees.length > 0 && (
-                      <div className="flex items-center space-x-1 text-gray-500">
-                        {allAssignees.length === 1 ? (
-                          <span className="text-[10px]">Assigned to: <strong className="text-brand-600">{allAssignees[0].name}</strong></span>
-                        ) : (
-                          <span className="text-[10px]">Assigned to: <strong className="text-brand-600">{allAssignees.map(a => a.name).join(', ')}</strong></span>
-                        )}
-                      </div>
-                    )}
+                    {/* Assigned to: same style as Created by - always show */}
+                    <div className="flex items-center space-x-1 text-gray-500">
+                      <span className="text-[10px]">Assigned to: <strong className="text-brand-600">{assigneeDisplayName}</strong></span>
+                    </div>
                   </div>
                 </div>
 

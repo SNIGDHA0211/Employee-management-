@@ -562,7 +562,9 @@ export default function App() {
   useEffect(() => {
     // Role monitoring removed - no console logs
   }, [currentUser]);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : true
+  );
   const [groups, setGroups] = useState<ChatGroup[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -582,6 +584,19 @@ export default function App() {
   const [showUserProfileSidebar, setShowUserProfileSidebar] = useState(false);
   const [branches, setBranches] = useState<string[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+
+  // Keep sidebar state in sync with viewport: closed on mobile, open on desktop
+  useEffect(() => {
+    const onResize = () => {
+      setIsSidebarOpen((prev) => {
+        const isDesktop = window.innerWidth >= 768;
+        return isDesktop ? true : false;
+      });
+    };
+    window.addEventListener('resize', onResize);
+    onResize();
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // Restore authenticated session & last active tab on page refresh
   useEffect(() => {
@@ -1496,13 +1511,13 @@ export default function App() {
       case 'assignTask':
         // Assign Task Page → /tasks/viewAssignedTasks/ (for MD and all users)
         // Shows tasks assigned to the current user
-        return <TaskBoard currentUser={currentUser} tasks={tasks} users={users} projects={projects} setTasks={setTasks} viewMode="assign" />;
+        return <TaskBoard currentUser={currentUser} tasks={tasks} users={users} projects={projects} setTasks={setTasks} viewMode="assign" setActiveTab={setActiveTab} />;
       
       case 'reportingTask':
         // Reporting Page → /tasks/viewTasks/ (for MD and all users)
         // MD: Shows tasks created by users (filters out tasks created by MD)
         // Users: Shows tasks created by them (tasks they created)
-        return <TaskBoard currentUser={currentUser} tasks={tasks} users={users} projects={projects} setTasks={setTasks} viewMode="reporting" />;
+        return <TaskBoard currentUser={currentUser} tasks={tasks} users={users} projects={projects} setTasks={setTasks} viewMode="reporting" setActiveTab={setActiveTab} />;
       
       case 'messages':
         return <ChatSystem currentUser={currentUser} groups={groups} messages={messages} users={users} setMessages={setMessages} setGroups={setGroups} />;
