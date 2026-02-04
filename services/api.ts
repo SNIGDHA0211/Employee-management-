@@ -917,7 +917,10 @@ export const createTask = async (taskData: {
       due_date: taskData.due_date,
       assigned_to: assignedToArray, // Send as array of employee IDs
       type: taskData.type,
-    };const response = await api.post("/tasks/createTask/", requestBody);return response.data;
+      task_type: taskData.type, // Some backends expect task_type; send both for compatibility
+    };
+    const response = await api.post("/tasks/createTask/", requestBody);
+    return response.data;
   } catch (error: any) {
     console.error("❌ [CREATE TASK API] Exception:", error);
     console.error("❌ [CREATE TASK API] Error Response:", error.response?.data);
