@@ -585,6 +585,7 @@ export default function App() {
   const [branches, setBranches] = useState<string[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
 
+  
   // Keep sidebar state in sync with viewport: closed on mobile, open on desktop
   useEffect(() => {
     const onResize = () => {

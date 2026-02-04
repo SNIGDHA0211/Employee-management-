@@ -801,6 +801,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       setIsLoadingAssigneeNames({});
       setAssigneeDesignations({});
       
+   
+      
       // Refresh tasks from API to get the actual task with server-generated ID
       // Don't add locally first to avoid duplicates
       setTimeout(async () => {

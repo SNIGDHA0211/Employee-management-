@@ -14,6 +14,7 @@ interface SidebarProps {
   onUserProfileClick?: () => void;
 }
 
+
 export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab, onLogout, isOpen, setIsOpen, onUserProfileClick }) => {
   const [expandedNMRHI, setExpandedNMRHI] = useState(false);
   
