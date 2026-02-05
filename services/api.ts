@@ -2005,12 +2005,13 @@ export const getBookSlots = async (): Promise<any[]> => {
   try {
     const response = await api.get("/eventsapi/bookslots/");
     const data = response.data;
-    return Array.isArray(data) ? data : data ? [data] : [];
+    const list = Array.isArray(data) ? data : data?.data ?? data?.results ?? data?.slots ?? (data ? [data] : []);
+    return Array.isArray(list) ? list : [];
   } catch (error: any) {
     const status = error?.response?.status;
-    if (status === 403 || status === 401) return [];
     console.error("❌ [GET BOOK SLOTS] Error:", error);
-    return [];
+    // Rethrow so caller can preserve existing data instead of clearing
+    throw error;
   }
 };
 

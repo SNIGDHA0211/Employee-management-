@@ -76,6 +76,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser })
     setMeetingsLoading(true);
     getBookSlots()
       .then((list) => {
+      if (!Array.isArray(list)) return;
       const mapped: Meeting[] = list.map((item: any) => {
         const memberDetails = item.member_details || [];
         const attendees = memberDetails.map((m: any) => String(m.username ?? m.id ?? ''));
@@ -95,6 +96,8 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser })
         const endTime = item.end_time
           ? String(item.end_time).substring(0, 5)
           : '10:00';
+        const rawDate = item.date || '';
+        const date = rawDate.includes('T') ? rawDate.split('T')[0] : rawDate.substring(0, 10);
         return {
           id: String(item.id),
           title: item.meeting_title || 'No title',
@@ -102,7 +105,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser })
           hallName: item.room || 'N/A',
           startTime,
           endTime,
-          date: item.date || '',
+          date,
           type: item.meeting_type === 'group' ? MeetingType.GROUP : MeetingType.INDIVIDUAL,
           attendees,
           status,
@@ -112,9 +115,11 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser })
       });
       setMeetings(mapped);
       })
-      .catch(() => setMeetings([]))
+      .catch(() => {
+        // Keep existing meetings on fetch error - don't clear to avoid disappearing
+      })
       .finally(() => setMeetingsLoading(false));
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   // Fetch tours on initial load (GET eventsapi/tours/)
   useEffect(() => {
