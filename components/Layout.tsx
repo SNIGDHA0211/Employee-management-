@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video } from 'lucide-react';
 import { getMotivationalQuote } from '../services/gemini';
+import { getMeetingPush } from '../services/api';
 
 interface SidebarProps {
   user: User;
@@ -251,8 +252,34 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
   );
 };
 
-export const Header: React.FC<{ user: User, toggleSidebar: () => void }> = ({ user, toggleSidebar }) => {
+export const Header: React.FC<{ user: User; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number }> = ({ user, toggleSidebar, onMeetClick, meetingRefreshTrigger }) => {
   const [quote, setQuote] = useState("Loading thought...");
+  const [showMeetingDropdown, setShowMeetingDropdown] = useState(false);
+  const [meetings, setMeetings] = useState<any[]>([]);
+  const [meetingsLoading, setMeetingsLoading] = useState(false);
+
+  const fetchMeetings = () => {
+    setMeetingsLoading(true);
+    getMeetingPush()
+      .then(setMeetings)
+      .catch(() => setMeetings([]))
+      .finally(() => setMeetingsLoading(false));
+  };
+
+  const toggleMeetingDropdown = () => {
+    setShowMeetingDropdown((prev) => !prev);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (showMeetingDropdown && !target.closest('.meeting-dropdown-trigger')) {
+        setShowMeetingDropdown(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [showMeetingDropdown]);
 
   useEffect(() => {
     getMotivationalQuote().then(setQuote);
@@ -261,6 +288,16 @@ export const Header: React.FC<{ user: User, toggleSidebar: () => void }> = ({ us
     }, 3600000); 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    fetchMeetings();
+  }, []);
+
+  useEffect(() => {
+    if (meetingRefreshTrigger && meetingRefreshTrigger > 0) fetchMeetings();
+  }, [meetingRefreshTrigger]);
+
+  const meetingCount = meetings.length;
 
   return (
     <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-4 sticky top-0 z-10 shadow-sm">
@@ -274,14 +311,68 @@ export const Header: React.FC<{ user: User, toggleSidebar: () => void }> = ({ us
         </div>
       </div>
       <div className="flex items-center space-x-4">
-        {/* Notification bell and avatar - Commented out for all users */}
-        {/* <div className="relative">
-          <Bell size={20} className="text-gray-600 cursor-pointer hover:text-brand-600" />
-          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"></span>
+        {user.role === UserRole.MD && onMeetClick && (
+          <button
+            type="button"
+            onClick={onMeetClick}
+            className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 transition-colors"
+          >
+            <Video size={18} className="flex-shrink-0" />
+            <span>Meet</span>
+          </button>
+        )}
+        <div className="relative meeting-dropdown-trigger">
+          <button
+            type="button"
+            onClick={toggleMeetingDropdown}
+            className="relative p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+            aria-label="View meetings"
+          >
+            <Bell size={20} className="text-gray-600 hover:text-brand-600" />
+            {meetingCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full z-[1]">
+                {meetingCount > 99 ? '99+' : meetingCount}
+              </span>
+            )}
+          </button>
+          {showMeetingDropdown && (
+            <div className="absolute right-0 top-full mt-2 w-80 max-h-96 overflow-hidden bg-white rounded-xl shadow-lg border border-gray-200 z-50">
+              <div className="p-3 border-b border-gray-100 bg-gray-50">
+                <h3 className="font-semibold text-gray-800 text-sm">Meets</h3>
+              </div>
+              <div className="overflow-y-auto max-h-72 p-2">
+                {meetingsLoading ? (
+                  <p className="text-sm text-gray-500 py-4 text-center">Loading...</p>
+                ) : meetings.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-4 text-center">No meetings scheduled</p>
+                ) : (
+                  meetings.map((m: any) => (
+                    <div
+                      key={m.id}
+                      className="p-3 rounded-lg hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                    >
+                      <p className="text-xs font-medium text-brand-600 mb-1">
+                        {m.meeting_room} · {m.time === 60 ? '1 hr' : `${m.time} min`}
+                      </p>
+                      {(m.scheduled_time || m.schedule_time) && (
+                        <p className="text-xs text-gray-500 mb-1">
+                          {m.schedule_time || m.scheduled_time}
+                        </p>
+                      )}
+                      <div className="text-xs text-gray-700">
+                        <span className="font-medium">Members: </span>
+                        {(m.user_details || []).map((u: any) => u.full_name || u.username).join(', ')}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
         <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold border border-brand-200">
           {user.name.charAt(0)}
-        </div> */}
+        </div>
       </div>
     </header>
   );

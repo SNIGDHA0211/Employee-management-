@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Calendar, DollarSign, FileText, Loader2, Pencil, Plus, Tag, Trash2, X } from 'lucide-react';
 import { Expense, StatusType } from '../../types';
-import { createExpense, deleteExpense, getExpenses, updateExpense, uiToBackendStatus } from '../../services/expense.service';
+import { createExpense, deleteExpense, updateExpense, uiToBackendStatus } from '../../services/expense.service';
 
 interface ExpenseManagerProps {
   expenses: Expense[];
   setExpenses: React.Dispatch<React.SetStateAction<Expense[]>>;
+  onExpensesUpdated?: () => void;
 }
 
-const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }) => {
+const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses, onExpensesUpdated }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [editFormData, setEditFormData] = useState({
@@ -18,7 +19,6 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
     paidDate: '',
     status: 'Pending' as StatusType,
   });
-  const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -31,22 +31,6 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
     paidDate: new Date().toISOString().split('T')[0],
     status: 'Pending' as StatusType,
   });
-
-  useEffect(() => {
-    const load = async () => {
-      setIsLoading(true);
-      setFetchError(null);
-      try {
-        const list = await getExpenses();
-        setExpenses(list);
-      } catch (err: any) {
-        setFetchError(err?.response?.data?.detail ?? err?.message ?? 'Failed to load expenses.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    load();
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +45,7 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
         status: formData.status.toUpperCase(),
       });
       setExpenses([created, ...expenses]);
+      onExpensesUpdated?.();
       setFormData({
         title: '',
         amount: '',
@@ -103,6 +88,7 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
       });
       setExpenses((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
       setEditingExpense(null);
+      onExpensesUpdated?.();
     } catch (err: any) {
       setUpdateError(err?.response?.data?.detail ?? err?.message ?? 'Failed to update expense.');
     } finally {
@@ -114,6 +100,7 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
     try {
       const updated = await updateExpense(id, { status: uiToBackendStatus(newStatus) });
       setExpenses((prev) => prev.map((e) => (e.id === id ? updated : e)));
+      onExpensesUpdated?.();
     } catch {
       // Keep local state on error; user can retry
     }
@@ -126,6 +113,7 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
     try {
       await deleteExpense(expense.id);
       setExpenses((prev) => prev.filter((e) => e.id !== expense.id));
+      onExpensesUpdated?.();
     } catch {
       // Optionally show error; for now just reset deletingId
     } finally {
@@ -353,12 +341,6 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
         </div>
       )}
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-24 gap-3 text-gray-500">
-          <Loader2 size={24} className="animate-spin" />
-          <span className="font-medium">Loading expenses…</span>
-        </div>
-      ) : (
       <>
       <div className="space-y-4">
         {expenses.map((expense) => (
@@ -428,7 +410,6 @@ const ExpenseManager: React.FC<ExpenseManagerProps> = ({ expenses, setExpenses }
         </div>
       )}
       </>
-      )}
     </div>
   );
 };

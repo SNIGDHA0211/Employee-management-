@@ -15,7 +15,6 @@ import {
   YAxis,
 } from "recharts";
 import { Asset, Bill, Expense, Vendor } from "../../types";
-import api from "../../services/api";
 
 interface DashboardProps {
   assets: Asset[];
@@ -56,35 +55,15 @@ const AdminDashboard: React.FC<DashboardProps> = ({
     }));
   }, [bills]);
 
-  const [assetList, setAssetList] = useState<Asset[]>([]);
-
-  useEffect(() => {
-    const fetchAssets = async () => {
-      try {
-        const res = await api.get("/adminapi/assets/");
-        setAssetList(res.data);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    fetchAssets();
-  }, []);
-
   const donutData = useMemo(() => {
-    const hardwareCount = assetList.filter(
-      (a) => a.asset_type === "Hardware",
-    ).length;
-
-    const softwareCount = assetList.filter(
-      (a) => a.asset_type === "Software",
-    ).length;
+    const hardwareCount = assets.filter((a) => a.type === "Hardware").length;
+    const softwareCount = assets.filter((a) => a.type === "Software").length;
 
     return [
       { name: "Hardware", value: hardwareCount },
       { name: "Software", value: softwareCount },
     ];
-  }, [assetList]);
+  }, [assets]);
 
   const COLORS = ["#f97316", "#10b981"];
   const totalExpense = expenses.reduce(
@@ -98,7 +77,7 @@ const AdminDashboard: React.FC<DashboardProps> = ({
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
           <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
 <span className="text-2xl font-bold">
-  {assetList.length}
+  {assets.length}
 </span>
           </div>
           <div>

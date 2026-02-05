@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Building2, Hash, Loader2, Mail, MapPin, Pencil, Phone, UserPlus, X } from 'lucide-react';
 import { StatusType, Vendor } from '../../types';
-import { createVendor, deleteVendor, getVendors, updateVendor } from '../../services/vendor.service';
+import { createVendor, deleteVendor, updateVendor } from '../../services/vendor.service';
 
 interface VendorManagerProps {
   vendors: Vendor[];
   setVendors: React.Dispatch<React.SetStateAction<Vendor[]>>;
+  onVendorsUpdated?: () => void;
 }
 
-const VendorManager: React.FC<VendorManagerProps> = ({ vendors, setVendors }) => {
+const VendorManager: React.FC<VendorManagerProps> = ({ vendors, setVendors, onVendorsUpdated }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [editFormData, setEditFormData] = useState({
@@ -20,7 +21,6 @@ const VendorManager: React.FC<VendorManagerProps> = ({ vendors, setVendors }) =>
     gstNumber: '',
     status: 'Pending' as StatusType,
   });
-  const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -36,22 +36,6 @@ const VendorManager: React.FC<VendorManagerProps> = ({ vendors, setVendors }) =>
     status: 'Pending' as StatusType,
   });
 
-  useEffect(() => {
-    const load = async () => {
-      setIsLoading(true);
-      setFetchError(null);
-      try {
-        const list = await getVendors();
-        setVendors(list);
-      } catch (err: any) {
-        setFetchError(err?.response?.data?.detail ?? err?.message ?? 'Failed to load vendors.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    load();
-  }, []);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
@@ -66,6 +50,7 @@ const VendorManager: React.FC<VendorManagerProps> = ({ vendors, setVendors }) =>
         ...(formData.altPhone.trim() && { alternate_phone: formData.altPhone.trim() }),
       });
       setVendors([created, ...vendors]);
+      onVendorsUpdated?.();
       setFormData({ name: '', address: '', email: '', phone: '', altPhone: '', gstNumber: '', status: 'Pending' });
       setShowForm(false);
     } catch (err: any) {
@@ -114,6 +99,7 @@ const VendorManager: React.FC<VendorManagerProps> = ({ vendors, setVendors }) =>
         )
       );
       setEditingVendor(null);
+      onVendorsUpdated?.();
     } catch (err: any) {
       setUpdateError(err?.response?.data?.detail ?? err?.message ?? 'Failed to update vendor.');
     } finally {
@@ -132,6 +118,7 @@ const VendorManager: React.FC<VendorManagerProps> = ({ vendors, setVendors }) =>
     try {
       await deleteVendor(vendor.id);
       setVendors((prev) => prev.filter((v) => v.id !== vendor.id));
+      onVendorsUpdated?.();
     } catch {
       // Optionally show error; for now just reset deletingId
     } finally {
@@ -407,12 +394,6 @@ const VendorManager: React.FC<VendorManagerProps> = ({ vendors, setVendors }) =>
         </div>
       )}
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-24 gap-3 text-gray-500">
-          <Loader2 size={24} className="animate-spin" />
-          <span className="font-medium">Loading vendors…</span>
-        </div>
-      ) : (
       <>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {vendors.map((vendor) => (
@@ -495,7 +476,6 @@ const VendorManager: React.FC<VendorManagerProps> = ({ vendors, setVendors }) =>
         </div>
       )}
       </>
-      )}
     </div>
   );
 };
