@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X } from 'lucide-react';
 import { getMotivationalQuote } from '../services/gemini';
 
 interface SidebarProps {
@@ -14,8 +14,8 @@ interface SidebarProps {
   onUserProfileClick?: () => void;
 }
 
+
 export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab, onLogout, isOpen, setIsOpen, onUserProfileClick }) => {
-  const [expandedTasks, setExpandedTasks] = useState(false);
   const [expandedNMRHI, setExpandedNMRHI] = useState(false);
   
   const menuItems = [
@@ -32,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
     { id: 'schedule-hub', label: 'Schedule Hub', icon: Calendar, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN, UserRole.ADMIN] },
     // Attendance & Tours - commented out for all roles
     // { id: 'attendance', label: 'Attendance & Tours', icon: CalendarDays, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN, UserRole.ADMIN] },
-    { id: 'tasks', label: 'Tasks', icon: FolderKanban, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN], hasSubmenu: user.role === UserRole.MD || user.role === UserRole.EMPLOYEE || user.role === UserRole.INTERN || user.role === UserRole.TEAM_LEADER },
+    { id: 'tasks', label: 'Tasks', icon: FolderKanban, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
     { id: 'reports', label: 'Reports', icon: FileText, roles: [UserRole.MD, UserRole.ADMIN, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
     { id: 'projects', label: 'Projects', icon: Briefcase, roles: [UserRole.MD, UserRole.TEAM_LEADER] },
     { id: 'messages', label: 'Messages', icon: MessageSquare, roles: [UserRole.MD, UserRole.ADMIN, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
@@ -40,13 +40,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
   ];
 
   const filteredItems = menuItems.filter(item => item.roles.includes(user.role));
-
-  // Check if tasks submenu should be expanded
-  useEffect(() => {
-    if (activeTab === 'assignTask' || activeTab === 'reportingTask') {
-      setExpandedTasks(true);
-    }
-  }, [activeTab]);
 
   // Check if NMRHI submenu should be expanded
   useEffect(() => {
@@ -62,15 +55,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
         <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setIsOpen(false)} />
       )}
 
-      <div className={`fixed inset-y-0 left-0 z-30 w-64 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-6 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-brand-500">planeteye<span className="text-white">Team</span></h1>
-          <button onClick={() => setIsOpen(false)} className="md:hidden text-gray-400 hover:text-white">
-            <LogOut size={20} />
+      <div className={`fixed inset-y-0 left-0 z-30 w-[280px] max-w-[85vw] md:w-64 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 flex flex-col h-full shadow-xl md:shadow-none pl-[env(safe-area-inset-left)] ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="flex-shrink-0 p-4 md:p-6 flex items-center justify-between border-b border-slate-800/50">
+          <h1 className="text-xl md:text-2xl font-bold text-brand-500 truncate">planeteye<span className="text-white">Team</span></h1>
+          <button onClick={() => setIsOpen(false)} className="md:hidden p-2 -m-2 text-gray-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" aria-label="Close menu">
+            <X size={22} />
           </button>
         </div>
 
-        <div className="px-6 mb-6">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col">
+        <div className="px-4 md:px-6 pt-4 md:pt-6 pb-2">
           <div 
             className="flex items-center space-x-3 p-3 bg-slate-800 rounded-lg cursor-pointer hover:bg-slate-700 transition-colors"
             onClick={onUserProfileClick}
@@ -99,72 +93,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
           </div>
         </div>
 
-        <nav className="px-4 space-y-1">
+        <nav className="px-2 md:px-4 pb-4 space-y-1">
           {filteredItems.map((item) => {
             const Icon = item.icon;
-            const isTasksItem = item.id === 'tasks' && item.hasSubmenu;
-            // Tasks parent should NOT turn blue - keep it gray/black always
-            const isTasksParentActive = false; // Never highlight Tasks parent button
-            // Check if any submenu is active
-            const isSubmenuActive = activeTab === 'assignTask' || activeTab === 'reportingTask';
+            const isTasksItem = item.id === 'tasks';
+            const isTasksActive = isTasksItem && (activeTab === 'assignTask' || activeTab === 'reportingTask');
+            const isActive = isTasksActive || (!isTasksItem && activeTab === item.id);
             
             return (
               <div key={item.id}>
               <button
                   onClick={() => { 
                     if (isTasksItem) {
-                      if (!expandedTasks) {
-                        setExpandedTasks(true);
-                        setActiveTab('assignTask');
-                      } else {
-                        setExpandedTasks(false);
-                      }
+                      setActiveTab('assignTask');
                     } else {
                       setActiveTab(item.id);
                     }
                     setIsOpen(false);
                   }}
-                  className={`w-full flex items-center justify-between px-4 py-3 rounded-lg transition-all duration-200 ${
-                    isTasksParentActive ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20' : 'text-gray-400 hover:bg-slate-800 hover:text-white'
+                  className={`w-full flex items-center justify-between px-4 py-3 min-h-[44px] rounded-lg transition-all duration-200 ${
+                    isActive ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20' : 'text-gray-400 hover:bg-slate-800 hover:text-white'
                   }`}
               >
-                  <div className="flex items-center space-x-3">
-                <Icon size={20} />
-                <span>{item.label}</span>
+                  <div className="flex items-center space-x-3 min-w-0 flex-1">
+                <Icon size={20} className="flex-shrink-0" />
+                <span className="truncate">{item.label}</span>
                   </div>
-                  {isTasksItem && (
-                    <ChevronRight 
-                      size={16} 
-                      className={`transform transition-transform duration-200 ${expandedTasks ? 'rotate-90' : ''} text-gray-400`}
-                    />
-                  )}
                 </button>
-                
-                {/* Tasks Submenu for MD, Employee, Intern, and Team Leader roles */}
-                {isTasksItem && expandedTasks && (user.role === UserRole.MD || user.role === UserRole.EMPLOYEE || user.role === UserRole.INTERN || user.role === UserRole.TEAM_LEADER) && (
-                  <div className="ml-4 mt-1 space-y-1">
-                    <button
-                      onClick={() => { setActiveTab('assignTask'); setIsOpen(false); }}
-                      className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${
-                        activeTab === 'assignTask' 
-                          ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
-                          : 'text-gray-400 hover:bg-slate-800 hover:text-white'
-                      }`}
-                    >
-                      <span>Reporting Task</span>
-                    </button>
-                    <button
-                      onClick={() => { setActiveTab('reportingTask'); setIsOpen(false); }}
-                      className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${
-                        activeTab === 'reportingTask' 
-                          ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
-                          : 'text-gray-400 hover:bg-slate-800 hover:text-white'
-                      }`}
-                    >
-                      <span>Assigned Task</span>
-              </button>
-                  </div>
-                )}
               </div>
             );
           })}
@@ -182,13 +137,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
                   }
                   setIsOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-3 rounded-lg transition-all duration-200 ${
+                className={`w-full flex items-center justify-between px-4 py-3 min-h-[44px] rounded-lg transition-all duration-200 ${
                   'text-gray-400 hover:bg-slate-800 hover:text-white'
                 }`}
               >
-                <div className="flex items-center space-x-3">
-                  <Target size={20} />
-                  <span>NMRHI</span>
+                <div className="flex items-center space-x-3 min-w-0">
+                  <Target size={20} className="flex-shrink-0" />
+                  <span className="truncate">NMRHI</span>
                 </div>
                 <ChevronRight 
                   size={16} 
@@ -201,58 +156,58 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
                 <div className="ml-4 mt-1 space-y-1">
                   <button
                     onClick={() => { setActiveTab('nmrhi-npd'); setIsOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-2 rounded-lg transition-all duration-200 ${
+                    className={`w-full flex items-center space-x-3 px-4 py-2.5 min-h-[44px] rounded-lg transition-all duration-200 ${
                       activeTab === 'nmrhi-npd' 
                         ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
                         : 'text-gray-400 hover:bg-slate-800 hover:text-white'
                     }`}
                   >
-                    <span className="w-6 h-6 rounded bg-blue-600 text-white text-[10px] font-black flex items-center justify-center">N</span>
-                    <span>NPD</span>
+                    <span className="w-6 h-6 rounded bg-blue-600 text-white text-[10px] font-black flex items-center justify-center flex-shrink-0">N</span>
+                    <span className="truncate">NPD</span>
                   </button>
                   <button
                     onClick={() => { setActiveTab('nmrhi-mmr'); setIsOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-2 rounded-lg transition-all duration-200 ${
+                    className={`w-full flex items-center space-x-3 px-4 py-2.5 min-h-[44px] rounded-lg transition-all duration-200 ${
                       activeTab === 'nmrhi-mmr' 
                         ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
                         : 'text-gray-400 hover:bg-slate-800 hover:text-white'
                     }`}
                   >
-                    <span className="w-6 h-6 rounded bg-emerald-600 text-white text-[10px] font-black flex items-center justify-center">M</span>
-                    <span>MMR</span>
+                    <span className="w-6 h-6 rounded bg-emerald-600 text-white text-[10px] font-black flex items-center justify-center flex-shrink-0">M</span>
+                    <span className="truncate">MMR</span>
                   </button>
                   <button
                     onClick={() => { setActiveTab('nmrhi-rg'); setIsOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-2 rounded-lg transition-all duration-200 ${
+                    className={`w-full flex items-center space-x-3 px-4 py-2.5 min-h-[44px] rounded-lg transition-all duration-200 ${
                       activeTab === 'nmrhi-rg' 
                         ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
                         : 'text-gray-400 hover:bg-slate-800 hover:text-white'
                     }`}
                   >
-                    <span className="w-6 h-6 rounded bg-amber-600 text-white text-[10px] font-black flex items-center justify-center">R</span>
-                    <span>RG</span>
+                    <span className="w-6 h-6 rounded bg-amber-600 text-white text-[10px] font-black flex items-center justify-center flex-shrink-0">R</span>
+                    <span className="truncate">RG</span>
                   </button>
                   <button
                     onClick={() => { setActiveTab('nmrhi-hc'); setIsOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-2 rounded-lg transition-all duration-200 ${
+                    className={`w-full flex items-center space-x-3 px-4 py-2.5 min-h-[44px] rounded-lg transition-all duration-200 ${
                       activeTab === 'nmrhi-hc' 
                         ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
                         : 'text-gray-400 hover:bg-slate-800 hover:text-white'
                     }`}
                   >
-                    <span className="w-6 h-6 rounded bg-purple-600 text-white text-[10px] font-black flex items-center justify-center">H</span>
-                    <span>HC</span>
+                    <span className="w-6 h-6 rounded bg-purple-600 text-white text-[10px] font-black flex items-center justify-center flex-shrink-0">H</span>
+                    <span className="truncate">HC</span>
                   </button>
                   <button
                     onClick={() => { setActiveTab('nmrhi-ip'); setIsOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-2 rounded-lg transition-all duration-200 ${
+                    className={`w-full flex items-center space-x-3 px-4 py-2.5 min-h-[44px] rounded-lg transition-all duration-200 ${
                       activeTab === 'nmrhi-ip' 
                         ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
                         : 'text-gray-400 hover:bg-slate-800 hover:text-white'
                     }`}
                   >
-                    <span className="w-6 h-6 rounded bg-rose-600 text-white text-[10px] font-black flex items-center justify-center">I</span>
-                    <span>IP</span>
+                    <span className="w-6 h-6 rounded bg-rose-600 text-white text-[10px] font-black flex items-center justify-center flex-shrink-0">I</span>
+                    <span className="truncate">IP</span>
                   </button>
                 </div>
               )}
@@ -268,25 +223,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
                   setActiveTab('allUsers');
                   setIsOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-3 rounded-lg transition-all duration-200 ${
+                className={`w-full flex items-center justify-between px-4 py-3 min-h-[44px] rounded-lg transition-all duration-200 ${
                   activeTab === 'allUsers' 
                     ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20' 
                     : 'text-gray-400 hover:bg-slate-800 hover:text-white'
                 }`}
               >
-                <div className="flex items-center space-x-3">
-                  <UserCheck size={20} />
-                  <span>Userpanel</span>
+                <div className="flex items-center space-x-3 min-w-0">
+                  <UserCheck size={20} className="flex-shrink-0" />
+                  <span className="truncate">Userpanel</span>
                 </div>
                 <ChevronRight size={16} className="text-gray-400" />
               </button>
             </div>
           )}
         </nav>
+        </div>
 
-        <div className="absolute bottom-0 w-full p-4 border-t border-slate-800">
-          <button onClick={onLogout} className="flex items-center space-x-3 text-gray-400 hover:text-red-400 w-full px-4 py-2 transition-colors">
-            <LogOut size={20} />
+        <div className="flex-shrink-0 w-full p-4 border-t border-slate-800 bg-slate-900">
+          <button onClick={onLogout} className="flex items-center space-x-3 text-gray-400 hover:text-red-400 w-full px-4 py-3 min-h-[44px] rounded-lg transition-colors hover:bg-slate-800">
+            <LogOut size={20} className="flex-shrink-0" />
             <span>Sign Out</span>
           </button>
         </div>
