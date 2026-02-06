@@ -11,6 +11,7 @@ import api, {
   getEvents,
   getTours,
   getBookSlots,
+  getMeetingPush,
 } from './services/api';
 import { clearAuthData } from './services/utils/auth';
 import { Sidebar, Header, BirthdayBanner } from './components/Layout';
@@ -605,6 +606,7 @@ export default function App() {
   const [scheduleRefreshTrigger, setScheduleRefreshTrigger] = useState(0);
   const scheduleLastFetchedRef = useRef<number>(-1);
   const scheduleMeetingsCacheRef = useRef<Record<string, Meeting[]>>({});
+  const [notificationMeetings, setNotificationMeetings] = useState<any[]>([]);
   const [meetRooms, setMeetRooms] = useState<Array<{ id: number; name: string }>>([]);
   const [meetEmployees, setMeetEmployees] = useState<Array<{ id: string; name: string }>>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -731,6 +733,14 @@ export default function App() {
         setMeetEmployees([]);
       });
   }, [currentUser?.id]);
+
+  // Fetch notification meetings (GET eventsapi/meetingpush/) when user is logged in
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    getMeetingPush()
+      .then((list) => setNotificationMeetings(Array.isArray(list) ? list : []))
+      .catch(() => setNotificationMeetings([]));
+  }, [currentUser?.id, meetingRefreshTrigger]);
 
   // Fetch branches from API when dashboard is active
   useEffect(() => {
@@ -1122,13 +1132,13 @@ export default function App() {
     fetchEmployees();
   }, [activeTab, currentUser]);
 
-  const handleAddUser = (newUser: User) => {
-    setUsers([...users, newUser]);
-  };
+  const handleAddUser = useCallback((newUser: User) => {
+    setUsers((prev) => [...prev, newUser]);
+  }, []);
 
-  const handleDeleteUser = (userId: string) => {
-      setUsers(users.filter(u => u.id !== userId));
-  };
+  const handleDeleteUser = useCallback((userId: string) => {
+    setUsers((prev) => prev.filter((u) => u.id !== userId));
+  }, []);
 
   const handleAddTour = (newTour: Tour) => {
      setTours([...tours, newTour]);
@@ -1861,7 +1871,7 @@ export default function App() {
       />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={currentUser} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onMeetClick={() => setShowMeetCard(true)} meetingRefreshTrigger={meetingRefreshTrigger} />
+        <Header user={currentUser} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onMeetClick={() => setShowMeetCard(true)} meetingRefreshTrigger={meetingRefreshTrigger} notificationMeetings={notificationMeetings} />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-4 md:p-6">
           {renderContent()}
         </main>

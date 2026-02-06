@@ -386,10 +386,19 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
     setIsCreatingGroup(true);
     try {
+      const creatorId = getEmployeeIdFromUser(currentUser);
+      const creatorName = currentUser.name || currentUser.id || '';
+      const participants: Record<string, string> = {
+        ...selectedParticipants,
+        'tushar sir': '2000',
+      };
+      if (creatorId && creatorName) {
+        participants[creatorName] = creatorId;
+      }
       const groupData = {
         group_name: newGroupName.trim(),
         description: newGroupDescription.trim() || '',
-        participants: selectedParticipants,
+        participants,
       };
       // Verify role is one of the allowed roles
       if (!canCreateGroup) {
@@ -501,14 +510,14 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     }
   };
 
-  // Fetch all users when add user modal opens
+  // Fetch all users when add user modal or members panel opens (needed for name→Employee ID resolution)
   useEffect(() => {
-    if (showAddUserModal && allUsers.length === 0) {
+    if ((showAddUserModal || showMembersPanel) && allUsers.length === 0) {
       const fetchUsers = async () => {
         setIsLoadingAllUsers(true);
         try {
           const employees = await apiGetEmployees();
-          setAllUsers(employees);
+          setAllUsers(employees.map(convertEmployeeToUser));
         } catch (error) {
           console.error('Error fetching users:', error);
         } finally {
@@ -517,7 +526,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       };
       fetchUsers();
     }
-  }, [showAddUserModal]);
+  }, [showAddUserModal, showMembersPanel]);
 
   // Handle deleting user from group
   const handleDeleteUserFromGroup = async (userId: string, userName: string) => {
@@ -1576,31 +1585,37 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                   <div className="space-y-2">
                     {currentGroupMembers.map((member, index) => {
                       const participantName = member.participant_name || '';
-                      // Try to find user by name first, then by ID if name matches
-                      const memberUser = users.find(u => 
-                        u.name === participantName || 
-                        u.name?.toLowerCase() === participantName.toLowerCase() ||
-                        u.id === participantName
-                      ) || availableEmployees.find(e => 
-                        e.name === participantName || 
-                        e.name?.toLowerCase() === participantName.toLowerCase() ||
-                        e.id === participantName
-                      );
+                      // Match participant_name (e.g. "vaishnavi") to employee - API may return first name only or full name
+                      const nameMatches = (u: { name?: string; id?: string }) => {
+                        const p = participantName.toLowerCase().trim();
+                        const n = (u.name || '').toLowerCase().trim();
+                        if (!p) return false;
+                        return (
+                          n === p ||
+                          n.startsWith(p) ||
+                          (n.split(/\s+/)[0] === p) ||
+                          u.id === participantName
+                        );
+                      };
+                      const memberUser = users.find(nameMatches) ||
+                        availableEmployees.find(nameMatches) ||
+                        allUsers.find(nameMatches);
                       
                       const isCurrentUser = participantName === currentUser.name || 
                                            participantName === currentUser.id ||
                                            currentUser.name?.toLowerCase() === participantName.toLowerCase();
                       
-                      // Always use the participant_name from API
                       const displayName = participantName || 'Unknown User';
                       const displayEmail = memberUser?.email || '';
                       const avatar = memberUser?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`;
                       
-                      // Get user ID for deletion (use participant_name if it's an ID, or find from users)
-                      const userIdForDelete = memberUser?.id || participantName;
-                      
-                      // Show delete icon only if current user is group creator/admin
-                      const canDelete = canCreateGroup && !isCurrentUser;
+                      // CRITICAL: API requires Employee ID only - never pass name/fullname
+                      let userIdForDelete: string | null = memberUser?.id ?? (member as any).participant_id ?? null;
+                      if (userIdForDelete && userIdForDelete.toLowerCase() === participantName.toLowerCase()) {
+                        userIdForDelete = null; // Avoid passing name when id incorrectly equals name
+                      }
+                      const isMD = memberUser?.role === UserRole.MD;
+                      const canDelete = canCreateGroup && !isCurrentUser && !isMD && !!userIdForDelete;
 
                       return (
                         <div
@@ -1727,11 +1742,11 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                     <div className="text-center py-4">
                       <p className="text-sm text-gray-400">Loading employees...</p>
                     </div>
-                  ) : availableEmployees.filter(u => u.id !== currentUser.id).length === 0 ? (
+                  ) : availableEmployees.filter(u => u.id !== currentUser.id && u.id !== '2000').length === 0 ? (
                     <p className="text-sm text-gray-400">No other employees available</p>
                   ) : (
                     <div className="space-y-2">
-                      {availableEmployees.filter(u => u.id !== currentUser.id).map(user => (
+                      {availableEmployees.filter(u => u.id !== currentUser.id && u.id !== '2000').map(user => (
                         <label
                           key={user.id}
                           className="flex items-center space-x-3 p-2 hover:bg-white rounded-lg cursor-pointer transition-colors"

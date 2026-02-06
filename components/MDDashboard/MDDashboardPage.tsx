@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  BarChart, Bar, PieChart, Pie, Cell, Legend, ComposedChart, Line
+  BarChart, Bar, Cell, ComposedChart, Line
 } from 'recharts';
 import { Sparkles, Filter, Download, BrainCircuit, History, X, User, Check, Calendar } from 'lucide-react';
 import StatCard from './components/StatCard';
-import { AIInsight, ProjectData } from './types';
+import { AIInsight, ProjectData, WorkforceData } from './types';
 import { KPI_DATA, REVENUE_CHART_DATA, WORKFORCE_DATA, PROJECTS, ASSETS_DATA } from './constants';
 import { getDashboardInsights } from './services/geminiService';
+import { getEmployees } from '../../services/api';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
@@ -20,6 +21,86 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User',
   const [insights, setInsights] = useState<AIInsight[]>([]);
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [selectedProject, setSelectedProject] = useState<ProjectData | null>(null);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [workforceLoading, setWorkforceLoading] = useState(true);
+  const [workforceView, setWorkforceView] = useState<'designation' | 'role' | 'branch' | 'function'>('designation');
+
+  // Workforce distribution by designation (from API employees)
+  const workforceByDesignation: WorkforceData[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    employees.forEach((emp: any) => {
+      const designation = emp['Designation'] || emp['designation'] || emp.designation || 'Unassigned';
+      const label = String(designation).trim() || 'Unassigned';
+      counts[label] = (counts[label] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [employees]);
+
+  // Workforce distribution by role (from API employees)
+  const workforceByRole: WorkforceData[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    employees.forEach((emp: any) => {
+      const role = emp['Role'] || emp['role'] || emp.role || 'Unassigned';
+      const label = String(role).trim() || 'Unassigned';
+      counts[label] = (counts[label] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [employees]);
+
+  // Workforce distribution by branch (from API employees)
+  const workforceByBranch: WorkforceData[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    employees.forEach((emp: any) => {
+      const branch = emp['Branch'] || emp['branch'] || emp.branch || 'Unassigned';
+      const label = String(branch).trim() || 'Unassigned';
+      counts[label] = (counts[label] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [employees]);
+
+  // Workforce distribution by function (from API employees)
+  const workforceByFunction: WorkforceData[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    employees.forEach((emp: any) => {
+      const fn = emp['Function'] || emp['function'] || emp.function || 'Unassigned';
+      const label = String(fn).trim() || 'Unassigned';
+      counts[label] = (counts[label] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [employees]);
+
+  const workforceChartData =
+    workforceView === 'role'
+      ? workforceByRole
+      : workforceView === 'branch'
+        ? workforceByBranch
+        : workforceView === 'function'
+          ? workforceByFunction
+          : workforceByDesignation;
+  const totalStaffCount = useMemo(() => workforceByDesignation.reduce((s, w) => s + w.value, 0), [workforceByDesignation]);
+
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      try {
+        const list = await getEmployees();
+        setEmployees(Array.isArray(list) ? list : []);
+      } catch (err) {
+        console.error('MD Dashboard: failed to fetch employees', err);
+        setEmployees([]);
+      } finally {
+        setWorkforceLoading(false);
+      }
+    };
+    fetchEmployees();
+  }, []);
 
   // Consolidated data for all sections
   const allKpis = [
@@ -33,7 +114,7 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User',
     const result = await getDashboardInsights({
       kpis: allKpis,
       projects: PROJECTS,
-      workforce: WORKFORCE_DATA,
+      workforce: workforceByDesignation.length > 0 ? workforceByDesignation : WORKFORCE_DATA,
       assets: ASSETS_DATA
     });
     setInsights(result);
@@ -169,54 +250,92 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User',
           </div>
         </section>
 
-        {/* Row 3: Workforce, Assets, Quality Metrics */}
+        {/* Row 3: Workforce, Quality Metrics */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Workforce (Horizontal Bar) */}
-          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
-            <h3 className="text-lg font-bold mb-6">Workforce Distribution</h3>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart layout="vertical" data={WORKFORCE_DATA}>
-                  <XAxis type="number" hide />
-                  <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fontSize: 12, fontWeight: 500}} width={90} />
-                  <Tooltip cursor={{fill: 'transparent'}} />
-                  <Bar dataKey="value" radius={[0, 10, 10, 0]} barSize={24}>
-                    {WORKFORCE_DATA.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+          {/* Workforce Distribution - wider */}
+          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm lg:col-span-2">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-lg font-bold">Workforce Distribution</h3>
+                <p className="text-sm text-slate-500">
+                  {workforceView === 'designation' && 'By employee designation'}
+                  {workforceView === 'role' && 'By employee role'}
+                  {workforceView === 'branch' && 'By branch'}
+                  {workforceView === 'function' && 'By function'}
+                </p>
+              </div>
+              <div className="p-1 bg-slate-100 rounded-xl flex flex-wrap gap-1">
+                <button
+                  onClick={() => setWorkforceView('designation')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                    workforceView === 'designation'
+                      ? 'bg-white shadow-sm text-indigo-600'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Designation
+                </button>
+                <button
+                  onClick={() => setWorkforceView('role')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                    workforceView === 'role'
+                      ? 'bg-white shadow-sm text-indigo-600'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Role
+                </button>
+                <button
+                  onClick={() => setWorkforceView('branch')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                    workforceView === 'branch'
+                      ? 'bg-white shadow-sm text-indigo-600'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Branch
+                </button>
+                <button
+                  onClick={() => setWorkforceView('function')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                    workforceView === 'function'
+                      ? 'bg-white shadow-sm text-indigo-600'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Function
+                </button>
+              </div>
+            </div>
+            <div className="h-[300px] min-h-[200px]">
+              {workforceLoading ? (
+                <div className="h-full flex items-center justify-center">
+                  <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : workforceChartData.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                  <User size={40} className="mb-2 opacity-50" />
+                  <p className="text-sm font-medium">No employee data available</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart layout="vertical" data={workforceChartData}>
+                    <XAxis type="number" hide />
+                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fontSize: 12, fontWeight: 500}} width={120} />
+                    <Tooltip cursor={{fill: 'transparent'}} />
+                    <Bar dataKey="value" radius={[0, 10, 10, 0]} barSize={24} name="Employees">
+                      {workforceChartData.map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </div>
             <div className="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center text-sm">
               <span className="text-slate-500 font-medium">Total Staff Count</span>
-              <span className="font-bold text-slate-900">450 Employees</span>
-            </div>
-          </div>
-
-          {/* Asset Portfolio (Donut) */}
-          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
-            <h3 className="text-lg font-bold mb-6">Asset Valuation</h3>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={ASSETS_DATA}
-                    innerRadius={70}
-                    outerRadius={100}
-                    paddingAngle={10}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {ASSETS_DATA.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                </PieChart>
-              </ResponsiveContainer>
+              <span className="font-bold text-slate-900">{totalStaffCount} Employees</span>
             </div>
           </div>
 

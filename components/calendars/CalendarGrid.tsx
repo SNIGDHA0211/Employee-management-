@@ -201,33 +201,10 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                     if (viewMode === ViewMode.HOLIDAY) {
                       const h = ev as Holiday;
                       const isHolidayType = h.type === 'holiday';
-                      // Only holidays are clickable; events stay as plain display
-                      if (isHolidayType && onHolidayClick) {
-                        return (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => onHolidayClick(h)}
-                            className="text-left w-full text-[10px] p-2 rounded-xl flex flex-col gap-0.5 text-white hover:opacity-90 cursor-pointer transition-opacity"
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="font-black uppercase tracking-tighter truncate leading-tight">
-                                {h.name}
-                              </span>
-                            </div>
-                            {h.isUrgent && (
-                              <div className="mt-1 px-1.5 py-0.5 bg-white text-red-600 rounded text-[8px] font-black uppercase w-fit">
-                                Urgent
-                              </div>
-                            )}
-                          </button>
-                        );
-                      }
-                      return (
-                        <div
-                          key={idx}
-                          className="text-[10px] p-2 rounded-xl flex flex-col gap-0.5 text-white"
-                        >
+                      // Holidays and events are clickable — opens detail modal (Edit PATCH / Delete)
+                      const isClickable = !!onHolidayClick;
+                      const content = (
+                        <>
                           <div className="flex items-center justify-between">
                             <span className="font-black uppercase tracking-tighter truncate leading-tight">
                               {h.name}
@@ -255,10 +232,9 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                                       d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                                     />
                                   </svg>
-                                  {h.time}
+                                  {String(h.time).substring(0, 5)}
                                 </div>
                               )}
-
                             </div>
                           )}
                           {isHolidayType && h.isUrgent && (
@@ -266,6 +242,26 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                               Urgent
                             </div>
                           )}
+                        </>
+                      );
+                      if (isClickable) {
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => onHolidayClick(h)}
+                            className="text-left w-full text-[10px] p-2 rounded-xl flex flex-col gap-0.5 text-white hover:opacity-90 cursor-pointer transition-opacity"
+                          >
+                            {content}
+                          </button>
+                        );
+                      }
+                      return (
+                        <div
+                          key={idx}
+                          className="text-[10px] p-2 rounded-xl flex flex-col gap-0.5 text-white"
+                        >
+                          {content}
                         </div>
                       );
                     }

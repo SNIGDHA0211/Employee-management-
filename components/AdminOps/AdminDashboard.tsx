@@ -29,17 +29,31 @@ const AdminDashboard: React.FC<DashboardProps> = ({
   expenses,
   vendors,
 }) => {
+  const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
   const expenseChartData = useMemo(() => {
-    const total = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-    return [
-      { name: "Jan", amount: 400 },
-      { name: "Feb", amount: 700 },
-      { name: "Mar", amount: 1200 },
-      { name: "Apr", amount: 900 },
-      { name: "May", amount: 1500 },
-      { name: "Jun", amount: 1300 },
-      { name: "Jul", amount: total },
-    ];
+    const now = new Date();
+    const byKey: Record<string, number> = {};
+    const slots: { key: string; name: string }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      const key = `${y}-${String(m + 1).padStart(2, "0")}`;
+      const shortYear = String(y).slice(-2);
+      slots.push({ key, name: `${MONTH_NAMES[m]} '${shortYear}` });
+      byKey[key] = 0;
+    }
+    expenses.forEach((e) => {
+      const amount = Number(e.amount) || 0;
+      const date = e.paidDate || "";
+      const match = date.match(/^(\d{4})-(\d{2})/);
+      if (match) {
+        const key = `${match[1]}-${match[2]}`;
+        if (byKey.hasOwnProperty(key)) byKey[key] += amount;
+      }
+    });
+    return slots.map(({ key, name }) => ({ name, amount: byKey[key] ?? 0 }));
   }, [expenses]);
 
   const billsData = useMemo(() => {
@@ -63,6 +77,16 @@ const AdminDashboard: React.FC<DashboardProps> = ({
       { name: "Hardware", value: hardwareCount },
       { name: "Software", value: softwareCount },
     ];
+  }, [assets]);
+
+  const assetStatusCounts = useMemo(() => {
+    const norm = (s: string) => (s || "").toLowerCase().replace(/\s/g, "");
+    return {
+      total: assets.length,
+      pending: assets.filter((a) => norm(a.status) === "pending").length,
+      inprocess: assets.filter((a) => norm(a.status) === "inprocess").length,
+      completed: assets.filter((a) => norm(a.status) === "completed").length,
+    };
   }, [assets]);
 
   const COLORS = ["#f97316", "#10b981"];
@@ -223,33 +247,40 @@ const AdminDashboard: React.FC<DashboardProps> = ({
         </div>
 
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold mb-6 text-gray-800">
+          <h3 className="text-lg font-bold mb-4 text-gray-800">
             Asset Distribution
           </h3>
-
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height={320}>
-              <PieChart>
-                <Pie
-                  data={donutData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {donutData.map((_, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={COLORS[index % COLORS.length]}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+          <div className="flex flex-row items-center gap-1">
+            <div className="h-80 flex-1 min-w-0">
+              <ResponsiveContainer width="100%" height={320}>
+                <PieChart>
+                  <Pie
+                    data={donutData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {donutData.map((_, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={COLORS[index % COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex flex-col gap-2 text-sm font-medium shrink-0 border-l border-gray-200 pl-2 pr-20">
+              <span className="text-gray-700">Total: {assetStatusCounts.total}</span>
+              <span className="text-amber-600">Pending: {assetStatusCounts.pending}</span>
+              <span className="text-blue-600">In process: {assetStatusCounts.inprocess}</span>
+              <span className="text-green-600">Completed: {assetStatusCounts.completed}</span>
+            </div>
           </div>
         </div>
 

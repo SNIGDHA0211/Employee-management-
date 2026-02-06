@@ -5,6 +5,19 @@ import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell
 import { getMotivationalQuote } from '../services/gemini';
 import { getMeetingPush } from '../services/api';
 
+const formatBookingTime = (val: string): string => {
+  if (!val) return '';
+  try {
+    const parts = String(val).split(',');
+    if (parts.length >= 2) return (parts[1]?.trim() || val);
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    return val;
+  } catch {
+    return val;
+  }
+};
+
 interface SidebarProps {
   user: User;
   activeTab: string;
@@ -252,21 +265,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
   );
 };
 
-export const Header: React.FC<{ user: User; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number }> = ({ user, toggleSidebar, onMeetClick, meetingRefreshTrigger }) => {
+export const Header: React.FC<{ user: User; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number; notificationMeetings?: any[] }> = ({ user, toggleSidebar, onMeetClick, meetingRefreshTrigger, notificationMeetings = [] }) => {
   const [quote, setQuote] = useState("Loading thought...");
   const [showMeetingDropdown, setShowMeetingDropdown] = useState(false);
-  const [meetings, setMeetings] = useState<any[]>([]);
-  const [meetingsLoading, setMeetingsLoading] = useState(false);
+  const [localMeetings, setLocalMeetings] = useState<any[]>([]);
+  const meetings = notificationMeetings?.length > 0 ? notificationMeetings : localMeetings;
 
   const fetchMeetings = () => {
-    setMeetingsLoading(true);
     getMeetingPush()
-      .then(setMeetings)
-      .catch(() => setMeetings([]))
-      .finally(() => setMeetingsLoading(false));
+      .then((list) => setLocalMeetings(Array.isArray(list) ? list : []))
+      .catch(() => setLocalMeetings([]));
   };
 
   const toggleMeetingDropdown = () => {
+    if (!showMeetingDropdown) fetchMeetings();
     setShowMeetingDropdown((prev) => !prev);
   };
 
@@ -290,14 +302,15 @@ export const Header: React.FC<{ user: User; toggleSidebar: () => void; onMeetCli
   }, []);
 
   useEffect(() => {
-    fetchMeetings();
-  }, []);
+    if (user?.id) fetchMeetings();
+  }, [user?.id]);
 
   useEffect(() => {
-    if (meetingRefreshTrigger && meetingRefreshTrigger > 0) fetchMeetings();
+    if (meetingRefreshTrigger && meetingRefreshTrigger > 0 && user?.id) fetchMeetings();
   }, [meetingRefreshTrigger]);
 
   const meetingCount = meetings.length;
+  const sortedMeetings = [...meetings].sort((a: any, b: any) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
 
   return (
     <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-4 sticky top-0 z-10 shadow-sm">
@@ -317,7 +330,6 @@ export const Header: React.FC<{ user: User; toggleSidebar: () => void; onMeetCli
             onClick={onMeetClick}
             className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 transition-colors"
           >
-            <Video size={18} className="flex-shrink-0" />
             <span>Meet</span>
           </button>
         )}
@@ -336,35 +348,39 @@ export const Header: React.FC<{ user: User; toggleSidebar: () => void; onMeetCli
             )}
           </button>
           {showMeetingDropdown && (
-            <div className="absolute right-0 top-full mt-2 w-80 max-h-96 overflow-hidden bg-white rounded-xl shadow-lg border border-gray-200 z-50">
+            <div className="absolute right-0 top-full mt-2 w-80 max-h-96 overflow-hidden bg-white rounded-xl shadow-lg border border-gray-200 z-[9999]">
               <div className="p-3 border-b border-gray-100 bg-gray-50">
                 <h3 className="font-semibold text-gray-800 text-sm">Meets</h3>
               </div>
               <div className="overflow-y-auto max-h-72 p-2">
-                {meetingsLoading ? (
-                  <p className="text-sm text-gray-500 py-4 text-center">Loading...</p>
-                ) : meetings.length === 0 ? (
+                {meetings.length === 0 ? (
                   <p className="text-sm text-gray-500 py-4 text-center">No meetings scheduled</p>
                 ) : (
-                  meetings.map((m: any) => (
+                  sortedMeetings.map((m: any) => {
+                    const room = m.meeting_room ?? m.room ?? m.meeting_name ?? m.name ?? 'Meeting';
+                    const duration = m.time ?? m.duration ?? 60;
+                    const scheduled = m.schedule_time ?? m.scheduled_time ?? m.scheduled_at ?? m.created_at ?? m.date ?? m.datetime;
+                    const members = m.user_details ?? m.users ?? [];
+                    return (
                     <div
                       key={m.id}
                       className="p-3 rounded-lg hover:bg-gray-50 border-b border-gray-100 last:border-0"
                     >
                       <p className="text-xs font-medium text-brand-600 mb-1">
-                        {m.meeting_room} · {m.time === 60 ? '1 hr' : `${m.time} min`}
+                        {room} · {duration === 60 ? '1 hr' : `${duration} min`}
                       </p>
-                      {(m.scheduled_time || m.schedule_time) && (
+                      {scheduled && (
                         <p className="text-xs text-gray-500 mb-1">
-                          {m.schedule_time || m.scheduled_time}
+                          Scheduled: {formatBookingTime(String(scheduled))}
                         </p>
                       )}
                       <div className="text-xs text-gray-700">
                         <span className="font-medium">Members: </span>
-                        {(m.user_details || []).map((u: any) => u.full_name || u.username).join(', ')}
+                        {members.map((u: any) => u?.full_name ?? u?.username ?? (typeof u === 'string' ? u : u?.name)).filter(Boolean).join(', ') || '—'}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>

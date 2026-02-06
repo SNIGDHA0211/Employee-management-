@@ -20,7 +20,7 @@ const isDevelopment = typeof window !== 'undefined' &&
    
 const API_BASE_URL = isDevelopment
   ? '/api'  // Use Vite proxy in development (bypasses CORS)
-  : 'https://employee-management-system-tmrl.onrender.com';  // Direct URL in production
+  : 'http://192.168.41.97:8000';  // Direct URL in production
 //http://employee-management-system-tmrl.onrender.com
 //http://192.168.41.97:8000
   
@@ -2032,7 +2032,8 @@ export const getBookSlots = async (month?: number, year?: number, signal?: Abort
 export const getMeetingPush = async (): Promise<any[]> => {
   const response = await api.get("/eventsapi/meetingpush/");
   const data = response.data;
-  return Array.isArray(data) ? data : [];
+  const list = Array.isArray(data) ? data : data?.results ?? data?.data ?? [];
+  return Array.isArray(list) ? list : [];
 };
 
 /**
@@ -2862,7 +2863,7 @@ export const addUserToGroup = async (
  * Delete a user from a messaging group
  * @endpoint DELETE /messaging/deleteUser/{group_id}/{user_id}/
  * @param groupId Group ID (integer)
- * @param userId User ID (Employee ID) to delete
+ * @param userId User ID - must be Employee ID (numeric)
  * @returns Response with success message or error message
  */
 export const deleteUserFromGroup = async (
