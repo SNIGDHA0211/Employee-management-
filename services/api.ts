@@ -20,7 +20,7 @@ const isDevelopment = typeof window !== 'undefined' &&
    
 const API_BASE_URL = isDevelopment
   ? '/api'  // Use Vite proxy in development (bypasses CORS)
-  : 'http://192.168.41.97:8000';  // Direct URL in production
+  : 'http://employee-management-system-tmrl.onrender.com';  // Direct URL in production
 //http://employee-management-system-tmrl.onrender.com
 //http://192.168.41.97:8000
   
