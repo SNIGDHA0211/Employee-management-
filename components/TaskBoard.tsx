@@ -67,6 +67,11 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
   const [isLoadingReportingByNames, setIsLoadingReportingByNames] = useState(false);
   const [reportingByDesignations, setReportingByDesignations] = useState<string[]>([]);
   const [isLoadingReportingByDesignations, setIsLoadingReportingByDesignations] = useState(false);
+  // Multiple Reporting By rows (Create Task card - same as MD Assign card "+" for Role/Designation/User)
+  const [multipleReportingBy, setMultipleReportingBy] = useState<Array<{ role: string; designation: string; userId: string }>>([{ role: '', designation: '', userId: '' }]);
+  const [reportingByNamesByIndex, setReportingByNamesByIndex] = useState<Record<number, any[]>>({});
+  const [reportingByDesignationsByIndex, setReportingByDesignationsByIndex] = useState<Record<number, string[]>>({});
+  const [isLoadingReportingByByIndex, setIsLoadingReportingByByIndex] = useState<Record<number, boolean>>({});
   
   // Role and Designation Filter State (for both modal and main view filters)
   const [selectedRole, setSelectedRole] = useState<string>('');
@@ -720,20 +725,32 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       const isIntern = currentUser.role === UserRole.INTERN;
       
       if (isTlReportingBy || isEmployee || isIntern) {
-        // TL (Reporting By), Employee (Reporting By), or Intern (Reporting To): use Role/Designation/User selection
-        const selectedUserId = reportingByUserId || reportingById || (isEmployee ? currentUser.id : '');
-        if (!selectedUserId && isIntern) {
-          alert("Please select the person you report to (Role, Designation, User).");
-          setIsCreatingTask(false);
-          return;
-        }
-        if (selectedUserId) {
-          const assigneeUser = usersForDropdown.find(u => u.id === selectedUserId || u.name === selectedUserId);
+        // TL (Reporting By), Employee (Reporting By), or Intern (Reporting To): use multiple Role/Designation/User rows
+        const rowsWithUser = multipleReportingBy.filter(r => r.userId && r.userId.trim() !== '');
+        if (isEmployee && rowsWithUser.length === 0) {
+          const meId = currentUser.id;
+          const assigneeUser = usersForDropdown.find(u => u.id === meId || u.name === meId);
           if (assigneeUser) {
             const empId = getEmployeeIdFromUser(assigneeUser);
             if (empId) employeeIds.push(empId);
           } else {
-            employeeIds.push(String(selectedUserId).trim());
+            employeeIds.push(String(meId).trim());
+          }
+        } else {
+          if (rowsWithUser.length === 0 && isIntern) {
+            alert("Please select the person you report to (Role, Designation, User).");
+            setIsCreatingTask(false);
+            return;
+          }
+          for (const row of rowsWithUser) {
+            const selectedUserId = row.userId;
+            const assigneeUser = usersForDropdown.find(u => u.id === selectedUserId || u.name === selectedUserId);
+            if (assigneeUser) {
+              const empId = getEmployeeIdFromUser(assigneeUser);
+              if (empId) employeeIds.push(empId);
+            } else {
+              employeeIds.push(String(selectedUserId).trim());
+            }
           }
         }
       } else if (newTaskType === TaskType.GROUP) {
@@ -800,8 +817,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       setAssigneeFilteredNames({});
       setIsLoadingAssigneeNames({});
       setAssigneeDesignations({});
-      
-   
+      setMultipleReportingBy([{ role: '', designation: '', userId: '' }]);
+      setReportingByNamesByIndex({});
+      setReportingByDesignationsByIndex({});
+      setIsLoadingReportingByByIndex({});
       
       // Refresh tasks from API to get the actual task with server-generated ID
       // Don't add locally first to avoid duplicates
@@ -1195,6 +1214,35 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
     }
   };
 
+  const fetchDesignationsForReportingByRow = async (index: number, role: string) => {
+    try {
+      if (role && role.trim() !== '' && role.toLowerCase() !== 'all roles') {
+        const designations = await apiGetDesignations(role);
+        setReportingByDesignationsByIndex(prev => ({ ...prev, [index]: designations || [] }));
+      } else {
+        const designations = await apiGetDesignations();
+        setReportingByDesignationsByIndex(prev => ({ ...prev, [index]: designations || [] }));
+      }
+    } catch {
+      setReportingByDesignationsByIndex(prev => ({ ...prev, [index]: [] }));
+    }
+  };
+
+  const fetchNamesForReportingByRow = async (index: number, role: string, designation?: string) => {
+    setIsLoadingReportingByByIndex(prev => ({ ...prev, [index]: true }));
+    try {
+      const roleParam = role && role.trim() !== '' && role.toLowerCase() !== 'all roles' ? role : '';
+      const designationParam =
+        designation && designation.trim() !== '' && designation.toLowerCase() !== 'all designations' ? designation : '';
+      const names = await apiGetNamesFromRoleAndDesignation(roleParam, designationParam);
+      setReportingByNamesByIndex(prev => ({ ...prev, [index]: names || [] }));
+    } catch {
+      setReportingByNamesByIndex(prev => ({ ...prev, [index]: [] }));
+    } finally {
+      setIsLoadingReportingByByIndex(prev => ({ ...prev, [index]: false }));
+    }
+  };
+
   // Handle role change for a specific assignee
   const handleAssigneeRoleChange = async (index: number, newRole: string) => {
     const updated = [...multipleAssignees];
@@ -1360,15 +1408,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
               </button>
             </div>
             <div className="flex items-center gap-2">
-              {currentUser.role === UserRole.MD && (
-                <button
-                  onClick={() => setShowAddModal(true)}
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
-                >
-                  <Plus size={18} />
-                  <span>Assign Task</span>
-                </button>
-              )}
+              {/* Reporting Task page: show Create Task only for non-MD (user roles). MD does not see button here. */}
               {currentUser.role !== UserRole.MD && currentUser.role !== UserRole.ADMIN && (
                 <button
                   onClick={() => setShowAddModal(true)}
@@ -1611,48 +1651,25 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
 
                  <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                      <select 
-                        className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                        value={typeof newTaskType === 'string' ? newTaskType : String(newTaskType)}
-                        onChange={e => {
-                          const selectedValue = e.target.value;
-                          // If API types are available and selected value is in API types, store as string
-                          if (availableTaskTypes.length > 0 && availableTaskTypes.includes(selectedValue)) {
-                            setNewTaskType(selectedValue);
-                          } else {
-                            // Otherwise, convert to TaskType enum
-                            setNewTaskType(selectedValue as TaskType);
-                          }
-                        }}
-                        disabled={isLoadingTaskTypes}
-                      >
-                        {isLoadingTaskTypes ? (
-                          <option value="">Loading types from API...</option>
-                        ) : availableTaskTypes.length > 0 ? (
-                          <>
-                            <option value="">Select Type</option>
-                            {availableTaskTypes.map((type, index) => (
-                              <option key={`type-api-${type}-${index}`} value={type}>
-                                {type}
-                              </option>
-                            ))}
-                          </>
-                        ) : (
-                          <option value="">No types available - Check API connection</option>
-                        )}
-                      </select>
-                      {isLoadingTaskTypes && <p className="text-xs text-blue-600 mt-1">🔄 Fetching task types from API...</p>}
-                      {!isLoadingTaskTypes && availableTaskTypes.length === 0 && (
-                        <p className="text-xs text-red-600 mt-1">
-                          ⚠️ Failed to load task types from API. Please check console for errors.
-                        </p>
-                      )}
-                      {/* {!isLoadingTaskTypes && availableTaskTypes.length > 0 && (
-                        <p className="text-xs text-green-600 mt-1">
-                          ✅ Loaded {availableTaskTypes.length} task type(s) from API
-                        </p>
-                      )} */}
+                       <label className="block text-sm font-medium text-gray-700 mb-1">Task Type</label>
+                       <select
+                         className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                         value={newTaskType === TaskType.GROUP ? 'Group' : (typeof newTaskType === 'string' ? newTaskType : (newTaskType === TaskType.SOS ? 'SOS' : newTaskType === TaskType.ONE_DAY ? '1 Day' : newTaskType === TaskType.TEN_DAYS ? '10 Day' : newTaskType === TaskType.MONTHLY ? 'Monthly' : newTaskType === TaskType.Quaterly ? 'Quaterly' : newTaskType === TaskType.INDIVIDUAL ? 'Individual' : ''))}
+                         onChange={e => {
+                           const v = e.target.value;
+                           if (v === 'Group') setNewTaskType(TaskType.GROUP);
+                           else setNewTaskType(v || '');
+                         }}
+                       >
+                         <option value="">Select Type</option>
+                         <option value="SOS">SOS</option>
+                         <option value="1 Day">1 Day</option>
+                         <option value="10 Day">10 Day</option>
+                         <option value="Monthly">Monthly</option>
+                         <option value="Quaterly">Quaterly</option>
+                         <option value="Individual">Individual</option>
+                         <option value="Group">Group</option>
+                       </select>
                     </div>
                     <div>
                        <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
@@ -1895,11 +1912,12 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                         </div>
                     )}
                    </>)}
-                   {/* Team Leader: Reporting By (shown when selected) */}
-                   {currentUser.role === UserRole.TEAM_LEADER && tlCreateTaskMode === 'REPORTING_BY' && (
+                   {/* TL Reporting By / Employee Reporting By / Intern Reporting To: multiple Role/Designation/User rows with + button */}
+                   {((currentUser.role === UserRole.TEAM_LEADER && tlCreateTaskMode === 'REPORTING_BY') || currentUser.role === UserRole.EMPLOYEE || currentUser.role === UserRole.INTERN) && (
                     <div className="space-y-2">
-                      <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Reporting By</label>
-
+                      <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">
+                        {currentUser.role === UserRole.INTERN ? 'Reporting To' : 'Reporting By'}
+                      </label>
                       <div className="flex items-center gap-2">
                         <div className="w-32">
                           <label className="block text-sm font-bold text-gray-700 mb-1">Role</label>
@@ -1910,281 +1928,176 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                         <div className="flex-1">
                           <label className="block text-sm font-bold text-gray-700 mb-1">User</label>
                         </div>
+                        <div className="w-10" />
+                        {multipleReportingBy.length > 1 && <div className="w-10" />}
                       </div>
-
-                      <div className="flex items-center gap-2">
-                        <div className="w-32">
-                          <select
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                            value={reportingByRole}
-                            onChange={async (e) => {
-                              const role = e.target.value;
-                              setReportingByRole(role);
-                              setReportingByDesignation('');
-                              setReportingByUserId('');
-                              setReportingById('');
-                              await fetchDesignationsForReportingBy(role);
-                              await fetchNamesForReportingBy(role, '');
-                            }}
-                          >
-                            <option value="">All Roles</option>
-                            {availableRoles.map(role => (
-                              <option key={role} value={role}>{role}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="w-40">
-                          <select
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                            value={reportingByDesignation}
-                            onChange={async (e) => {
-                              const des = e.target.value;
-                              setReportingByDesignation(des);
-                              setReportingByUserId('');
-                              setReportingById('');
-                              await fetchNamesForReportingBy(reportingByRole, des);
-                            }}
-                            disabled={!reportingByRole}
-                          >
-                            <option value="">{reportingByRole ? 'All Designations' : 'Select role first'}</option>
-                            {reportingByDesignations.map(designation => (
-                              <option key={designation} value={designation}>{designation}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="flex-1">
-                          <select
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                            value={reportingByUserId}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setReportingByUserId(v);
-                              setReportingById(v);
-                            }}
-                            disabled={isLoadingReportingByNames || reportingByNames.length === 0}
-                          >
-                            {isLoadingReportingByNames ? (
-                              <option value="">Loading users...</option>
-                            ) : reportingByNames.length === 0 ? (
-                              <option value="">{reportingByRole ? (reportingByDesignation ? 'No users found' : 'Select designation') : 'Select role first'}</option>
-                            ) : (
-                              <>
-                                <option value="">Select User</option>
-                                {reportingByNames.map((nameItem: any, nameIndex: number) => {
-                                  const name = typeof nameItem === 'string'
-                                    ? nameItem
-                                    : (nameItem?.name || nameItem?.Name || nameItem?.fullName || nameItem?.employee_name || 'Unknown');
-                                  const id = nameItem?.id || nameItem?.Employee_id || nameItem?.employee_id || name || `reportingby-${nameIndex}`;
-                                  const usersForDropdown = availableUsers.length > 0 ? availableUsers : users;
-                                  const user = usersForDropdown.find(u => u.name === name || u.id === id || u.id === name);
-                                  const userId = user?.id || id || name;
-                                  return (
-                                    <option key={`${id}-${nameIndex}`} value={userId}>{name}</option>
-                                  );
-                                })}
-                              </>
-                            )}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                   )}
-                   {/* Intern: Reporting To (Role → Designation → User) */}
-                   {currentUser.role === UserRole.INTERN && (
-                    <div className="space-y-2">
-                      <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Reporting To</label>
-                      <div className="flex items-center gap-2">
-                        <div className="w-32">
-                          <label className="block text-sm font-bold text-gray-700 mb-1">Role</label>
-                        </div>
-                        <div className="w-40">
-                          <label className="block text-sm font-bold text-gray-700 mb-1">Designation</label>
-                        </div>
-                        <div className="flex-1">
-                          <label className="block text-sm font-bold text-gray-700 mb-1">User</label>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-32">
-                          <select
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                            value={reportingByRole}
-                            onChange={async (e) => {
-                              const role = e.target.value;
-                              setReportingByRole(role);
-                              setReportingByDesignation('');
-                              setReportingByUserId('');
-                              setReportingById('');
-                              setReportingToId('');
-                              await fetchDesignationsForReportingBy(role);
-                              await fetchNamesForReportingBy(role, '');
-                            }}
-                          >
-                            <option value="">All Roles</option>
-                            {availableRoles.map(role => (
-                              <option key={role} value={role}>{role}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="w-40">
-                          <select
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                            value={reportingByDesignation}
-                            onChange={async (e) => {
-                              const des = e.target.value;
-                              setReportingByDesignation(des);
-                              setReportingByUserId('');
-                              setReportingById('');
-                              setReportingToId('');
-                              await fetchNamesForReportingBy(reportingByRole, des);
-                            }}
-                            disabled={!reportingByRole}
-                          >
-                            <option value="">{reportingByRole ? 'All Designations' : 'Select role first'}</option>
-                            {reportingByDesignations.map(designation => (
-                              <option key={designation} value={designation}>{designation}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex-1">
-                          <select
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                            value={reportingByUserId}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setReportingByUserId(v);
-                              setReportingById(v);
-                              setReportingToId(v);
-                            }}
-                            disabled={isLoadingReportingByNames || reportingByNames.length === 0}
-                          >
-                            {isLoadingReportingByNames ? (
-                              <option value="">Loading users...</option>
-                            ) : reportingByNames.length === 0 ? (
-                              <option value="">{reportingByRole ? (reportingByDesignation ? 'No users found' : 'Select designation') : 'Select role first'}</option>
-                            ) : (
-                              <>
-                                <option value="">Select User</option>
-                                {reportingByNames.map((nameItem: any, nameIndex: number) => {
-                                  const name = typeof nameItem === 'string'
-                                    ? nameItem
-                                    : (nameItem?.name || nameItem?.Name || nameItem?.fullName || nameItem?.employee_name || 'Unknown');
-                                  const id = nameItem?.id || nameItem?.Employee_id || nameItem?.employee_id || name || `reportingto-${nameIndex}`;
-                                  const usersForDropdown = availableUsers.length > 0 ? availableUsers : users;
-                                  const user = usersForDropdown.find(u => u.name === name || u.id === id || u.id === name);
-                                  const userId = user?.id || id || name;
-                                  return (
-                                    <option key={`${id}-${nameIndex}`} value={userId}>{name}</option>
-                                  );
-                                })}
-                              </>
-                            )}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                   )}
-                   {/* Employee: Reporting By (Role → Designation → User) */}
-                   {currentUser.role === UserRole.EMPLOYEE && (
-                    <div className="space-y-2">
-                      <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Reporting By</label>
-                      <div className="flex items-center gap-2">
-                        <div className="w-32">
-                          <label className="block text-sm font-bold text-gray-700 mb-1">Role</label>
-                        </div>
-                        <div className="w-40">
-                          <label className="block text-sm font-bold text-gray-700 mb-1">Designation</label>
-                        </div>
-                        <div className="flex-1">
-                          <label className="block text-sm font-bold text-gray-700 mb-1">User</label>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-32">
-                          <select
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                            value={reportingByRole}
-                            onChange={async (e) => {
-                              const role = e.target.value;
-                              setReportingByRole(role);
-                              setReportingByDesignation('');
-                              setReportingByUserId('');
-                              setReportingById('');
-                              await fetchDesignationsForReportingBy(role);
-                              await fetchNamesForReportingBy(role, '');
-                            }}
-                          >
-                            <option value="">All Roles</option>
-                            {availableRoles.map(role => (
-                              <option key={role} value={role}>{role}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="w-40">
-                          <select
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                            value={reportingByDesignation}
-                            onChange={async (e) => {
-                              const des = e.target.value;
-                              setReportingByDesignation(des);
-                              setReportingByUserId('');
-                              setReportingById('');
-                              await fetchNamesForReportingBy(reportingByRole, des);
-                            }}
-                            disabled={!reportingByRole}
-                          >
-                            <option value="">{reportingByRole ? 'All Designations' : 'Select role first'}</option>
-                            {reportingByDesignations.map(designation => (
-                              <option key={designation} value={designation}>{designation}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex-1">
-                          <select
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                            value={reportingByUserId || (reportingByNames.length === 0 && !reportingByRole ? currentUser.id : '')}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setReportingByUserId(v);
-                              setReportingById(v);
-                            }}
-                            disabled={isLoadingReportingByNames || (reportingByNames.length === 0 && reportingByRole !== '')}
-                          >
-                            {isLoadingReportingByNames ? (
-                              <option value="">Loading users...</option>
-                            ) : reportingByNames.length === 0 && reportingByRole ? (
-                              <option value="">{reportingByDesignation ? 'No users found' : 'Select designation'}</option>
-                            ) : reportingByNames.length === 0 && !reportingByRole ? (
-                              <>
-                                <option value={currentUser.id}>{currentUser.name} (me)</option>
-                                {(availableUsers.length > 0 ? availableUsers : users).filter(u => u.id !== currentUser.id).map(u => (
-                                  <option key={u.id} value={u.id}>{u.name}</option>
-                                ))}
-                              </>
-                            ) : (
-                              <>
-                                <option value="">Select User</option>
-                                <option value={currentUser.id}>{currentUser.name} (me)</option>
-                                {reportingByNames.map((nameItem: any, nameIndex: number) => {
-                                  const name = typeof nameItem === 'string'
-                                    ? nameItem
-                                    : (nameItem?.name || nameItem?.Name || nameItem?.fullName || nameItem?.employee_name || 'Unknown');
-                                  const id = nameItem?.id || nameItem?.Employee_id || nameItem?.employee_id || name || `reportingby-${nameIndex}`;
-                                  const usersForDropdown = availableUsers.length > 0 ? availableUsers : users;
-                                  const user = usersForDropdown.find(u => u.name === name || u.id === id || u.id === name);
-                                  const userId = user?.id || id || name;
-                                  if (userId === currentUser.id) return null;
-                                  return (
-                                    <option key={`${id}-${nameIndex}`} value={userId}>{name}</option>
-                                  );
-                                })}
-                              </>
-                            )}
-                          </select>
-                        </div>
-                      </div>
+                      {multipleReportingBy.map((row, index) => {
+                        const names = reportingByNamesByIndex[index] ?? [];
+                        const designations = reportingByDesignationsByIndex[index] ?? [];
+                        const loading = isLoadingReportingByByIndex[index];
+                        const isEmployee = currentUser.role === UserRole.EMPLOYEE;
+                        return (
+                          <div key={`reporting-by-row-${index}`} className="flex items-start gap-2">
+                            <div className="flex flex-1 items-center gap-2">
+                              <div className="w-32">
+                                <select
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                                  value={row.role}
+                                  onChange={async (e) => {
+                                    const role = e.target.value;
+                                    const updated = [...multipleReportingBy];
+                                    updated[index] = { ...updated[index], role, designation: '', userId: '' };
+                                    setMultipleReportingBy(updated);
+                                    if (index === 0) {
+                                      setReportingByRole(role);
+                                      setReportingByDesignation('');
+                                      setReportingByUserId('');
+                                      setReportingById('');
+                                      setReportingToId('');
+                                    }
+                                    await fetchDesignationsForReportingByRow(index, role);
+                                    await fetchNamesForReportingByRow(index, role, '');
+                                  }}
+                                >
+                                  <option value="">All Roles</option>
+                                  {availableRoles.map(r => (
+                                    <option key={r} value={r}>{r}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="w-40">
+                                <select
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                                  value={row.designation}
+                                  onChange={async (e) => {
+                                    const des = e.target.value;
+                                    const updated = [...multipleReportingBy];
+                                    updated[index] = { ...updated[index], designation: des, userId: '' };
+                                    setMultipleReportingBy(updated);
+                                    if (index === 0) {
+                                      setReportingByDesignation(des);
+                                      setReportingByUserId('');
+                                      setReportingById('');
+                                      setReportingToId('');
+                                    }
+                                    await fetchNamesForReportingByRow(index, row.role, des);
+                                  }}
+                                  disabled={!row.role}
+                                >
+                                  <option value="">{row.role ? 'All Designations' : 'Select role first'}</option>
+                                  {designations.map(d => (
+                                    <option key={d} value={d}>{d}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="flex-1">
+                                <select
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                                  value={row.userId || (isEmployee && names.length === 0 && !row.role ? currentUser.id : '')}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    const updated = [...multipleReportingBy];
+                                    updated[index] = { ...updated[index], userId: v };
+                                    setMultipleReportingBy(updated);
+                                    if (index === 0) {
+                                      setReportingByUserId(v);
+                                      setReportingById(v);
+                                      setReportingToId(v);
+                                    }
+                                  }}
+                                  disabled={loading || (names.length === 0 && row.role !== '')}
+                                >
+                                  {loading ? (
+                                    <option value="">Loading users...</option>
+                                  ) : names.length === 0 && row.role ? (
+                                    <option value="">{row.designation ? 'No users found' : 'Select designation'}</option>
+                                  ) : names.length === 0 && !row.role && isEmployee ? (
+                                    <>
+                                      <option value={currentUser.id}>{currentUser.name} (me)</option>
+                                      {(availableUsers.length > 0 ? availableUsers : users).filter(u => u.id !== currentUser.id).map(u => (
+                                        <option key={u.id} value={u.id}>{u.name}</option>
+                                      ))}
+                                    </>
+                                  ) : names.length === 0 ? (
+                                    <option value="">Select role first</option>
+                                  ) : (
+                                    <>
+                                      <option value="">Select User</option>
+                                      {isEmployee && <option value={currentUser.id}>{currentUser.name} (me)</option>}
+                                      {names.map((nameItem: any, nameIndex: number) => {
+                                        const name = typeof nameItem === 'string'
+                                          ? nameItem
+                                          : (nameItem?.name || nameItem?.Name || nameItem?.fullName || nameItem?.employee_name || 'Unknown');
+                                        const id = nameItem?.id || nameItem?.Employee_id || nameItem?.employee_id || name || `rb-${index}-${nameIndex}`;
+                                        const usersForDropdown = availableUsers.length > 0 ? availableUsers : users;
+                                        const user = usersForDropdown.find(u => u.name === name || u.id === id || u.id === name);
+                                        const userId = user?.id || id || name;
+                                        if (isEmployee && userId === currentUser.id) return null;
+                                        return (
+                                          <option key={`${id}-${index}-${nameIndex}`} value={userId}>{name}</option>
+                                        );
+                                      })}
+                                    </>
+                                  )}
+                                </select>
+                              </div>
+                              {index === multipleReportingBy.length - 1 && (
+                                <div className="w-10">
+                                  <button
+                                    type="button"
+                                    onClick={() => setMultipleReportingBy([...multipleReportingBy, { role: '', designation: '', userId: '' }])}
+                                    className="flex items-center justify-center w-10 h-10 bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors shadow-sm"
+                                    title="Add another (Role, Designation, User)"
+                                  >
+                                    <Plus size={18} />
+                                  </button>
+                                </div>
+                              )}
+                              {multipleReportingBy.length > 1 && (
+                                <div className="w-10">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = multipleReportingBy.filter((_, i) => i !== index);
+                                      const updatedNames = { ...reportingByNamesByIndex };
+                                      const updatedDes = { ...reportingByDesignationsByIndex };
+                                      const updatedLoading = { ...isLoadingReportingByByIndex };
+                                      delete updatedNames[index];
+                                      delete updatedDes[index];
+                                      delete updatedLoading[index];
+                                      const reindexedNames: Record<number, any[]> = {};
+                                      const reindexedDes: Record<number, string[]> = {};
+                                      const reindexedLoading: Record<number, boolean> = {};
+                                      Object.keys(updatedNames).forEach(k => {
+                                        const oldIdx = parseInt(k);
+                                        const newIdx = oldIdx > index ? oldIdx - 1 : oldIdx;
+                                        reindexedNames[newIdx] = updatedNames[oldIdx];
+                                        reindexedDes[newIdx] = updatedDes[oldIdx];
+                                        reindexedLoading[newIdx] = updatedLoading[oldIdx];
+                                      });
+                                      setMultipleReportingBy(updated);
+                                      setReportingByNamesByIndex(reindexedNames);
+                                      setReportingByDesignationsByIndex(reindexedDes);
+                                      setIsLoadingReportingByByIndex(reindexedLoading);
+                                      if (index === 0 && updated[0]) {
+                                        setReportingByRole(updated[0].role);
+                                        setReportingByDesignation(updated[0].designation);
+                                        setReportingByUserId(updated[0].userId);
+                                        setReportingById(updated[0].userId);
+                                        setReportingToId(updated[0].userId);
+                                      }
+                                    }}
+                                    className="flex items-center justify-center w-10 h-10 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors shadow-sm"
+                                    title="Remove this row"
+                                  >
+                                    <span className="text-lg leading-none">×</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                    )}
                  </div>
@@ -2250,7 +2163,12 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                 <span>Assign Task</span>
               </button>
             )}
-            {currentUser.role !== UserRole.MD && currentUser.role !== UserRole.ADMIN && (
+            {/* On Assigned Task page, hide Create Task button for Employee, Intern, and Team Leader. */}
+            {currentUser.role !== UserRole.MD &&
+             currentUser.role !== UserRole.ADMIN &&
+             currentUser.role !== UserRole.EMPLOYEE &&
+             currentUser.role !== UserRole.INTERN &&
+             currentUser.role !== UserRole.TEAM_LEADER && (
               <button
                 onClick={() => setShowAddModal(true)}
                 className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
@@ -2482,8 +2400,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         />
       )}
 
-      {/* Create Task Modal */}
-      {showAddModal && (
+      {/* Create Task / Assign Task Modal - do not show Create Task card for Employee/Intern/Team Leader on Assigned Task page */}
+      {showAddModal && (currentUser.role === UserRole.MD || (currentUser.role !== UserRole.EMPLOYEE && currentUser.role !== UserRole.INTERN && currentUser.role !== UserRole.TEAM_LEADER)) && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl overflow-y-auto max-h-[90vh]">
             <h3 className="text-xl font-bold mb-6 text-gray-800 border-b pb-2">
@@ -2514,48 +2432,25 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
 
                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                    <select 
-                      className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                      value={typeof newTaskType === 'string' ? newTaskType : String(newTaskType)}
-                      onChange={e => {
-                        const selectedValue = e.target.value;
-                        // If API types are available and selected value is in API types, store as string
-                        if (availableTaskTypes.length > 0 && availableTaskTypes.includes(selectedValue)) {
-                          setNewTaskType(selectedValue);
-                        } else {
-                          // Otherwise, convert to TaskType enum
-                          setNewTaskType(selectedValue as TaskType);
-                        }
-                      }}
-                      disabled={isLoadingTaskTypes}
-                    >
-                      {isLoadingTaskTypes ? (
-                        <option value="">Loading types from API...</option>
-                      ) : availableTaskTypes.length > 0 ? (
-                        <>
-                          <option value="">Select Type</option>
-                          {availableTaskTypes.map((type, index) => (
-                            <option key={`type-api-${type}-${index}`} value={type}>
-                              {type}
-                            </option>
-                          ))}
-                        </>
-                      ) : (
-                        <option value="">No types available - Check API connection</option>
-                      )}
-                    </select>
-                    {isLoadingTaskTypes && <p className="text-xs text-blue-600 mt-1">🔄 Fetching task types from API...</p>}
-                    {!isLoadingTaskTypes && availableTaskTypes.length === 0 && (
-                      <p className="text-xs text-red-600 mt-1">
-                        ⚠️ Failed to load task types from API. Please check console for errors.
-                      </p>
-                    )}
-                    {/* {!isLoadingTaskTypes && availableTaskTypes.length > 0 && (
-                      <p className="text-xs text-green-600 mt-1">
-                        ✅ Loaded {availableTaskTypes.length} task type(s) from API
-                      </p>
-                    )} */}
+                     <label className="block text-sm font-medium text-gray-700 mb-1">Task Type</label>
+                     <select
+                       className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                       value={newTaskType === TaskType.GROUP ? 'Group' : (typeof newTaskType === 'string' ? newTaskType : (newTaskType === TaskType.SOS ? 'SOS' : newTaskType === TaskType.ONE_DAY ? '1 Day' : newTaskType === TaskType.TEN_DAYS ? '10 Day' : newTaskType === TaskType.MONTHLY ? 'Monthly' : newTaskType === TaskType.Quaterly ? 'Quaterly' : newTaskType === TaskType.INDIVIDUAL ? 'Individual' : ''))}
+                       onChange={e => {
+                         const v = e.target.value;
+                         if (v === 'Group') setNewTaskType(TaskType.GROUP);
+                         else setNewTaskType(v || '');
+                       }}
+                     >
+                       <option value="">Select Type</option>
+                       <option value="SOS">SOS</option>
+                       <option value="1 Day">1 Day</option>
+                       <option value="10 Day">10 Day</option>
+                       <option value="Monthly">Monthly</option>
+                       <option value="Quaterly">Quaterly</option>
+                       <option value="Individual">Individual</option>
+                       <option value="Group">Group</option>
+                     </select>
                   </div>
                   <div>
                      <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
