@@ -11,6 +11,19 @@ interface StrategyDetailProps {
 const StrategyDetail: React.FC<StrategyDetailProps> = ({ category, progress, onUpdateProgress }) => {
   const [activeSectionIdx, setActiveSectionIdx] = useState(0);
   const activeSection = category.sections[activeSectionIdx];
+  const hasSections = category.sections.length > 0;
+
+  if (!hasSections) {
+    return (
+      <div className="p-4 md:p-8">
+        <header className="mb-10">
+          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">{category.fullName}</h2>
+          <p className="text-slate-500 max-w-2xl text-lg font-medium leading-snug mt-2">{category.description}</p>
+        </header>
+        <div className="text-slate-500 font-medium py-8">No objectives available yet.</div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

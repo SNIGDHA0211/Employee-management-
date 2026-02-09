@@ -1,29 +1,75 @@
 import React, { useState, useEffect } from 'react';
-import { AppProgress, PointProgress, StrategyCategory } from './types';
-import { STRATEGY_CATEGORIES } from './constants';
+import { AppProgress, PointProgress, StrategyCategory, StrategySection } from './types';
+import { STRATEGY_CATEGORIES, FUNCTION_CODES } from './constants';
 import StrategyDetail from './components/StrategyDetail';
+import { getFunctionsAndActionableGoals } from '../../services/api';
+
+function apiToSections(data: any): StrategySection[] {
+  const goals = data?.functional_goals ?? data?.Functional_goals ?? data?.functionalGoals;
+  if (!Array.isArray(goals) || goals.length === 0) return [];
+  return goals.map((g: any) => {
+    const title = g.main_goal ?? g.Main_goal ?? g.mainGoal ?? 'Untitled';
+    const ag = g.actionable_goals ?? g.Actionable_goals ?? g.actionableGoals ?? [];
+    const points = (Array.isArray(ag) ? ag : []).map((a: any) => a.purpose ?? a.Purpose ?? '').filter(Boolean);
+    return { title, points };
+  });
+}
 
 interface NMRHIPageProps {
   currentUserName?: string;
-  categoryId?: string; // Optional: if provided, directly show that category
-
+  categoryId?: string;
 }
 
 const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, categoryId }) => {
+  const [categories, setCategories] = useState<StrategyCategory[]>(STRATEGY_CATEGORIES);
   const [activeCategory, setActiveCategory] = useState<StrategyCategory | null>(null);
   const [progress, setProgress] = useState<AppProgress>({});
+  const [loading, setLoading] = useState(true);
 
-  // If categoryId is provided, find and set the active category
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    const fnIds = Object.keys(FUNCTION_CODES);
+    Promise.all(
+      fnIds.map(async (catId) => {
+        const fnCode = FUNCTION_CODES[catId];
+        try {
+          const data = await getFunctionsAndActionableGoals(fnCode);
+          return { catId, sections: apiToSections(data) };
+        } catch (err) {
+          console.error(`[${fnCode}] Failed to fetch:`, err);
+          return { catId, sections: [] };
+        }
+      })
+    ).then((results) => {
+      if (!mounted) return;
+      setCategories((prev) =>
+        prev.map((c) => {
+          const r = results.find((x) => x.catId === c.id);
+          return r ? { ...c, sections: r.sections } : c;
+        })
+      );
+    }).finally(() => {
+      if (mounted) setLoading(false);
+    });
+    return () => { mounted = false; };
+  }, []);
+
   useEffect(() => {
     if (categoryId) {
-      const category = STRATEGY_CATEGORIES.find(c => c.id === categoryId);
-      if (category) {
-        setActiveCategory(category);
-      }
+      const cat = categories.find((c) => c.id === categoryId);
+      if (cat) setActiveCategory(cat);
     } else {
       setActiveCategory(null);
     }
-  }, [categoryId]);
+  }, [categoryId, categories]);
+
+  useEffect(() => {
+    if (activeCategory) {
+      const updated = categories.find((c) => c.id === activeCategory.id);
+      if (updated) setActiveCategory(updated);
+    }
+  }, [categories]);
 
   const handleUpdateProgress = (key: string, updates: Partial<PointProgress>) => {
     setProgress(prev => ({
@@ -134,8 +180,9 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, categoryId }) =>
       <div className="max-w-[1400px] mx-auto">
         {/* Strategy Cards Grid */}
         <div className="min-w-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 max-w-7xl mx-auto">
-          {STRATEGY_CATEGORIES.map((category, idx) => {
+          {categories.map((category, idx) => {
             const progressPercent = getCategoryProgress(category);
+            const isLoading = loading;
             
             return (
               <button
@@ -189,18 +236,21 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, categoryId }) =>
 
                 {/* Sections Preview */}
                 <div className="flex flex-wrap gap-1.5">
-                  {category.sections.slice(0, 3).map((section, sIdx) => (
-                    <span
-                      key={sIdx}
-                      className="text-[9px] bg-slate-100 text-slate-500 px-2 py-1 rounded-full font-bold uppercase tracking-wider"
-                    >
-                      {section.title.substring(0, 10)}
-                    </span>
-                  ))}
-                  {category.sections.length > 3 && (
-                    <span className="text-[9px] bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-bold">
-                      +{category.sections.length - 3}
-                    </span>
+                  {isLoading ? (
+                    <span className="text-[9px] bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-bold">Loading...</span>
+                  ) : category.sections.length === 0 ? (
+                    <span className="text-[9px] bg-slate-100 text-slate-400 px-2 py-1 rounded-full font-bold">—</span>
+                  ) : (
+                    <>
+                      {category.sections.slice(0, 3).map((section, sIdx) => (
+                        <span key={sIdx} className="text-[9px] bg-slate-100 text-slate-500 px-2 py-1 rounded-full font-bold uppercase tracking-wider">
+                          {section.title.substring(0, 10)}
+                        </span>
+                      ))}
+                      {category.sections.length > 3 && (
+                        <span className="text-[9px] bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-bold">+{category.sections.length - 3}</span>
+                      )}
+                    </>
                   )}
                 </div>
 

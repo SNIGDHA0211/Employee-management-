@@ -22,6 +22,7 @@ const API_BASE_URL = isDevelopment
   ? '/api'  // Use Vite proxy in development (bypasses CORS)
   : 'https://employee-management-system-tmrl.onrender.com';  // HTTPS required (avoids Mixed Content when page is served over HTTPS)
 //http://192.168.41.97:8000
+//https://employee-management-system-tmrl.onrender.com
   
 // Create axios instance for authenticated requests
  const api = axios.create({
@@ -543,7 +544,7 @@ ${isDevelopment ? 'Note: Using Vite proxy (/api) to bypass CORS. Make sure:\n- B
 export const logout = async (): Promise<void> => {
   try {
     // Call backend logout endpoint to invalidate server-side session
-    await api.get("/accounts/Logout/");
+    await api.get("/accounts/logout/");
   } catch (error: any) {
     // If network/server error, still clear local auth so user is signed out on frontend
     console.error("❌ [LOGOUT] Error calling /accounts/Logout/ endpoint:", error);
@@ -3310,6 +3311,13 @@ export const getMessages = async (
   }
 };
 
+/** Fetch functional goals and actionable goals. GET /get_functions_and_actionable_goals/?function_name=NPD|MMR|RG|HC|IP */
+export const getFunctionsAndActionableGoals = async (functionName: string) => {
+  const response = await api.get('/get_functions_and_actionable_goals/', {
+    params: { function_name: functionName },
+  });
+  return response.data;
+};
 
 // Export default api instance
 export default api;
@@ -3354,4 +3362,5 @@ export const apiFunctions = {
   getUserEntries,
   getUserEntriesByFilters,
   getAssetTypes,
+  getFunctionsAndActionableGoals,
 };

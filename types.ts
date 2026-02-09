@@ -166,6 +166,8 @@ export interface ChatGroup {
   members: string[];
   createdBy: string;
   isPrivate: boolean;
+  totalParticipant?: number; // From API loadChats Group_info
+  groupId?: string | number; // From API, used as chat_id for messaging
 }
 
 export interface AttendanceRecord {
