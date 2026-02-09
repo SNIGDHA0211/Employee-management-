@@ -201,26 +201,15 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                     if (viewMode === ViewMode.HOLIDAY) {
                       const h = ev as Holiday;
                       const isHolidayType = h.type === 'holiday';
-                      const Wrapper = onHolidayClick ? 'button' : 'div';
-                      const wrapperProps = onHolidayClick
-                        ? { type: 'button' as const, onClick: () => onHolidayClick(h) }
-                        : {};
-                      return (
-                        <Wrapper
-                          key={idx}
-                          {...wrapperProps}
-                          className={`text-left w-full text-[10px] p-2 rounded-xl flex flex-col gap-0.5 text-white ${onHolidayClick ? 'hover:opacity-90 cursor-pointer transition-opacity' : ''}`}
-                        >
+                      // Holidays and events are clickable — opens detail modal (Edit PATCH / Delete)
+                      const isClickable = !!onHolidayClick;
+                      const content = (
+                        <>
                           <div className="flex items-center justify-between">
                             <span className="font-black uppercase tracking-tighter truncate leading-tight">
                               {h.name}
                             </span>
                           </div>
-                          {h.isUrgent && (
-                            <div className="mt-1 px-1.5 py-0.5 bg-white text-red-600 rounded text-[8px] font-black uppercase w-fit">
-                              Urgent
-                            </div>
-                          )}
                           {!isHolidayType && (
                             <div className="bg-white/10 rounded-lg p-1.5 mt-1 border border-white/20">
                               {h.motive && (
@@ -248,7 +237,32 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
                               )}
                             </div>
                           )}
-                        </Wrapper>
+                          {isHolidayType && h.isUrgent && (
+                            <div className="mt-1 px-1.5 py-0.5 bg-white text-red-600 rounded text-[8px] font-black uppercase w-fit">
+                              Urgent
+                            </div>
+                          )}
+                        </>
+                      );
+                      if (isClickable) {
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => onHolidayClick(h)}
+                            className="text-left w-full text-[10px] p-2 rounded-xl flex flex-col gap-0.5 text-white hover:opacity-90 cursor-pointer transition-opacity"
+                          >
+                            {content}
+                          </button>
+                        );
+                      }
+                      return (
+                        <div
+                          key={idx}
+                          className="text-[10px] p-2 rounded-xl flex flex-col gap-0.5 text-white"
+                        >
+                          {content}
+                        </div>
                       );
                     }
                     if (viewMode === ViewMode.TOUR) {

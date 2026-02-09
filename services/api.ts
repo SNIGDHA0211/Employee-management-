@@ -31,7 +31,7 @@ const API_BASE_URL = isDevelopment
     "Content-Type": "application/json",
   },
   withCredentials: true, // Include cookies for session-based auth
-  timeout: 30000, // 30 second timeout
+  timeout: 60000, // 60 second timeout (eventsapi can be slow with large datasets)
 });
 
 // Create axios instance for public endpoints (no auth required)
@@ -1863,7 +1863,7 @@ export const createHoliday = async (payload: {
  */
 export const getHolidays = async (): Promise<Array<{ id: string; name: string; date: string; type: 'holiday' | 'event' }>> => {
   try {
-    const response = await api.get("/eventsapi/holidays/");
+    const response = await api.get("/eventsapi/holidays/", { timeout: 60000 });
     const data = response.data;
     const list = Array.isArray(data) ? data : data ? [data] : [];
     return list.map((item: any) => ({
@@ -1903,7 +1903,7 @@ export const deleteHoliday = async (id: string | number): Promise<void> => {
  */
 export const getEvents = async (): Promise<Array<{ id: number; title: string; motive: string; date: string; time: string }>> => {
   try {
-    const response = await api.get("/eventsapi/events/");
+    const response = await api.get("/eventsapi/events/", { timeout: 60000 });
     const data = response.data;
     const list = Array.isArray(data) ? data : data?.results ?? data?.data ?? [];
     return list;
@@ -1991,7 +1991,7 @@ export const deleteTour = async (id: string | number): Promise<void> => {
  */
 export const getTours = async (): Promise<any[]> => {
   try {
-    const response = await api.get("/eventsapi/tours/");
+    const response = await api.get("/eventsapi/tours/", { timeout: 60000 });
     const data = response.data;
     return Array.isArray(data) ? data : data?.results ?? data?.data ?? [];
   } catch (error: any) {
@@ -2002,19 +2002,52 @@ export const getTours = async (): Promise<any[]> => {
 };
 
 /**
- * Get all book slots. GET /eventsapi/bookslots/
+ * Get book slots. GET /eventsapi/bookslots/
+ * Optional month (1-12) and year filter for calendar month-based loading.
+ * Optional signal for request cancellation (e.g. when switching months quickly).
  */
-export const getBookSlots = async (): Promise<any[]> => {
+export const getBookSlots = async (month?: number, year?: number, signal?: AbortSignal): Promise<any[]> => {
   try {
-    const response = await api.get("/eventsapi/bookslots/");
+    const params: Record<string, number> = {};
+    if (month != null && month >= 1 && month <= 12) params.month = month;
+    if (year != null) params.year = year;
+    const config: { params?: Record<string, number>; timeout: number; signal?: AbortSignal } = { timeout: 60000 };
+    if (Object.keys(params).length) config.params = params;
+    if (signal) config.signal = signal;
+    const response = await api.get("/eventsapi/bookslots/", config);
     const data = response.data;
-    return Array.isArray(data) ? data : data ? [data] : [];
+    const list = Array.isArray(data) ? data : data?.data ?? data?.results ?? data?.slots ?? (data ? [data] : []);
+    return Array.isArray(list) ? list : [];
   } catch (error: any) {
     const status = error?.response?.status;
-    if (status === 403 || status === 401) return [];
     console.error("❌ [GET BOOK SLOTS] Error:", error);
-    return [];
+    // Rethrow so caller can preserve existing data instead of clearing
+    throw error;
   }
+};
+
+/**
+ * Get meeting push list. GET /eventsapi/meetingpush/
+ */
+export const getMeetingPush = async (): Promise<any[]> => {
+  const response = await api.get("/eventsapi/meetingpush/");
+  const data = response.data;
+  const list = Array.isArray(data) ? data : data?.results ?? data?.data ?? [];
+  return Array.isArray(list) ? list : [];
+};
+
+/**
+ * Create a meeting via meeting push. POST /eventsapi/meetingpush/
+ * Body: { users, meeting_type, time (minutes), meeting_room }
+ */
+export const meetingPush = async (payload: {
+  users: string[];
+  meeting_type: 'individual' | 'group';
+  time: number;
+  meeting_room: string;
+}): Promise<any> => {
+  const response = await api.post("/eventsapi/meetingpush/", payload);
+  return response.data;
 };
 
 /**
@@ -2830,7 +2863,7 @@ export const addUserToGroup = async (
  * Delete a user from a messaging group
  * @endpoint DELETE /messaging/deleteUser/{group_id}/{user_id}/
  * @param groupId Group ID (integer)
- * @param userId User ID (Employee ID) to delete
+ * @param userId User ID - must be Employee ID (numeric)
  * @returns Response with success message or error message
  */
 export const deleteUserFromGroup = async (

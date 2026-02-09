@@ -1,14 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { UserRole, User, Task, Project, Message, ChatGroup, AttendanceRecord, Tour, formatRoleForDisplay } from './types';
 import api, { 
   login as apiLogin, 
   getEmployeeDashboard,
   getEmployees as apiGetEmployees,
   getBranch as apiGetBranch,
-  logout as apiLogout
+  logout as apiLogout,
+  getRooms,
+  getHolidays,
+  getEvents,
+  getTours,
+  getBookSlots,
+  getMeetingPush,
 } from './services/api';
 import { clearAuthData } from './services/utils/auth';
 import { Sidebar, Header, BirthdayBanner } from './components/Layout';
+import { MeetCard } from './components/MeetCard';
 import { TaskBoard } from './components/TaskBoard';
 import { ChatSystem } from './components/ChatSystem';
 import { StatCard, ProjectCard, PerformanceChart, BossRevenueChart, DistributionChart } from './components/DashboardWidgets';
@@ -16,6 +23,9 @@ import { AdminPanel } from './components/AdminPanel';
 import { AttendanceTours } from './components/AttendanceTours';
 import { ReportsPage } from './components/reports';
 import { ScheduleHubPage } from './components/calendars';
+import type { Meeting, Holiday, Tour as ScheduleTour } from './components/calendars/types';
+import { MeetingStatus, MeetingType } from './components/calendars/types';
+import { addDays, format } from 'date-fns';
 import { MDDashboardPage } from './components/MDDashboard';
 import { NMRHIPage } from './components/NMRHI';
 import AdminDashboard from './components/AdminOps/AdminDashboard';
@@ -582,6 +592,23 @@ export default function App() {
   const [filterType, setFilterType] = useState<'branch' | 'role' | null>(null);
   const [filterValue, setFilterValue] = useState<string>('');
   const [showUserProfileSidebar, setShowUserProfileSidebar] = useState(false);
+  const [showMeetCard, setShowMeetCard] = useState(false);
+  const [meetingRefreshTrigger, setMeetingRefreshTrigger] = useState(0);
+  const [assetsRefreshTrigger, setAssetsRefreshTrigger] = useState(0);
+  const [vendorsRefreshTrigger, setVendorsRefreshTrigger] = useState(0);
+  const [expensesRefreshTrigger, setExpensesRefreshTrigger] = useState(0);
+  const assetsLastFetchedRef = useRef<number>(-1);
+  const vendorsLastFetchedRef = useRef<number>(-1);
+  const expensesLastFetchedRef = useRef<number>(-1);
+  const [scheduleHolidays, setScheduleHolidays] = useState<Holiday[]>([]);
+  const [scheduleTours, setScheduleTours] = useState<ScheduleTour[]>([]);
+  const [scheduleMeetings, setScheduleMeetings] = useState<Meeting[]>([]);
+  const [scheduleRefreshTrigger, setScheduleRefreshTrigger] = useState(0);
+  const scheduleLastFetchedRef = useRef<number>(-1);
+  const scheduleMeetingsCacheRef = useRef<Record<string, Meeting[]>>({});
+  const [notificationMeetings, setNotificationMeetings] = useState<any[]>([]);
+  const [meetRooms, setMeetRooms] = useState<Array<{ id: number; name: string }>>([]);
+  const [meetEmployees, setMeetEmployees] = useState<Array<{ id: string; name: string }>>([]);
   const [branches, setBranches] = useState<string[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
 
@@ -689,6 +716,32 @@ export default function App() {
     }
   }, [currentUser?.id]); // Only run when user ID changes (after login)
 
+  // Load meeting rooms and members for Meet card after login
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    Promise.all([getRooms(), apiGetEmployees()])
+      .then(([roomsList, employeesList]) => {
+        setMeetRooms(roomsList || []);
+        const mapped = (employeesList || []).map((emp: any) => ({
+          id: String(emp['Employee_id'] ?? emp['Employee ID'] ?? emp.id ?? ''),
+          name: emp['Name'] ?? emp['Full Name'] ?? emp.name ?? 'Unknown',
+        }));
+        setMeetEmployees(mapped);
+      })
+      .catch(() => {
+        setMeetRooms([]);
+        setMeetEmployees([]);
+      });
+  }, [currentUser?.id]);
+
+  // Fetch notification meetings (GET eventsapi/meetingpush/) when user is logged in
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    getMeetingPush()
+      .then((list) => setNotificationMeetings(Array.isArray(list) ? list : []))
+      .catch(() => setNotificationMeetings([]));
+  }, [currentUser?.id, meetingRefreshTrigger]);
+
   // Fetch branches from API when dashboard is active
   useEffect(() => {
     const fetchBranches = async () => {
@@ -709,25 +762,214 @@ export default function App() {
     fetchBranches();
   }, [activeTab, currentUser]);
 
-  // Fetch bills, expenses, vendors when Admin opens Admin Dashboard so dashboard has data initially
+  // Fetch bills when Admin or MD opens Admin Dashboard
   useEffect(() => {
-    const fetchAdminDashboardData = async () => {
-      if (currentUser?.role !== UserRole.ADMIN || activeTab !== 'admin-dashboard') return;
+    const fetchBills = async () => {
+      if ((currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.MD) || activeTab !== 'admin-dashboard') return;
       try {
-        const [billsData, expensesData, vendorsData] = await Promise.all([
-          getBills(),
-          getExpenses(),
-          getVendors(),
-        ]);
+        const billsData = await getBills();
         setBills(Array.isArray(billsData) ? billsData : []);
-        setExpenses(Array.isArray(expensesData) ? expensesData : []);
-        setVendors(Array.isArray(vendorsData) ? vendorsData : []);
       } catch (err: any) {
-        console.error('Error fetching admin dashboard data:', err);
+        console.error('Error fetching bills:', err);
       }
     };
-    fetchAdminDashboardData();
+    fetchBills();
   }, [activeTab, currentUser?.role]);
+
+  // Fetch vendors in memory - only reload when updated (create/edit/delete in VendorManager)
+  useEffect(() => {
+    const shouldFetch = (currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.MD) &&
+      (activeTab === 'admin-dashboard' || activeTab === 'admin-vendors') &&
+      vendorsLastFetchedRef.current !== vendorsRefreshTrigger;
+    if (!shouldFetch) return;
+    const fetchVendors = async () => {
+      try {
+        const list = await getVendors();
+        setVendors(Array.isArray(list) ? list : []);
+        vendorsLastFetchedRef.current = vendorsRefreshTrigger;
+      } catch (err: any) {
+        console.error('Error fetching vendors:', err);
+      }
+    };
+    fetchVendors();
+  }, [activeTab, currentUser?.role, vendorsRefreshTrigger]);
+
+  // Fetch expenses in memory - only reload when updated (create/edit/delete in ExpenseManager)
+  useEffect(() => {
+    const shouldFetch = (currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.MD) &&
+      (activeTab === 'admin-dashboard' || activeTab === 'admin-expenses') &&
+      expensesLastFetchedRef.current !== expensesRefreshTrigger;
+    if (!shouldFetch) return;
+    const fetchExpenses = async () => {
+      try {
+        const list = await getExpenses();
+        setExpenses(Array.isArray(list) ? list : []);
+        expensesLastFetchedRef.current = expensesRefreshTrigger;
+      } catch (err: any) {
+        console.error('Error fetching expenses:', err);
+      }
+    };
+    fetchExpenses();
+  }, [activeTab, currentUser?.role, expensesRefreshTrigger]);
+
+  // Fetch assets once in memory - only reload when updated (create/edit/delete in AssetManager)
+  useEffect(() => {
+    const shouldFetch = (currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.MD) &&
+      (activeTab === 'admin-dashboard' || activeTab === 'admin-assets') &&
+      assetsLastFetchedRef.current !== assetsRefreshTrigger;
+    if (!shouldFetch) return;
+    const fetchAssets = async () => {
+      try {
+        const res = await api.get('/adminapi/assets/');
+        const list = Array.isArray(res.data) ? res.data : [];
+        const mapped: Asset[] = list.map((item: any) => ({
+          id: String(item.id),
+          type: item.asset_type,
+          name: item.asset_name,
+          author: item.author,
+          code: item.asset_code ?? '',
+          status: item.status === 'COMPLETED' ? 'Completed' : item.status === 'INPROCESS' ? 'Inprocess' : 'Pending',
+          createdAt: item.created_at ?? new Date().toISOString().split('T')[0],
+        }));
+        setAssets(mapped);
+        assetsLastFetchedRef.current = assetsRefreshTrigger;
+      } catch (err: any) {
+        console.error('Error fetching assets:', err);
+      }
+    };
+    fetchAssets();
+  }, [activeTab, currentUser?.role, assetsRefreshTrigger]);
+
+  // Schedule Hub: fetch holidays, events, tours in parallel - cache, refetch only on update
+  useEffect(() => {
+    const shouldFetch =
+      currentUser &&
+      activeTab === 'schedule-hub' &&
+      scheduleLastFetchedRef.current !== scheduleRefreshTrigger;
+    if (!shouldFetch) return;
+    const fetchScheduleData = async () => {
+      try {
+        const [holidayList, eventList, tourList] = await Promise.all([
+          getHolidays(),
+          getEvents(),
+          getTours(),
+        ]);
+        const holidays: Holiday[] = (holidayList || []).map((h: any) => {
+          const rawDate = h.date?.includes?.('T') ? h.date.split('T')[0] : (h.date || '').substring(0, 10);
+          return { id: String(h.id), name: h.name, date: rawDate, type: 'holiday' as const };
+        });
+        const events: Holiday[] = (eventList || []).map((e: any) => {
+          const rawDate = e.date?.includes?.('T') ? e.date.split('T')[0] : (e.date || '').substring(0, 10);
+          return {
+            id: String(e.id),
+            name: e.title,
+            date: rawDate,
+            type: 'event' as const,
+            motive: e.motive,
+            time: e.time,
+          };
+        });
+        setScheduleHolidays([...holidays, ...events]);
+        const mappedTours: ScheduleTour[] = (tourList || []).map((item: any) => {
+          const memberDetails = item.member_details || [];
+          const attendees = (item.members || []).map((m: any) => String(m));
+          const attendeeNames: Record<string, string> = {};
+          memberDetails.forEach((m: any) => {
+            const id = String(m.username ?? m.id ?? m.Employee_id ?? '');
+            const fullName = m.full_name ?? m['full_name'] ?? m['Full Name'] ?? m.name ?? m.Name ?? 'Unknown';
+            if (id) attendeeNames[id] = fullName;
+          });
+          const rawStart = item.starting_date;
+          const fallbackDate = item.created_at?.split?.('T')[0] || format(new Date(), 'yyyy-MM-dd');
+          const startDate = rawStart
+            ? (rawStart.includes?.('T') ? rawStart.split('T')[0] : rawStart).substring(0, 10)
+            : fallbackDate.substring(0, 10);
+          const duration = item.duration_days ?? 1;
+          const endDate = format(
+            addDays(new Date(startDate), Math.max(0, duration - 1)),
+            'yyyy-MM-dd'
+          );
+          return {
+            id: String(item.id),
+            name: item.tour_name || 'Tour',
+            location: item.location || '',
+            description: item.description ?? undefined,
+            startDate,
+            endDate,
+            attendees,
+            attendeeNames,
+          };
+        });
+        setScheduleTours(mappedTours);
+        scheduleLastFetchedRef.current = scheduleRefreshTrigger;
+      } catch (err) {
+        console.error('Error fetching schedule data:', err);
+      }
+    };
+    fetchScheduleData();
+  }, [activeTab, currentUser?.id, scheduleRefreshTrigger]);
+
+  const mapApiToMeeting = useCallback((item: any): Meeting => {
+    const memberDetails = item.member_details || [];
+    const attendees = memberDetails.map((m: any) => String(m.username ?? m.id ?? ''));
+    const attendeeNames: Record<string, string> = {};
+    memberDetails.forEach((m: any) => {
+      attendeeNames[String(m.username ?? m.id ?? '')] = m.full_name ?? m.name ?? 'Unknown';
+    });
+    const statusStr = (item.status || '').toLowerCase();
+    const status =
+      statusStr === 'done' ? MeetingStatus.DONE :
+      statusStr === 'cancelled' ? MeetingStatus.CANCELLED :
+      statusStr === 'exceeded' ? MeetingStatus.EXCEEDED :
+      MeetingStatus.PENDING;
+    const startTime = item.start_time ? String(item.start_time).substring(0, 5) : '09:00';
+    const endTime = item.end_time ? String(item.end_time).substring(0, 5) : '10:00';
+    const rawDate = item.date || '';
+    const date = rawDate.includes('T') ? rawDate.split('T')[0] : rawDate.substring(0, 10);
+    return {
+      id: String(item.id),
+      title: item.meeting_title || 'No title',
+      description: item.description ?? undefined,
+      hallName: item.room || 'N/A',
+      startTime,
+      endTime,
+      date,
+      type: item.meeting_type === 'group' ? MeetingType.GROUP : MeetingType.INDIVIDUAL,
+      attendees,
+      status,
+      attendeeNames,
+      createdByName: item.creater_details?.full_name,
+    };
+  }, []);
+
+  const fetchMeetingsForMonth = useCallback(async (month: number, year: number) => {
+    const cacheKey = `${year}-${String(month).padStart(2, '0')}`;
+    const cached = scheduleMeetingsCacheRef.current[cacheKey];
+    if (cached) {
+      setScheduleMeetings(cached);
+      return;
+    }
+    try {
+      const list = await getBookSlots(month, year);
+      if (!Array.isArray(list)) return;
+      const mapped: Meeting[] = list.map(mapApiToMeeting);
+      const monthStr = String(month).padStart(2, '0');
+      const filtered = mapped.filter((m) => {
+        const mDate = m.date || '';
+        const mMonth = mDate.length >= 7 ? mDate.substring(5, 7) : '';
+        const mYear = mDate.length >= 4 ? mDate.substring(0, 4) : '';
+        return mYear === String(year) && mMonth === monthStr;
+      });
+      scheduleMeetingsCacheRef.current[cacheKey] = filtered;
+      setScheduleMeetings(filtered);
+    } catch {
+      // Keep existing on error
+    }
+  }, [mapApiToMeeting]);
+
+  const onScheduleDataUpdated = useCallback(() => {
+    setScheduleRefreshTrigger((t) => t + 1);
+  }, []);
 
   // Fetch employees from API when switching to team tab
   useEffect(() => {
@@ -890,13 +1132,13 @@ export default function App() {
     fetchEmployees();
   }, [activeTab, currentUser]);
 
-  const handleAddUser = (newUser: User) => {
-    setUsers([...users, newUser]);
-  };
+  const handleAddUser = useCallback((newUser: User) => {
+    setUsers((prev) => [...prev, newUser]);
+  }, []);
 
-  const handleDeleteUser = (userId: string) => {
-      setUsers(users.filter(u => u.id !== userId));
-  };
+  const handleDeleteUser = useCallback((userId: string) => {
+    setUsers((prev) => prev.filter((u) => u.id !== userId));
+  }, []);
 
   const handleAddTour = (newTour: Tour) => {
      setTours([...tours, newTour]);
@@ -1495,15 +1737,15 @@ export default function App() {
 
       case 'admin-assets':
         if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
-        return <AssetManager assets={assets} setAssets={setAssets} />;
+        return <AssetManager assets={assets} setAssets={setAssets} onAssetsUpdated={() => setAssetsRefreshTrigger((t) => t + 1)} />;
 
       case 'admin-vendors':
         if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
-        return <VendorManager vendors={vendors} setVendors={setVendors} />;
+        return <VendorManager vendors={vendors} setVendors={setVendors} onVendorsUpdated={() => setVendorsRefreshTrigger((t) => t + 1)} />;
 
       case 'admin-expenses':
         if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
-        return <ExpenseManager expenses={expenses} setExpenses={setExpenses} />;
+        return <ExpenseManager expenses={expenses} setExpenses={setExpenses} onExpensesUpdated={() => setExpensesRefreshTrigger((t) => t + 1)} />;
 
       case 'admin-bills':
         if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
@@ -1534,7 +1776,18 @@ export default function App() {
         );
       
       case 'schedule-hub':
-        return <ScheduleHubPage currentUser={currentUser} />;
+        return (
+          <ScheduleHubPage
+            currentUser={currentUser}
+            holidays={scheduleHolidays}
+            tours={scheduleTours}
+            meetings={scheduleMeetings}
+            setMeetings={setScheduleMeetings}
+            fetchMeetingsForMonth={fetchMeetingsForMonth}
+            onScheduleDataUpdated={onScheduleDataUpdated}
+            meetingsCacheRef={scheduleMeetingsCacheRef}
+          />
+        );
 
       case 'attendance':
         // Attendance & Tours - Under Maintenance
@@ -1618,11 +1871,24 @@ export default function App() {
       />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={currentUser} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
+        <Header user={currentUser} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onMeetClick={() => setShowMeetCard(true)} meetingRefreshTrigger={meetingRefreshTrigger} notificationMeetings={notificationMeetings} />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-4 md:p-6">
           {renderContent()}
         </main>
       </div>
+
+      {/* Meet Card - from header Meet button */}
+      {showMeetCard && currentUser && (
+        <MeetCard
+          onClose={() => setShowMeetCard(false)}
+          onMeetingCreated={() => {
+            setTimeout(() => setMeetingRefreshTrigger((t) => t + 1), 400);
+          }}
+          currentUser={currentUser}
+          rooms={meetRooms}
+          employees={meetEmployees}
+        />
+      )}
 
       {/* Filtered Users Modal */}
       {showFilteredUsersModal && (

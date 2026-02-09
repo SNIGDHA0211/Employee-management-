@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { format, addMonths, subMonths, addDays } from 'date-fns';
+import { format, addMonths, subMonths } from 'date-fns';
 import { Calendar, ChevronLeft, ChevronRight, CalendarDays, PartyPopper, MapPin } from 'lucide-react';
 import { UserRole } from '../../types';
-import { ViewMode, Meeting, Holiday, Tour, MeetingStatus, MeetingType } from './types';
-import { getHolidays, deleteHoliday, getBookSlots, deleteBookSlot, updateBookSlot, getEvents, deleteEvent, getTours, deleteTour } from '../../services/api';
+import { ViewMode, Meeting, Holiday, Tour, MeetingStatus } from './types';
+import { deleteHoliday, deleteBookSlot, updateBookSlot, deleteEvent, deleteTour } from '../../services/api';
 import { CalendarGrid } from './CalendarGrid';
 import { DayViewModal } from './DayViewModal';
 import { HolidayModal } from './HolidayModal';
@@ -15,16 +15,33 @@ import type { User } from '../../types';
 
 interface ScheduleHubPageProps {
   currentUser?: User | null;
+  holidays?: Holiday[];
+  tours?: Tour[];
+  meetings?: Meeting[];
+  setMeetings?: React.Dispatch<React.SetStateAction<Meeting[]>>;
+  fetchMeetingsForMonth?: (month: number, year: number) => Promise<void>;
+  onScheduleDataUpdated?: () => void;
+  meetingsCacheRef?: React.MutableRefObject<Record<string, Meeting[]>>;
 }
 
-export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser }) => {
+export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
+  currentUser,
+  holidays: holidaysProp = [],
+  tours: toursProp = [],
+  meetings: meetingsProp = [],
+  setMeetings: setMeetingsProp,
+  fetchMeetingsForMonth,
+  onScheduleDataUpdated,
+  meetingsCacheRef,
+}) => {
   const canAddHolidayOrEvent = currentUser && [UserRole.MD, UserRole.ADMIN].includes(currentUser.role);
   const canEditDeleteHoliday = currentUser && [UserRole.MD, UserRole.ADMIN].includes(currentUser.role);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.MEETING);
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [holidays, setHolidays] = useState<Holiday[]>([]);
-  const [tours, setTours] = useState<Tour[]>([]);
+  const meetings = meetingsProp;
+  const setMeetings = setMeetingsProp ?? (() => {});
+  const holidays = holidaysProp;
+  const tours = toursProp;
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showDayView, setShowDayView] = useState(false);
   const [showHolidayModal, setShowHolidayModal] = useState(false);
@@ -37,127 +54,16 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser })
   const [meetingToEdit, setMeetingToEdit] = useState<Meeting | null>(null);
   const [tourToEdit, setTourToEdit] = useState<Tour | null>(null);
 
-  // Fetch holidays and events, merge for calendar
-  useEffect(() => {
-    if (!currentUser) {
-      setHolidays([]);
-      return;
-    }
-    Promise.all([getHolidays(), getEvents()])
-      .then(([holidayList, eventList]) => {
-        const holidays: Holiday[] = (holidayList || []).map((h: any) => {
-          const rawDate = h.date?.includes?.('T') ? h.date.split('T')[0] : (h.date || '').substring(0, 10);
-          return { id: String(h.id), name: h.name, date: rawDate, type: 'holiday' as const };
-        });
-        const events: Holiday[] = (eventList || []).map((e: any) => {
-          const rawDate = e.date?.includes?.('T') ? e.date.split('T')[0] : (e.date || '').substring(0, 10);
-          return {
-            id: String(e.id),
-            name: e.title,
-            date: rawDate,
-            type: 'event' as const,
-            motive: e.motive,
-            time: e.time,
-          };
-        });
-        setHolidays([...holidays, ...events]);
-      })
-      .catch(() => setHolidays([]));
-  }, [currentUser]);
+  const [meetingsLoading, setMeetingsLoading] = useState(false);
 
-  // Fetch book slots on initial load (GET eventsapi/bookslots/)
-  const [meetingsLoading, setMeetingsLoading] = useState(true);
+  // Request meetings for current month when date changes or on mount (data comes from App)
   useEffect(() => {
-    if (!currentUser) {
-      setMeetings([]);
-      setMeetingsLoading(false);
-      return;
-    }
+    if (!currentUser || !fetchMeetingsForMonth) return;
+    const month = currentDate.getMonth() + 1;
+    const year = currentDate.getFullYear();
     setMeetingsLoading(true);
-    getBookSlots()
-      .then((list) => {
-      const mapped: Meeting[] = list.map((item: any) => {
-        const memberDetails = item.member_details || [];
-        const attendees = memberDetails.map((m: any) => String(m.username ?? m.id ?? ''));
-        const attendeeNames: Record<string, string> = {};
-        memberDetails.forEach((m: any) => {
-          attendeeNames[String(m.username ?? m.id ?? '')] = m.full_name ?? m.name ?? 'Unknown';
-        });
-        const statusStr = (item.status || '').toLowerCase();
-        const status =
-          statusStr === 'done' ? MeetingStatus.DONE :
-          statusStr === 'cancelled' ? MeetingStatus.CANCELLED :
-          statusStr === 'exceeded' ? MeetingStatus.EXCEEDED :
-          MeetingStatus.PENDING;
-        const startTime = item.start_time
-          ? String(item.start_time).substring(0, 5)
-          : '09:00';
-        const endTime = item.end_time
-          ? String(item.end_time).substring(0, 5)
-          : '10:00';
-        return {
-          id: String(item.id),
-          title: item.meeting_title || 'No title',
-          description: item.description ?? undefined,
-          hallName: item.room || 'N/A',
-          startTime,
-          endTime,
-          date: item.date || '',
-          type: item.meeting_type === 'group' ? MeetingType.GROUP : MeetingType.INDIVIDUAL,
-          attendees,
-          status,
-          attendeeNames,
-          createdByName: item.creater_details?.full_name,
-        };
-      });
-      setMeetings(mapped);
-      })
-      .catch(() => setMeetings([]))
-      .finally(() => setMeetingsLoading(false));
-  }, [currentUser]);
-
-  // Fetch tours on initial load (GET eventsapi/tours/)
-  useEffect(() => {
-    if (!currentUser) {
-      setTours([]);
-      return;
-    }
-    getTours()
-      .then((list) => {
-        const mapped: Tour[] = (list || []).map((item: any) => {
-          const memberDetails = item.member_details || [];
-          const attendees = (item.members || []).map((m: any) => String(m));
-          const attendeeNames: Record<string, string> = {};
-          memberDetails.forEach((m: any) => {
-            const id = String(m.username ?? m.id ?? m.Employee_id ?? '');
-            const fullName = m.full_name ?? m['full_name'] ?? m['Full Name'] ?? m.name ?? m.Name ?? 'Unknown';
-            if (id) attendeeNames[id] = fullName;
-          });
-          const rawStart = item.starting_date;
-          const fallbackDate = item.created_at?.split?.('T')[0] || format(new Date(), 'yyyy-MM-dd');
-          const startDate = rawStart
-            ? (rawStart.includes?.('T') ? rawStart.split('T')[0] : rawStart).substring(0, 10)
-            : fallbackDate.substring(0, 10);
-          const duration = item.duration_days ?? 1;
-          const endDate = format(
-            addDays(new Date(startDate), Math.max(0, duration - 1)),
-            'yyyy-MM-dd'
-          );
-          return {
-            id: String(item.id),
-            name: item.tour_name || 'Tour',
-            location: item.location || '',
-            description: item.description ?? undefined,
-            startDate,
-            endDate,
-            attendees,
-            attendeeNames,
-          };
-        });
-        setTours(mapped);
-      })
-      .catch(() => setTours([]));
-  }, [currentUser]);
+    fetchMeetingsForMonth(month, year).finally(() => setMeetingsLoading(false));
+  }, [currentUser?.id, currentDate.getMonth(), currentDate.getFullYear(), fetchMeetingsForMonth]);
 
   const handleDateClick = (date: Date) => {
     setSelectedDate(date);
@@ -188,9 +94,17 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser })
   };
 
   const handleCancelMeeting = async (id: string) => {
+    const meeting = meetings.find((m) => m.id === id);
     try {
       await deleteBookSlot(id);
-      setMeetings((prev) => prev.filter((m) => m.id !== id));
+      setMeetings((prev) => {
+        const next = prev.filter((m) => m.id !== id);
+        if (meeting?.date && meetingsCacheRef) {
+          const [y, mo] = meeting.date.split('-');
+          if (y && mo) meetingsCacheRef.current[`${y}-${mo}`] = next;
+        }
+        return next;
+      });
     } catch {
       setMeetings((prev) => prev.filter((m) => m.id !== id));
     }
@@ -213,19 +127,19 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser })
   const handleSaveMeeting = (meeting: Meeting) => {
     setMeetings((prev) => {
       const existing = prev.find((m) => m.id === meeting.id);
-      if (existing) return prev.map((m) => (m.id === meeting.id ? meeting : m));
-      return [...prev, meeting];
+      const next = existing ? prev.map((m) => (m.id === meeting.id ? meeting : m)) : [...prev, meeting];
+      const [y, m] = (meeting.date || '').split('-');
+      if (y && m && meetingsCacheRef) {
+        meetingsCacheRef.current[`${y}-${m}`] = next;
+      }
+      return next;
     });
     setShowMeetingModal(false);
     setMeetingToEdit(null);
   };
 
   const handleSaveHoliday = (holiday: Holiday) => {
-    setHolidays((prev) => {
-      const existing = prev.find((h) => h.id === holiday.id);
-      if (existing) return prev.map((h) => (h.id === holiday.id ? holiday : h));
-      return [...prev, holiday];
-    });
+    onScheduleDataUpdated?.();
     setShowHolidayModal(false);
     setHolidayToEdit(null);
   };
@@ -237,7 +151,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser })
     } else {
       await deleteHoliday(id);
     }
-    setHolidays((prev) => prev.filter((h) => h.id !== id));
+    onScheduleDataUpdated?.();
     setSelectedHoliday(null);
   };
 
@@ -249,11 +163,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser })
   };
 
   const handleSaveTour = (tour: Tour) => {
-    setTours((prev) => {
-      const existing = prev.find((t) => t.id === tour.id);
-      if (existing) return prev.map((t) => (t.id === tour.id ? tour : t));
-      return [...prev, tour];
-    });
+    onScheduleDataUpdated?.();
     setShowTourModal(false);
     setTourToEdit(null);
   };
@@ -271,10 +181,10 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser })
   const handleDeleteTour = async (id: string) => {
     try {
       await deleteTour(id);
-      setTours((prev) => prev.filter((t) => t.id !== id));
+      onScheduleDataUpdated?.();
       setSelectedTour(null);
     } catch {
-      setTours((prev) => prev.filter((t) => t.id !== id));
+      onScheduleDataUpdated?.();
       setSelectedTour(null);
     }
   };
@@ -362,13 +272,11 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({ currentUser })
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden min-h-[500px] relative">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden min-h-[500px]">
         {meetingsLoading && viewMode === ViewMode.MEETING && (
-          <div className="absolute inset-0 bg-white/80 z-10 flex items-center justify-center rounded-2xl">
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-10 h-10 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm font-medium text-slate-600">Loading book slots…</span>
-            </div>
+          <div className="flex items-center justify-center gap-2 py-2 bg-indigo-50 border-b border-indigo-100">
+            <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs font-medium text-indigo-700">Loading meetings…</span>
           </div>
         )}
         <CalendarGrid

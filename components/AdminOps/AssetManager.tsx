@@ -6,9 +6,10 @@ import { Asset, AssetType, StatusType } from "../../types";
 interface AssetManagerProps {
   assets: Asset[];
   setAssets: React.Dispatch<React.SetStateAction<Asset[]>>;
+  onAssetsUpdated?: () => void;
 }
 /* ----------------------------- UI STATES ----------------------------- */
-const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
+const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets, onAssetsUpdated }) => {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     type: "" as AssetType,
@@ -43,37 +44,6 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
     };
     fetchAssetTypes();
   }, []);
-  /* ------------------------- FETCH ASSETS ------------------------------- */
-
-  useEffect(() => {
-    const fetchAssets = async () => {
-      try {
-        const res = await api.get("/adminapi/assets/");
-
-        const mappedAssets: Asset[] = res.data.map((item: any) => ({
-          id: item.id.toString(),
-          type: item.asset_type,
-          name: item.asset_name,
-          author: item.author,
-          code: item.asset_code,
-          status:
-            item.status === "COMPLETED"
-              ? "Completed"
-              : item.status === "INPROCESS"
-                ? "Inprocess"
-                : "Pending",
-          createdAt: item.created_at ?? new Date().toISOString().split("T")[0],
-        }));
-
-        setAssets(mappedAssets);
-      } catch (error) {
-        console.error("❌ Failed to fetch assets", error);
-      }
-    };
-
-    fetchAssets();
-  }, []);
-
   /* ------------------------ CREATE ASSET (POST) ------------------------- */
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -108,6 +78,7 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
       // Add new asset to top of table
 
       setAssets((prev) => [savedAsset, ...prev]);
+      onAssetsUpdated?.();
 
       // reset form
       setFormData({
@@ -141,6 +112,7 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
       await api.patch(`/adminapi/assets/${id}/`, {
         status: newStatus.toUpperCase(),
       });
+      onAssetsUpdated?.();
     } catch (error) {
       console.error("❌ Failed to update status", error);
 
@@ -176,6 +148,7 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
         author: editData.author,
       });
       setEditingAsset(null);
+      onAssetsUpdated?.();
     } catch (error) {
       console.error("❌ Failed to update asset", error);
 
@@ -200,6 +173,7 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets }) => {
 
     try {
       await api.delete(`/adminapi/assets/${id}/`);
+      onAssetsUpdated?.();
     } catch (error) {
       console.error("❌ Failed to delete asset", error);
 
