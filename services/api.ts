@@ -20,7 +20,7 @@ const isDevelopment = typeof window !== 'undefined' &&
    
 const API_BASE_URL = isDevelopment
   ? '/api'  // Use Vite proxy in development (bypasses CORS)
-  : 'https://employee-management-system-tmrl.onrender.com';  // Direct URL in production
+  : 'http://employee-management-system-tmrl.onrender.com';  // Direct URL in production
 //http://employee-management-system-tmrl.onrender.com
 //http://192.168.41.97:8000
   
@@ -544,7 +544,7 @@ ${isDevelopment ? 'Note: Using Vite proxy (/api) to bypass CORS. Make sure:\n- B
 export const logout = async (): Promise<void> => {
   try {
     // Call backend logout endpoint to invalidate server-side session
-    await api.post("/accounts/Logout/");
+    await api.get("/accounts/Logout/");
   } catch (error: any) {
     // If network/server error, still clear local auth so user is signed out on frontend
     console.error("❌ [LOGOUT] Error calling /accounts/Logout/ endpoint:", error);
@@ -875,6 +875,32 @@ export const updateProfile = async (employeeData: {
       },
     }
   );
+  return response.data;
+};
+
+/**
+ * Change employee photo
+ * @endpoint POST /accounts/admin/changePhoto/{username}/
+ * @body multipart/form-data, field: Photo_link (File)
+ */
+export const changePhoto = async (username: string, photoFile: File): Promise<{ messege?: string; message?: string }> => {
+  const formData = new FormData();
+  formData.append("Photo_link", photoFile);
+  const response = await api.post(
+    `/accounts/admin/changePhoto/${encodeURIComponent(username)}/`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } }
+  );
+  return response.data;
+};
+
+/**
+ * Delete employee
+ * @endpoint DELETE /accounts/admin/deleteEmployee/{Employee_id}/
+ * @response { message: "user deleted successfully" }
+ */
+export const deleteEmployee = async (employeeId: string): Promise<{ message: string }> => {
+  const response = await api.delete(`/accounts/admin/deleteEmployee/${encodeURIComponent(employeeId)}/`);
   return response.data;
 };
 

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { UserPlus, Trash2, Shield, Calendar, Mail, User as UserIcon, Upload, Hash, Camera, Lock, Key, Building2, X, Briefcase, Users as UsersIcon, Pencil, Check, XCircle, Clock } from 'lucide-react';
+import { UserPlus, Trash2, Shield, Calendar, Mail, User as UserIcon, Upload, Hash, Camera, Lock, Key, Building2, X, Briefcase, Users as UsersIcon, Pencil, Check, XCircle, Clock, Plus } from 'lucide-react';
 import api, { 
   getDesignations as apiGetDesignations,
   getBranch as apiGetBranch,
@@ -10,7 +10,9 @@ import api, {
   getRoles as apiGetRoles,
   getEmployees as apiGetEmployees,
   createEmployee as apiCreateEmployee,
-  updateProfile as apiUpdateProfile
+  updateProfile as apiUpdateProfile,
+  changePhoto as apiChangePhoto,
+  deleteEmployee as apiDeleteEmployee
 } from '../services/api';
 
 interface AdminPanelProps {
@@ -55,6 +57,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     password: '',
     profilePicture: null as File | null,
   });
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
 
   // Inline editing state
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -532,6 +535,45 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       }
   };
 
+  const handleEditPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedUser) return;
+    const preview = URL.createObjectURL(file);
+    setEditPhotoPreview(preview);
+    setEditFormData(prev => ({ ...prev, profilePicture: file }));
+    try {
+      setIsLoading(true);
+      setError(null);
+      await apiChangePhoto(selectedUser.id, file);
+      alert('Photo updated successfully!');
+      setEditFormData(prev => ({ ...prev, profilePicture: null }));
+      setSelectedUser(prev => prev ? { ...prev, avatar: preview } : null);
+      await fetchEmployeesFromAPI();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update photo.');
+    } finally {
+      setIsLoading(false);
+    }
+    e.target.value = '';
+  };
+
+  const handleTablePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>, user: User) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsLoading(true);
+      setError(null);
+      await apiChangePhoto(user.id, file);
+      alert('Photo updated successfully!');
+      await fetchEmployeesFromAPI();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update photo.');
+    } finally {
+      setIsLoading(false);
+    }
+    e.target.value = '';
+  };
+
   const handleEditClick = () => {
     if (!selectedUser) return;
     const rawRole = (selectedUser as any).rawRole || String(selectedUser.role);
@@ -547,11 +589,13 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       password: '',
       profilePicture: null,
     });
+    setEditPhotoPreview(null);
     setIsEditMode(true);
   };
 
   const handleCancelEdit = () => {
     setIsEditMode(false);
+    setEditPhotoPreview(null);
     setEditFormData({
       name: '',
       email: '',
@@ -573,6 +617,9 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     setError(null);
 
     try {
+      if (editFormData.profilePicture instanceof File) {
+        await apiChangePhoto(selectedUser.id, editFormData.profilePicture);
+      }
       await apiUpdateProfile({
         employeeId: selectedUser.id,
         password: editFormData.password || undefined,
@@ -583,7 +630,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         department: editFormData.department,
         joiningDate: editFormData.joinDate,
         dateOfBirth: editFormData.birthDate,
-        profilePicture: editFormData.profilePicture,
+        profilePicture: null,
         emailAddress: editFormData.email,
       });
 
@@ -603,6 +650,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       
       setSelectedUser(updatedUser);
       setIsEditMode(false);
+      setEditPhotoPreview(null);
       
       // Refresh employees from API
       setTimeout(() => {
@@ -845,6 +893,16 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                                   }
                                 }}
                               />
+                              {editingUserId === user.id && (
+                                <label
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-brand-600 text-white rounded-full flex items-center justify-center cursor-pointer hover:bg-brand-700 shadow border-2 border-white z-10"
+                                  title="Change photo"
+                                >
+                                  <Plus size={10} strokeWidth={2.5} />
+                                  <input type="file" className="hidden" accept="image/*" onChange={(ev) => handleTablePhotoChange(ev, user)} />
+                                </label>
+                              )}
                             </div>
                         <div className="flex-1">
                           {editingUserId === user.id ? (
@@ -1043,8 +1101,24 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onDeleteUser(user.id);
-                                fetchEmployeesFromAPI(); // Refetch after delete — same as AssetManager
+                                if (!confirm(`Are you sure you want to delete ${user.name}? This action cannot be undone.`)) return;
+                                (async () => {
+                                  try {
+                                    setIsLoading(true);
+                                    await apiDeleteEmployee(user.id);
+                                    onDeleteUser(user.id);
+                                    await fetchEmployeesFromAPI();
+                                    if (selectedUser?.id === user.id) {
+                                      setSelectedUser(null);
+                                      setIsEditMode(false);
+                                    }
+                                    alert('User deleted successfully.');
+                                  } catch (err: any) {
+                                    alert(err.message || 'Failed to delete user. Please try again.');
+                                  } finally {
+                                    setIsLoading(false);
+                                  }
+                                })();
                               }}
                               className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                               title="Delete User"
@@ -1378,17 +1452,24 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
           
           {/* Sidebar */}
           <div className="fixed right-0 top-0 bottom-0 w-96 bg-white shadow-2xl z-50 flex flex-col transform transition-transform duration-300 ease-in-out">
-            {/* Header - Dark Theme (no avatar image) */}
+            {/* Header - Dark Theme with avatar */}
             <div className="p-6 bg-gradient-to-br from-slate-800 to-slate-900 border-b border-slate-700">
               <div className="flex justify-between items-start mb-2">
-                <div className="flex-1 min-w-0">
-                  <h2 className="text-xl font-bold text-white truncate">{selectedUser.name}</h2>
-                  <p className="text-white/90 font-semibold mt-1 text-sm">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <img
+                    className="w-10 h-10 rounded-full object-cover border-2 border-gray-200 shadow-sm flex-shrink-0"
+                    alt={selectedUser.name}
+                    src={selectedUser.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUser.name)}&background=random`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-xl font-bold text-white truncate">{selectedUser.name}</h2>
+                    <p className="text-white/90 font-semibold mt-1 text-sm">
                     {(() => {
                       const rawRole = (selectedUser as any).rawRole;
                       return rawRole ? String(rawRole) : 'N/A';
                     })()}
                   </p>
+                  </div>
                 </div>
                 <button
                   onClick={() => {
@@ -1413,6 +1494,37 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                   <p className="text-lg font-bold text-gray-800 mt-1">
                     {selectedUser.id}
                   </p>
+                </div>
+
+                {/* Profile Photo */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Profile Photo</p>
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <div className="relative inline-block">
+                      <div className="w-16 h-16 rounded-full bg-gray-100 border-2 border-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
+                        {editPhotoPreview ? (
+                          <img src={editPhotoPreview} alt="New" className="w-full h-full object-cover" />
+                        ) : selectedUser.avatar ? (
+                          <img src={selectedUser.avatar} alt={selectedUser.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <Camera className="text-gray-400" size={24} />
+                        )}
+                      </div>
+                      {isEditMode && (
+                        <label className="absolute -bottom-1 -right-1 w-6 h-6 bg-brand-600 text-white rounded-full flex items-center justify-center cursor-pointer hover:bg-brand-700 shadow border-2 border-white z-10">
+                          <Plus size={14} strokeWidth={2.5} />
+                          <input type="file" className="hidden" accept="image/*" onChange={handleEditPhotoChange} />
+                        </label>
+                      )}
+                    </div>
+                    {isEditMode && (
+                      <label className="inline-flex items-center gap-2 px-3 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 cursor-pointer text-sm font-medium whitespace-nowrap">
+                        <Upload size={16} className="flex-shrink-0" />
+                        Select new photo
+                        <input type="file" className="hidden" accept="image/*" onChange={handleEditPhotoChange} />
+                      </label>
+                    )}
+                  </div>
                 </div>
 
                 {/* Name */}
@@ -1449,7 +1561,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                   )}
                 </div>
 
-                {/* Role */}
+                    {/* Role */}
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</p>
                   {isEditMode ? (
