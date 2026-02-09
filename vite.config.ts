@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
         proxy: {
           // Proxy all API requests to backend to bypass CORS
           '/api': {
-            target: 'http://employee-management-system-tmrl.onrender.com',
+            target: 'https://employee-management-system-tmrl.onrender.com',
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api/, ''),
             configure: (proxy, _options) => {
