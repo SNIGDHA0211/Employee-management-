@@ -8,7 +8,9 @@ import {
   clearAuthData,
 } from "./utils/auth";
 
-// Set base URL for backend
+// Production backend URL
+const PRODUCTION_BACKEND_URL = 'https://employee-management-system-tmrl.onrender.com';
+
 // Use proxy in development to bypass CORS, direct URL in production
 const isDevelopment = typeof window !== 'undefined' && 
   (window.location.hostname === 'localhost' || 
@@ -17,12 +19,9 @@ const isDevelopment = typeof window !== 'undefined' &&
    window.location.hostname.startsWith('10.') ||
    window.location.hostname.startsWith('172.'));
 
-   
 const API_BASE_URL = isDevelopment
-  ? '/api'  // Use Vite proxy in development (bypasses CORS)
-  : 'https://employee-management-system-tmrl.onrender.com';  // HTTPS required (avoids Mixed Content when page is served over HTTPS)
-//http://192.168.41.97:8000
-//https://employee-management-system-tmrl.onrender.com
+  ? '/api'  // Vite proxy forwards to PRODUCTION_BACKEND_URL
+  : PRODUCTION_BACKEND_URL;
   
 // Create axios instance for authenticated requests
  const api = axios.create({
@@ -85,9 +84,9 @@ api.interceptors.response.use(
       error.message?.includes("Failed to fetch") ||
       (error.name === "TypeError" && error.message?.includes("fetch"))
     ) {
-      const backendUrl = isDevelopment ? 'http://192.168.41.97:8000' : API_BASE_URL;
+      const backendUrl = PRODUCTION_BACKEND_URL;
       const networkError = new Error(
-        `Network Error: Unable to connect to the backend server at ${backendUrl}.\n\nPlease check:\n1. Backend server is running on ${backendUrl}\n2. Network connectivity\n3. Firewall settings\n\n${isDevelopment ? 'Note: Using Vite proxy (/api) to bypass CORS. Make sure the backend server is running.' : 'Please check CORS configuration and network connectivity.'}`
+        `Network Error: Unable to connect to the backend server at ${backendUrl}.\n\nPlease check:\n1. Backend server is running on ${backendUrl}\n2. Network connectivity\n3. Firewall settings\n\n${isDevelopment ? 'Note: Using Vite proxy (/api) to reach production backend.' : 'Please check CORS configuration and network connectivity.'}`
       );
       return Promise.reject(networkError);
     }
@@ -513,7 +512,7 @@ export const login = async (
         error.message?.includes("timeout") ||
         (error.name === "TypeError" && error.message?.includes("fetch"))
       ) {
-        const backendUrl = isDevelopment ? 'https://employee-management-system-tmrl.onrender.com' : API_BASE_URL;
+        const backendUrl = PRODUCTION_BACKEND_URL;
         const corsErrorMsg = `Network Error: Unable to connect to the backend server at ${backendUrl}. 
 
 This could be due to:
@@ -572,10 +571,17 @@ export const refreshToken = (refresh: string) => {
 
 /**
  * Get employee dashboard data (for logged-in user)
+ * Uses cache-busting to avoid stale data when switching users (especially on local dev server)
  */
 export const getEmployeeDashboard = async (): Promise<Employee> => {
   try {
-    const response = await api.get("/accounts/employee/dashboard/");
+    const response = await api.get("/accounts/employee/dashboard/", {
+      params: { _t: Date.now() },
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache",
+      },
+    });
 
     const data = response.data;
 
@@ -995,13 +1001,18 @@ export const viewTasks = async (): Promise<any[]> => {try {
     // Handle different response formats
     if (Array.isArray(data)) {
       tasks = data;
-    } else if (data.tasks && Array.isArray(data.tasks)) {
-      tasks = data.tasks;
-    } else if (data.data && Array.isArray(data.data)) {
-      tasks = data.data;
-    } else if (data.results && Array.isArray(data.results)) {
-      tasks = data.results; // Handle paginated responses
-    } else {return [];
+    } else if (data && typeof data === 'object') {
+      const arr = data.tasks ?? data.data ?? data.results ?? data.view_tasks ?? data.viewTasks;
+      if (Array.isArray(arr)) tasks = arr;
+      else {
+        // Try any array value in the response
+        const vals = Object.values(data);
+        const found = vals.find(v => Array.isArray(v) && v.length > 0 && (v[0]?.task_id != null || v[0]?.id != null || v[0]?.taskId != null));
+        if (Array.isArray(found)) tasks = found;
+      }
+    }
+    if (tasks.length === 0 && data && typeof data === 'object') {
+      console.warn('[VIEW TASKS] No tasks array found. Keys:', Object.keys(data));
     }
 
     // Log task IDs for debugging
@@ -1030,30 +1041,41 @@ export const viewTasks = async (): Promise<any[]> => {try {
 
 /**
  * View assigned tasks for current user
+ * Response format: { task_id, title, description, status, created_by, "due-date" } or array of such
  */
-export const viewAssignedTasks = async (): Promise<any[]> => {try {
+export const viewAssignedTasks = async (): Promise<any[]> => {
+  try {
     const response = await api.get("/tasks/viewAssignedTasks/");
-    const data = response.data;
+    const data = response?.data;
 
     let tasks: any[] = [];
 
     if (Array.isArray(data)) {
       tasks = data;
-    } else if (data.assigned_tasks && Array.isArray(data.assigned_tasks)) {
-      tasks = data.assigned_tasks;
-    } else if (data.tasks && Array.isArray(data.tasks)) {
-      tasks = data.tasks;
-    } else if (data.data && Array.isArray(data.data)) {
-      tasks = data.data;
-    } else {
-      return [];
+    } else if (data && typeof data === 'object') {
+      const arr = data.assigned_tasks ?? data.tasks ?? data.data ?? data.results ?? data.viewAssignedTasks;
+      if (Array.isArray(arr)) {
+        tasks = arr;
+      } else if (data.task_id != null || data.id != null) {
+        // Single task: { task_id, title, description, status, created_by, "due-date" }
+        tasks = [data];
+      } else {
+        const vals = Object.values(data);
+        const found = vals.find((v: any) => Array.isArray(v) && v.length > 0 && (v[0]?.task_id != null || v[0]?.id != null));
+        if (Array.isArray(found)) tasks = found;
+        else {
+          const single = vals.find((v: any) => v && typeof v === 'object' && (v.task_id != null || v.id != null));
+          if (single) tasks = [single];
+        }
+      }
     }
 
-    // Log task IDs for debugging
-    if (tasks.length > 0) {
-      const firstTask = tasks[0];}return tasks;
+    return Array.isArray(tasks) ? tasks : [];
   } catch (error: any) {
     console.error("❌ [VIEW ASSIGNED TASKS API] Exception caught:", error);
+    if (error?.response?.status === 401 || error?.response?.status === 403) {
+      throw new Error("Authentication failed. Please login again to view tasks.");
+    }
     throw error;
   }
 };
@@ -2562,7 +2584,7 @@ export const startChat = async (
     } catch (firstError: any) {
       // If we get a 404 and we're using the proxy, try direct URL as fallback
       if (firstError.response?.status === 404 && API_BASE_URL === '/api') {const directApi = axios.create({
-          baseURL: 'https://employee-management-system-tmrl.onrender.com',
+          baseURL: PRODUCTION_BACKEND_URL,
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${getAuthToken() || ''}`

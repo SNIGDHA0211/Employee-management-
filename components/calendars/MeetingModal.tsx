@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { Meeting, MeetingType, MeetingStatus } from './types';
 import { CURRENT_USER } from './constants';
-import { getRooms, getEmployees, createBookSlot, updateBookSlot, type Room } from '../../services/api';
+import { getRooms, createBookSlot, updateBookSlot, type Room } from '../../services/api';
 import type { User } from '../../types';
 
 interface MeetingModalProps {
@@ -11,6 +11,7 @@ interface MeetingModalProps {
   onSave: (meeting: Meeting) => void;
   currentUser?: User | null;
   initialMeeting?: Meeting | null;
+  employees?: Array<{ id: string; name: string }>;
 }
 
 export const MeetingModal: React.FC<MeetingModalProps> = ({
@@ -19,6 +20,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   onSave,
   currentUser,
   initialMeeting,
+  employees: employeesProp = [],
 }) => {
   const isEdit = !!initialMeeting;
   const displayUser = currentUser || CURRENT_USER;
@@ -30,8 +32,8 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   const [endTime, setEndTime] = useState(initialMeeting?.endTime ?? '10:00');
   const [type, setType] = useState<MeetingType>(initialMeeting?.type ?? MeetingType.INDIVIDUAL);
   const [selectedUsers, setSelectedUsers] = useState<string[]>(initialMeeting?.attendees ?? []);
-  const [employees, setEmployees] = useState<Array<{ id: string; name: string }>>([]);
-  const [employeesLoading, setEmployeesLoading] = useState(true);
+  const employees = employeesProp;
+  const employeesLoading = false;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,19 +56,6 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     }
   }, [initialMeeting]);
 
-  useEffect(() => {
-    getEmployees()
-      .then((list) => {
-        const mapped = list.map((emp: any) => {
-          const id = String(emp['Employee_id'] ?? emp['Employee ID'] ?? emp.id ?? '');
-          const name = emp['Name'] ?? emp['Full Name'] ?? emp.name ?? 'Unknown';
-          return { id, name };
-        });
-        setEmployees(mapped);
-      })
-      .catch(() => setEmployees([]))
-      .finally(() => setEmployeesLoading(false));
-  }, []);
 
   const toTimeSec = (t: string) => (t && t.length >= 8 ? t.substring(0, 8) : `${t || '09:00'}:00`);
 

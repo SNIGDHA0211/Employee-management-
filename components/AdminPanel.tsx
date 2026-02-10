@@ -8,7 +8,6 @@ import api, {
   getDepartmentsandFunctions as apiGetDepartmentsandFunctions,
   getTeamleads as apiGetTeamleads,
   getRoles as apiGetRoles,
-  getEmployees as apiGetEmployees,
   createEmployee as apiCreateEmployee,
   updateProfile as apiUpdateProfile,
   changePhoto as apiChangePhoto,
@@ -19,24 +18,18 @@ interface AdminPanelProps {
   users: User[];
   onAddUser: (user: User) => void;
   onDeleteUser: (userId: string) => void;
+  onRefreshEmployees?: () => void | Promise<void>;
 }
 
-const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDeleteUser }) => {
+const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDeleteUser, onRefreshEmployees }) => {
   const [activeTab, setActiveTab] = useState<'list' | 'add'>('list');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [apiUsers, setApiUsers] = useState<User[]>([]); // Only API users, no mock data
-  
-  // Filter out mock users - mock users have IDs like 'u1', 'u2', etc.
-  // Only show users that are NOT from mock data
-  const displayUsers = apiUsers.length > 0 
-    ? apiUsers 
-    : users.filter(user => {
-        // Filter out mock users (they have simple IDs like 'u1', 'u2', etc.)
-        // Keep only users that don't match mock user pattern
-        const isMockUser = /^u\d+$/.test(user.id);
-        return !isMockUser;
-      });
+  // Use shared users from App (no local fetch - single source of truth)
+  const displayUsers = users.filter(user => {
+    const isMockUser = /^u\d+$/.test(user.id);
+    return !isMockUser;
+  });
   
   // Password Reset State
   const [resetPasswordId, setResetPasswordId] = useState<string | null>(null);
@@ -235,7 +228,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     }
   }, [formData.role]);
 
-  // Map a single API employee object to User (shared by fetchEmployeesFromAPI and fetchListData)
+  // Map a single API employee object to User (shared by onRefreshEmployees and fetchListData)
   const mapEmployeeToUser = (emp: any): User & { rawRole?: string; department?: string; function?: string; teamLead?: string } => {
         // Field mapping priority (matches App.tsx exactly):
         // Employee_id → Employee ID → id
@@ -332,20 +325,17 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     };
   };
 
-  // Single batch fetch for list tab: employees + options in parallel (faster load)
+  // Fetch options only on mount (employees come from shared users via props)
   const fetchListData = async () => {
-    setIsLoading(true);
+    setIsLoadingOptions(true);
     setError(null);
     try {
-      const [employees, designationsData, branchesData, rolesData, deptFuncData] = await Promise.all([
-        apiGetEmployees().catch((e) => { console.error('❌ Employees fetch:', e); return []; }),
+      const [designationsData, branchesData, rolesData, deptFuncData] = await Promise.all([
         apiGetDesignations().catch((e) => { console.error('❌ Designations fetch:', e); return []; }),
         apiGetBranch().catch((e) => { console.error('❌ Branch fetch:', e); return []; }),
         apiGetRoles().catch((e) => { console.error('❌ Roles fetch:', e); return []; }),
         apiGetDepartmentsandFunctions('Employee').catch((e) => { console.error('❌ Depts/functions fetch:', e); return null; }),
       ]);
-      const apiUsersList = Array.isArray(employees) ? employees.map((emp: any) => mapEmployeeToUser(emp)) : [];
-      setApiUsers(apiUsersList);
       const validDesignations = Array.isArray(designationsData) ? designationsData.filter((d: any) => d != null && typeof d === 'string' && String(d).trim() !== '') : [];
       const validBranches = Array.isArray(branchesData) ? branchesData.filter((b: any) => b != null && typeof b === 'string' && String(b).trim() !== '') : [];
       const validRoles = Array.isArray(rolesData) ? rolesData.filter((r: any) => r != null && typeof r === 'string' && String(r).trim() !== '') : [];
@@ -369,36 +359,8 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       if (errorMessage.includes('<')) errorMessage = errorMessage.replace(/<[^>]*>/g, '').trim();
       if (errorMessage.length > 300) errorMessage = errorMessage.substring(0, 300) + '...';
       setError(errorMessage);
-      setApiUsers([]);
     } finally {
-      setIsLoading(false);
-      hasLoadedOnceRef.current = true;
-    }
-  };
-
-  // Fetch employees only (e.g. after add/edit/delete) - used by retry and after mutations
-  const fetchEmployeesFromAPI = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const employees = await apiGetEmployees();
-      const apiUsersList = (Array.isArray(employees) ? employees : []).map((emp: any) => mapEmployeeToUser(emp));
-      setApiUsers(apiUsersList);
-      setError(null);
-    } catch (err: any) {
-      console.error("❌ [ADMIN PANEL] Error fetching employees:", err);
-      let errorMessage = err.message || 'Failed to fetch employees from server';
-      if (err.response?.status === 500) errorMessage = err.message || 'Server error. Please check backend logs or contact administrator.';
-      else if (err.response?.status === 401 || err.response?.status === 403) errorMessage = 'Authentication failed. Please login again.';
-      else if (err.response?.status === 404) errorMessage = 'Employees endpoint not found. Please verify the API endpoint.';
-      if (errorMessage.includes('<')) {
-        errorMessage = errorMessage.replace(/<[^>]*>/g, '').trim();
-        if (errorMessage.length > 300) errorMessage = errorMessage.substring(0, 300) + '...';
-      }
-      setError(errorMessage);
-      setApiUsers([]);
-    } finally {
-      setIsLoading(false);
+      setIsLoadingOptions(false);
       hasLoadedOnceRef.current = true;
     }
   };
@@ -488,7 +450,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       
       // Refresh employees from API after creating
       setTimeout(() => {
-        fetchEmployeesFromAPI();
+        onRefreshEmployees?.();
       }, 500);
     } catch (err: any) {
       setError(err.message || 'Failed to create employee. Please try again.');
@@ -548,7 +510,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       alert('Photo updated successfully!');
       setEditFormData(prev => ({ ...prev, profilePicture: null }));
       setSelectedUser(prev => prev ? { ...prev, avatar: preview } : null);
-      await fetchEmployeesFromAPI();
+      await onRefreshEmployees?.();
     } catch (err: any) {
       setError(err.message || 'Failed to update photo.');
     } finally {
@@ -565,7 +527,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       setError(null);
       await apiChangePhoto(user.id, file);
       alert('Photo updated successfully!');
-      await fetchEmployeesFromAPI();
+      await onRefreshEmployees?.();
     } catch (err: any) {
       setError(err.message || 'Failed to update photo.');
     } finally {
@@ -654,7 +616,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       
       // Refresh employees from API
       setTimeout(() => {
-        fetchEmployeesFromAPI();
+        onRefreshEmployees?.();
       }, 500);
       
       alert('User profile updated successfully!');
@@ -745,7 +707,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       });
 
       // Refresh employees from API
-      await fetchEmployeesFromAPI();
+      await onRefreshEmployees?.();
       
       setEditingUserId(null);
       setInlineEditData({});
@@ -813,13 +775,13 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
               <button
                 onClick={() => {
                   setError(null);
-                  if (error.includes('Loading Employees') || error.includes('fetch')) {
-                    fetchEmployeesFromAPI();
+                  if (error.includes('load data') || error.includes('fetch')) {
+                    fetchListData();
                   }
                 }}
                 className="ml-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium whitespace-nowrap flex-shrink-0"
               >
-                {error.includes('Loading Employees') || error.includes('fetch') ? 'Retry' : 'Dismiss'}
+                {(error.includes('load data') || error.includes('fetch')) ? 'Retry' : 'Dismiss'}
               </button>
             </div>
           </div>
@@ -848,12 +810,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 {displayUsers.length === 0 ? (
                   <tr>
                     <td colSpan={13} className="py-8 text-center">
-                      {isLoading && !hasLoadedOnceRef.current ? (
-                        <div className="flex flex-col items-center justify-center gap-2">
-                          <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-                          <span className="text-gray-500 text-sm">Loading employees…</span>
-                        </div>
-                      ) : error ? (
+                      {error ? (
                         <div className="flex flex-col items-center space-y-2">
                           <span className="text-red-600 font-semibold">⚠️ Error loading employees</span>
                           <span className="text-sm text-gray-600 max-w-2xl px-4">{error}</span>
@@ -1107,7 +1064,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                                     setIsLoading(true);
                                     await apiDeleteEmployee(user.id);
                                     onDeleteUser(user.id);
-                                    await fetchEmployeesFromAPI();
+                                    await onRefreshEmployees?.();
                                     if (selectedUser?.id === user.id) {
                                       setSelectedUser(null);
                                       setIsEditMode(false);
@@ -1758,4 +1715,6 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
 };
 
 // Re-render only when users data changes (add/update/delete), not on every parent re-render or click
-export const AdminPanel = React.memo(AdminPanelInner, (prev, next) => prev.users === next.users);
+export const AdminPanel = React.memo(AdminPanelInner, (prev, next) =>
+  prev.users === next.users && prev.onRefreshEmployees === next.onRefreshEmployees
+);

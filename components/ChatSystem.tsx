@@ -8,7 +8,6 @@ import {
   showGroupMembers as apiShowGroupMembers,
   loadChats as apiLoadChats,
   startChat as apiStartChat,
-  getEmployees as apiGetEmployees,
   addUserToGroup as apiAddUserToGroup,
   deleteUserFromGroup as apiDeleteUserFromGroup,
   deleteGroup as apiDeleteGroup,
@@ -42,8 +41,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [lastFetchedGroupId, setLastFetchedGroupId] = useState<number | null>(null);
   const fetchingRef = useRef<Record<number, boolean>>({});
-  const [allUsers, setAllUsers] = useState<User[]>([]);
-  const [isLoadingAllUsers, setIsLoadingAllUsers] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [selectedUserToAdd, setSelectedUserToAdd] = useState<string>('');
   const [isAddingUser, setIsAddingUser] = useState(false);
@@ -71,30 +68,21 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       totalParticipant: typeof g.total_participant === 'number' ? g.total_participant : (g.total_participant != null ? Number(g.total_participant) : undefined),
     }));
 
-  // Fetch groups, chats, and employees in parallel on mount
+  const chatResultRef = useRef<any>(null);
+
+  // Fetch chats on mount; use shared users from props for chatMap (re-process when users updates)
   useEffect(() => {
     const load = async () => {
       setIsLoadingGroups(true);
-      setIsLoadingAllUsers(true);
       try {
-        const [chatResult, employeesResult] = await Promise.all([
-          apiLoadChats().catch((err) => {
+        if (!chatResultRef.current) {
+          chatResultRef.current = await apiLoadChats().catch((err) => {
             console.error('Error fetching chats:', err);
             return null;
-          }),
-          apiGetEmployees().catch((err) => {
-            console.error('Error fetching employees:', err);
-            return [];
-          }),
-        ]);
+          });
+        }
+        const chatResult = chatResultRef.current;
 
-        // Process employees first (needed for chatMap user matching)
-        const convertedUsers = Array.isArray(employeesResult)
-          ? employeesResult.map((emp: any) => convertEmployeeToUser(emp))
-          : [];
-        setAllUsers(convertedUsers);
-
-        // Process chat data
         if (chatResult) {
           const groups = chatResult.Group_info || [];
           const convertedGroups = convertApiGroupsToChatGroups(groups, groupMembers);
@@ -105,7 +93,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             let chatId = chat.chat_id ? String(chat.chat_id).trim() : '';
             if (chatWith && chatId) {
               chatMap[chatWith] = chatId;
-              const matchingUser = convertedUsers.find((u: User) =>
+              const matchingUser = users.find((u: User) =>
                 u.name === chatWith || u.id === chatWith || String(u.id).includes(chatWith) ||
                 chatWith.includes(u.name) || chatWith.includes(String(u.id))
               );
@@ -126,7 +114,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           setGroups(convertedGroups);
           setActiveGroup((prev) => (prev ? prev : convertedGroups.length > 0 ? convertedGroups[0] : null));
         } else {
-          // Fallback if loadChats failed
           try {
             const fallbackGroups = await apiShowCreatedGroups();
             const convertedGroups = convertApiGroupsToChatGroups(fallbackGroups, groupMembers);
@@ -139,11 +126,10 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         }
       } finally {
         setIsLoadingGroups(false);
-        setIsLoadingAllUsers(false);
       }
     };
     load();
-  }, []);
+  }, [users]);
 
   // Fetch group members when a group is selected (only once per group)
   useEffect(() => {
@@ -239,86 +225,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showMembersPanel, activeGroup?.id]); // Only depend on showMembersPanel and activeGroup.id
 
-  // Helper function to convert Employee to User format
-  // CRITICAL: Preserve Employee_id as string to keep leading zeros (e.g., "00011")
-  const convertEmployeeToUser = (emp: any): User & { Employee_id?: string } => {
-    // Preserve Employee_id as string - DO NOT convert to number (would lose leading zeros)
-    const employeeId = emp['Employee_id'] !== undefined && emp['Employee_id'] !== null 
-      ? String(emp['Employee_id']) 
-      : (emp['Employee ID'] !== undefined && emp['Employee ID'] !== null 
-          ? String(emp['Employee ID']) 
-          : (emp.id !== undefined && emp.id !== null ? String(emp.id) : ''));
-    const fullName = emp['Name'] || emp['Full Name'] || emp.name || '';
-    const email = emp['Email_id'] || emp['Email Address'] || emp.email || '';
-    const role = emp['Role'] || emp.role || 'EMPLOYEE';
-    const designation = emp['Designation'] || emp.designation || '';
-    const photoLink = emp['Photo_link'] || emp['Profile Picture'] || emp.avatar || emp.profilePicture || '';
-    
-    // Map role string to UserRole enum - handle various formats including "Team lead", "Team Leader", "TEAM_LEADER", etc.
-    let userRole: UserRole = UserRole.EMPLOYEE;
-    const roleString = String(role).trim();
-    const roleUpper = roleString.toUpperCase();
-    
-    // Normalize team leader variations: "Team lead", "Team Leader", "TEAM LEADER", "TEAM_LEADER", etc.
-    const normalizedTeamLeader = roleUpper.replace(/[_\s]+/g, '_'); // Replace spaces/underscores with single underscore
-    
-    if (roleUpper === 'MD') userRole = UserRole.MD;
-    else if (roleUpper === 'ADMIN') userRole = UserRole.ADMIN;
-    else if (normalizedTeamLeader === 'TEAM_LEADER' || 
-             normalizedTeamLeader === 'TEAMLEADER' ||
-             (roleUpper.includes('TEAM') && roleUpper.includes('LEAD'))) {
-      userRole = UserRole.TEAM_LEADER;
-    }
-    else if (roleUpper === 'EMPLOYEE') userRole = UserRole.EMPLOYEE;
-    else if (roleUpper === 'INTERN') userRole = UserRole.INTERN;
-    
-    // Convert Photo_link to absolute URL with /media/ prefix for Django
-    let avatarUrl = photoLink;
-    if (photoLink && typeof photoLink === 'string' && photoLink.trim() !== '' && 
-        !photoLink.startsWith('http://') && !photoLink.startsWith('https://') && 
-        !photoLink.startsWith('data:') && !photoLink.includes('ui-avatars.com')) {
-      const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.');
-      const apiBaseUrl = isDevelopment ? 'https://employee-management-system-tmrl.onrender.com' : 'https://employee-management-system-tmrl.onrender.com';
-      const trimmedLink = photoLink.trim();
-      if (!trimmedLink.startsWith('/media/') && !trimmedLink.startsWith('media/')) {
-        const cleanPath = trimmedLink.startsWith('/') ? trimmedLink.substring(1) : trimmedLink;
-        avatarUrl = `${apiBaseUrl}/media/${cleanPath}`;
-      } else if (trimmedLink.startsWith('/')) {
-        avatarUrl = `${apiBaseUrl}${trimmedLink}`;
-      } else {
-        avatarUrl = `${apiBaseUrl}/${trimmedLink}`;
-      }
-    }
-    
-    return {
-      id: employeeId, // user.id is set to Employee_id (preserved as string with leading zeros)
-      name: fullName,
-      email: email,
-      role: userRole,
-      designation: designation,
-      avatar: avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
-      status: 'PRESENT' as const,
-      leaveBalance: 0,
-      score: 0,
-      branch: (emp['Branch'] || emp.branch || 'TECH') as any,
-      joinDate: emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0],
-      birthDate: emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01',
-      Employee_id: employeeId, // Preserve Employee_id for API calls (as string, with leading zeros)
-    };
-  };
-
-  // Refresh employees - call after create/add/delete actions. Loads only once on mount otherwise.
-  const refreshEmployees = async () => {
-    try {
-      const employees = await apiGetEmployees();
-      setAllUsers(employees.map(convertEmployeeToUser));
-    } catch (err: any) {
-      console.error('Error refreshing employees:', err);
-    }
-  };
-
-  // availableEmployees = allUsers (reuse from parallel load, no separate fetch)
-  const availableEmployees = allUsers;
+  // Use shared users from App (single source of truth)
+  const availableEmployees = users;
 
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) {
@@ -393,7 +301,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       setDirectChats(prev => ({ ...prev, ...chatMap }));
       
       setGroups(convertedGroups);
-      await refreshEmployees();
     } catch (err: any) {
       console.error('Error creating group:', err);
       alert(`Failed to create group: ${err.message || 'Unknown error'}`);
@@ -429,7 +336,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     setIsAddingUser(true);
     try {
       // Get the employee ID from the selected user
-      const userToAdd = allUsers.find(u => u.id === selectedUserToAdd);
+      const userToAdd = users.find(u => u.id === selectedUserToAdd);
       if (!userToAdd) {
         throw new Error('Selected user not found');
       }
@@ -451,7 +358,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         const members = await apiShowGroupMembers(activeGroup.groupId);
         setCurrentGroupMembers(members);
       }
-      await refreshEmployees();
     } catch (error: any) {
       console.error('❌ [ADD USER] Error:', error);
       alert(error.message || 'Failed to add user to group. Please try again.');
@@ -491,7 +397,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             const members = await apiShowGroupMembers(activeGroup.groupId);
             setCurrentGroupMembers(members);
           }
-          await refreshEmployees();
         } else {
           // Handle other messages (shouldn't happen on success, but just in case)
           alert(response.Message);
@@ -567,7 +472,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         
         setGroups(convertedGroups);
         setApiGroups(apiGroupsFormat);
-        await refreshEmployees();
       } else {
         alert(response.message || 'Group deleted successfully');
       }
@@ -662,8 +566,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         employeeId = getEmployeeIdFromUser(user);
         // Validate employeeId
         if (!employeeId || employeeId === '') {
-          // Try to find employee ID from allUsers (already loaded)
-          const foundInAll = allUsers.find((emp) =>
+          // Try to find employee ID from users (already loaded)
+          const foundInAll = users.find((emp) =>
             emp.name === user.name ||
             emp.email === user.email ||
             String(emp.id) === String(user.id) ||
@@ -1228,13 +1132,11 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           {/* All Users Section */}
           <div className="mt-4 pt-4 border-t border-gray-200">
             <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-3 mb-2">All Users</h4>
-            {isLoadingAllUsers ? (
-              <div className="text-center text-gray-400 py-4 text-sm">Loading users...</div>
-            ) : allUsers.length === 0 ? (
+            {users.length === 0 ? (
               <div className="text-center text-gray-400 py-4 text-sm">No users found</div>
             ) : (
               <div className="space-y-1">
-                {allUsers.map(user => {
+                {users.map(user => {
                   // Create DM channel ID for highlighting
                   const userIds = [currentUser.id, user.id].sort();
                   const dmChannelId = `dm-${userIds[0]}-${userIds[1]}`;
@@ -1509,7 +1411,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                       };
                       const memberUser = users.find(nameMatches) ||
                         availableEmployees.find(nameMatches) ||
-                        allUsers.find(nameMatches);
+                        users.find(nameMatches);
                       
                       const isCurrentUser = participantName === currentUser.name || 
                                            participantName === currentUser.id ||
@@ -1648,11 +1550,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Select Participants *</label>
                 <div className="border border-gray-200 rounded-lg p-4 max-h-64 overflow-y-auto bg-gray-50">
-                  {isLoadingAllUsers ? (
-                    <div className="text-center py-4">
-                      <p className="text-sm text-gray-400">Loading employees...</p>
-                    </div>
-                  ) : availableEmployees.filter(u => u.id !== currentUser.id && u.id !== '2000').length === 0 ? (
+                  {availableEmployees.filter(u => u.id !== currentUser.id && u.id !== '2000').length === 0 ? (
                     <p className="text-sm text-gray-400">No other employees available</p>
                   ) : (
                     <div className="space-y-2">
@@ -1731,16 +1629,13 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Select User to Add
               </label>
-              {isLoadingAllUsers ? (
-                <div className="text-center py-4 text-gray-500">Loading users...</div>
-              ) : (
-                <select
+              <select
                   value={selectedUserToAdd}
                   onChange={(e) => setSelectedUserToAdd(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white"
                 >
                   <option value="">-- Select a user --</option>
-                  {allUsers
+                  {users
                     .filter(user => {
                       // Filter out users who are already in the group
                       const isAlreadyMember = currentGroupMembers.some(
@@ -1754,7 +1649,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                       </option>
                     ))}
                 </select>
-              )}
             </div>
 
             <div className="flex justify-end space-x-3">

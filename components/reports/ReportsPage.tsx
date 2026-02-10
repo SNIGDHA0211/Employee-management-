@@ -13,15 +13,16 @@ import {
   getUserEntries,
   getUserEntriesByFilters,
   getDepartmentsandFunctions,
-  getEmployees,
 } from '../../services/api';
+import type { User } from '../../types';
 
 interface ReportsPageProps {
   currentUserName: string;
   currentUserDepartment?: string;
+  users?: User[];
 }
 
-const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserDepartment }) => {
+const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserDepartment, users: usersProp = [] }) => {
   const [currentDate] = useState(new Date());
   const [selectedDept, setSelectedDept] = useState<Department>(
     currentUserDepartment ? (currentUserDepartment as Department) : Department.SALES
@@ -39,8 +40,12 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   const [monthlySchedule, setMonthlySchedule] = useState<any[]>([]);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(false);
   const [currentSchedule, setCurrentSchedule] = useState<any | null>(null);
-  const [allEmployees, setAllEmployees] = useState<Array<{ id: string; name: string; department?: string }>>([]);
-  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
+  // Use shared users from App
+  const allEmployees = usersProp.map((u) => ({
+    id: u.id,
+    name: u.name,
+    department: (u as any).department || u.branch,
+  }));
   const [refreshEntriesKey, setRefreshEntriesKey] = useState(0); // Bump after save to refetch and display stored entries
   const [mdAttendeeSchedule, setMdAttendeeSchedule] = useState<any[]>([]);
   const [isLoadingMDSchedule, setIsLoadingMDSchedule] = useState(false);
@@ -145,28 +150,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMD]);
 
-  // Fetch all employees for attendee dropdown
-  useEffect(() => {
-    const fetchEmployees = async () => {
-      setIsLoadingEmployees(true);
-      try {
-        const employees = await getEmployees();
-        const mapped = employees.map((emp: any) => ({
-          id: String(emp['Employee_id'] || emp['Employee ID'] || emp.id || ''),
-          name: String(emp['Name'] || emp['Full Name'] || emp.name || 'Unknown'),
-          department: String(emp['Department'] || emp['department'] || '').trim() || undefined,
-        }));
-        setAllEmployees(mapped);
-      } catch (error) {
-        console.error('❌ [REPORTS] Error fetching employees for attendee dropdown:', error);
-        setAllEmployees([]);
-      } finally {
-        setIsLoadingEmployees(false);
-      }
-    };
-
-    fetchEmployees();
-  }, []);
 
   // Fetch department, role and user ID from API when component mounts
   useEffect(() => {
@@ -1200,9 +1183,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                   Reporting Officer / Attendee
                 </span>
                 {isMD ? (
-                  isLoadingEmployees ? (
-                    <span className="text-slate-500 font-semibold p-2 no-print">Loading...</span>
-                  ) : (
                     <select
                       value={attendee}
                       onChange={(e) => setAttendee(e.target.value)}
@@ -1215,7 +1195,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                         </option>
                       ))}
                     </select>
-                  )
                 ) : (
                   <span className="text-slate-800 font-semibold mt-1 no-print">{currentUserName || '—'}</span>
                 )}

@@ -22,6 +22,7 @@ interface ScheduleHubPageProps {
   fetchMeetingsForMonth?: (month: number, year: number) => Promise<void>;
   onScheduleDataUpdated?: () => void;
   meetingsCacheRef?: React.MutableRefObject<Record<string, Meeting[]>>;
+  users?: User[];
 }
 
 export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
@@ -33,6 +34,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
   fetchMeetingsForMonth,
   onScheduleDataUpdated,
   meetingsCacheRef,
+  users = [],
 }) => {
   const canAddHolidayOrEvent = currentUser && [UserRole.MD, UserRole.ADMIN].includes(currentUser.role);
   const canEditDeleteHoliday = currentUser && [UserRole.MD, UserRole.ADMIN].includes(currentUser.role);
@@ -317,6 +319,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
           onSave={handleSaveMeeting}
           currentUser={currentUser}
           initialMeeting={meetingToEdit}
+          employees={users.map((u) => ({ id: u.id, name: u.name }))}
         />
       )}
 
@@ -352,6 +355,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
           }}
           onSave={handleSaveTour}
           initialTour={tourToEdit}
+          employees={users.map((u) => ({ id: u.id, name: u.name }))}
         />
       )}
 
@@ -362,6 +366,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
           onEdit={handleEditTour}
           onDelete={handleDeleteTour}
           canEdit={!!canEditDeleteHoliday}
+          employeeNames={Object.fromEntries(users.map((u) => [u.id, u.name]))}
         />
       )}
     </div>

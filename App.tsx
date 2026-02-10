@@ -606,6 +606,8 @@ export default function App() {
   const [scheduleRefreshTrigger, setScheduleRefreshTrigger] = useState(0);
   const scheduleLastFetchedRef = useRef<number>(-1);
   const scheduleMeetingsCacheRef = useRef<Record<string, Meeting[]>>({});
+  const currentUserRef = useRef<User | null>(null);
+  currentUserRef.current = currentUser;
   const [notificationMeetings, setNotificationMeetings] = useState<any[]>([]);
   const [meetRooms, setMeetRooms] = useState<Array<{ id: number; name: string }>>([]);
   const [meetEmployees, setMeetEmployees] = useState<Array<{ id: string; name: string }>>([]);
@@ -716,22 +718,12 @@ export default function App() {
     }
   }, [currentUser?.id]); // Only run when user ID changes (after login)
 
-  // Load meeting rooms and members for Meet card after login
+  // Load meeting rooms for Meet card after login (employees come from shared users)
   useEffect(() => {
     if (!currentUser?.id) return;
-    Promise.all([getRooms(), apiGetEmployees()])
-      .then(([roomsList, employeesList]) => {
-        setMeetRooms(roomsList || []);
-        const mapped = (employeesList || []).map((emp: any) => ({
-          id: String(emp['Employee_id'] ?? emp['Employee ID'] ?? emp.id ?? ''),
-          name: emp['Name'] ?? emp['Full Name'] ?? emp.name ?? 'Unknown',
-        }));
-        setMeetEmployees(mapped);
-      })
-      .catch(() => {
-        setMeetRooms([]);
-        setMeetEmployees([]);
-      });
+    getRooms()
+      .then((roomsList) => setMeetRooms(roomsList || []))
+      .catch(() => setMeetRooms([]));
   }, [currentUser?.id]);
 
   // Fetch notification meetings (GET eventsapi/meetingpush/) when user is logged in
@@ -971,10 +963,11 @@ export default function App() {
     setScheduleRefreshTrigger((t) => t + 1);
   }, []);
 
-  // Fetch employees from API when switching to team tab
-  useEffect(() => {
-    const fetchEmployees = async () => {
-      if (!currentUser || activeTab !== 'team') return;
+  // Fetch employees once when user logs in (shared across the app)
+  // Uses currentUserRef to avoid re-running when avatar/numberOfDaysFromJoining updates
+  const fetchEmployees = useCallback(async () => {
+    const cu = currentUserRef.current;
+    if (!cu) return;
       
       try {
         const employees = await apiGetEmployees();
@@ -1031,6 +1024,9 @@ export default function App() {
           const designation = emp['Designation'] || emp.designation || 'Employee';
           const role = emp['Role'] || emp.role || 'EMPLOYEE';
           const branch = emp['Branch'] || emp.branch || 'TECH';
+          const department = emp['Department'] || emp.department || '';
+          const functionVal = emp['Function'] || emp.function || emp.Function || '';
+          const teamLead = emp['Team_Lead'] || emp['Teamleader'] || emp.teamLead || emp['Team Lead'] || emp['TeamLead'] || '';
           const joinDate = emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0];
           const birthDate = emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01';
           const photoLink = emp['Photo_link'] || emp['Profile Picture'] || emp.avatar || emp.profilePicture || '';
@@ -1039,78 +1035,44 @@ export default function App() {
             ? String(emp['Number_of_days_from_joining']).trim()
             : undefined;
           
-          const existingUser = users.find(u => 
-            u.id === employeeId || 
-            u.email === email ||
-            u.name.toLowerCase() === fullName.toLowerCase()
-          );
-          
-          // IMPORTANT: Don't overwrite currentUser's role if this is the logged-in user
-          const isCurrentUser = currentUser && (
-            currentUser.id === employeeId ||
-            currentUser.email === email ||
-            currentUser.name.toLowerCase() === fullName.toLowerCase()
-          );
-          
-          if (existingUser) {
-            // Update existing user with API data, but preserve currentUser's role
-            const mappedRole = role ? mapApiRoleToUserRole(role) : existingUser.role;
-            const updatedUser = {
-              ...existingUser,
-              id: employeeId || existingUser.id, // Ensure ID is set (already string with leading zeros)
-              name: fullName || existingUser.name,
-              email: email || existingUser.email,
-              role: isCurrentUser ? currentUser.role : mappedRole, // Preserve currentUser's role
-              designation: designation || existingUser.designation,
-              birthDate: birthDate || existingUser.birthDate,
-              joinDate: joinDate || existingUser.joinDate,
-              avatar: convertPhotoLinkToUrl(photoLink) || existingUser.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
-              branch: (branch || existingUser.branch) as any,
-              numberOfDaysFromJoining: numberOfDaysFromJoining !== undefined ? numberOfDaysFromJoining : existingUser.numberOfDaysFromJoining,
-              // Preserve original Employee_id field from API for reference
-              ...(emp['Employee_id'] !== undefined && { Employee_id: String(emp['Employee_id']).trim() }),
-            };
-            return updatedUser;
-          } else {
-            // Create new user from API
-            const mappedRole = role ? mapApiRoleToUserRole(role) : UserRole.EMPLOYEE;
-            const newUser = {
-              id: employeeId, // Already converted to string with leading zeros preserved
-              name: fullName,
-              email: email,
-              role: mappedRole,
-              designation: designation,
-              birthDate: birthDate,
-              joinDate: joinDate,
-              avatar: convertPhotoLinkToUrl(photoLink) || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
-              status: 'PRESENT' as const,
-              leaveBalance: 12,
-              score: 0,
-              branch: branch as any,
-              password: emp['Initial Password'] || emp.password,
-              numberOfDaysFromJoining: numberOfDaysFromJoining,
-              // Preserve original Employee_id field from API for reference
-              ...(emp['Employee_id'] !== undefined && { Employee_id: String(emp['Employee_id']).trim() }),
-            };
-            return newUser;
-          }
+          const mappedRole = role ? mapApiRoleToUserRole(role) : UserRole.EMPLOYEE;
+          return {
+            id: employeeId,
+            name: fullName,
+            email: email,
+            role: mappedRole,
+            designation: designation,
+            birthDate: birthDate,
+            joinDate: joinDate,
+            avatar: convertPhotoLinkToUrl(photoLink) || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
+            status: 'PRESENT' as const,
+            leaveBalance: 12,
+            score: 0,
+            branch: branch as any,
+            password: emp['Initial Password'] || emp.password,
+            numberOfDaysFromJoining: numberOfDaysFromJoining,
+            ...(emp['Employee_id'] !== undefined && { Employee_id: String(emp['Employee_id']).trim() }),
+            department,
+            function: functionVal,
+            teamLead,
+          };
         });
         
         // Use ONLY API users (no mock data, no merging)
         // IMPORTANT: If currentUser is in the list, make sure their role is preserved
         const finalUsers = apiUsersList.map(u => {
-          if (currentUser && (u.id === currentUser.id || u.email === currentUser.email || u.name.toLowerCase() === currentUser.name.toLowerCase())) {
-            return { ...u, role: currentUser.role };
+          if (cu && (u.id === cu.id || u.email === cu.email || u.name.toLowerCase() === cu.name.toLowerCase())) {
+            return { ...u, role: cu.role };
           }
           return u;
         });
 
         // If we have a logged-in user, also update their numberOfDaysFromJoining from the API data
-        if (currentUser) {
+        if (cu) {
           const match = finalUsers.find(u =>
-            u.id === currentUser.id ||
-            u.email === currentUser.email ||
-            u.name.toLowerCase() === currentUser.name.toLowerCase()
+            u.id === cu.id ||
+            u.email === cu.email ||
+            u.name.toLowerCase() === cu.name.toLowerCase()
           );
 
           if (match && match.numberOfDaysFromJoining !== undefined && match.numberOfDaysFromJoining !== null) {
@@ -1127,10 +1089,19 @@ export default function App() {
       } catch (err: any) {
         // Keep existing users on error
       }
-    };
+  }, []);
 
-    fetchEmployees();
-  }, [activeTab, currentUser]);
+  // Only fetch employees when user logs in (currentUser?.id set), not when avatar/numberOfDaysFromJoining updates
+  useEffect(() => {
+    if (currentUser?.id) fetchEmployees();
+  }, [currentUser?.id, fetchEmployees]);
+
+  // Derive meetEmployees from shared users (avoid duplicate fetch)
+  useEffect(() => {
+    if (users.length > 0) {
+      setMeetEmployees(users.map((u) => ({ id: u.id, name: u.name })));
+    }
+  }, [users]);
 
   const handleAddUser = useCallback((newUser: User) => {
     setUsers((prev) => [...prev, newUser]);
@@ -1231,6 +1202,7 @@ export default function App() {
         <MDDashboardPage 
           userName={currentUser.name}
           userAvatar={currentUser.avatar}
+          employees={users}
         />
       );
     }
@@ -1772,6 +1744,7 @@ export default function App() {
             users={users}
             onAddUser={handleAddUser}
             onDeleteUser={handleDeleteUser}
+            onRefreshEmployees={fetchEmployees}
           />
         );
       
@@ -1786,6 +1759,7 @@ export default function App() {
             fetchMeetingsForMonth={fetchMeetingsForMonth}
             onScheduleDataUpdated={onScheduleDataUpdated}
             meetingsCacheRef={scheduleMeetingsCacheRef}
+            users={users}
           />
         );
 
@@ -1805,6 +1779,7 @@ export default function App() {
           <ReportsPage 
             currentUserName={currentUser.name} 
             currentUserDepartment={currentUser.branch || undefined}
+            users={users}
           />
         );
 
@@ -1849,7 +1824,7 @@ export default function App() {
 
          return (
             <div className="space-y-6">
-              <AdminPanel users={users} onAddUser={handleAddUser} onDeleteUser={handleDeleteUser} />
+              <AdminPanel users={users} onAddUser={handleAddUser} onDeleteUser={handleDeleteUser} onRefreshEmployees={fetchEmployees} />
             </div>
          );
 

@@ -3,7 +3,6 @@ import { format, differenceInDays, parseISO } from 'date-fns';
 import { Pencil, Trash2 } from 'lucide-react';
 import { Tour } from './types';
 import { ALL_USERS } from './constants';
-import { getEmployees } from '../../services/api';
 
 interface TourDetailModalProps {
   tour: Tour;
@@ -11,6 +10,7 @@ interface TourDetailModalProps {
   onEdit?: (tour: Tour) => void;
   onDelete?: (id: string) => Promise<void>;
   canEdit?: boolean;
+  employeeNames?: Record<string, string>;
 }
 
 export const TourDetailModal: React.FC<TourDetailModalProps> = ({
@@ -19,28 +19,13 @@ export const TourDetailModal: React.FC<TourDetailModalProps> = ({
   onEdit,
   onDelete,
   canEdit = false,
+  employeeNames: employeeNamesProp = {},
 }) => {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [employeeNames, setEmployeeNames] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    if (!tour.attendeeNames || Object.keys(tour.attendeeNames).length === 0) {
-      getEmployees()
-        .then((list) => {
-          const map: Record<string, string> = {};
-          list.forEach((emp: any) => {
-            const id = String(emp['Employee_id'] ?? emp['Employee ID'] ?? emp.id ?? emp.username ?? '');
-            const name = emp['Full Name'] ?? emp['Name'] ?? emp.full_name ?? emp.name ?? '';
-            if (id) map[id] = name || 'Unknown';
-          });
-          setEmployeeNames(map);
-        })
-        .catch(() => {});
-    } else {
-      setEmployeeNames({});
-    }
-  }, [tour.id, tour.attendeeNames]);
+  const employeeNames = tour.attendeeNames && Object.keys(tour.attendeeNames).length > 0
+    ? tour.attendeeNames
+    : employeeNamesProp;
 
   const handleDelete = async () => {
     if (!onDelete || !confirm(`Delete "${tour.name}"?`)) return;
@@ -56,7 +41,6 @@ export const TourDetailModal: React.FC<TourDetailModalProps> = ({
     }
   };
   const getMemberName = (id: string) => {
-    // Always prefer full_name - from tour.attendeeNames (API member_details) or fetched employees
     if (tour.attendeeNames?.[id]) return tour.attendeeNames[id];
     if (employeeNames[id]) return employeeNames[id];
     return ALL_USERS.find((u) => u.id === id)?.name || `Member ${id}`;

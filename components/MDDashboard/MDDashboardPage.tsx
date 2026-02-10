@@ -3,26 +3,33 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, Cell, ComposedChart, Line
 } from 'recharts';
-import { Sparkles, Filter, Download, BrainCircuit, History, X, User, Check, Calendar } from 'lucide-react';
+import { Sparkles, Filter, Download, BrainCircuit, History, X, User as UserIcon, Check, Calendar } from 'lucide-react';
 import StatCard from './components/StatCard';
 import { AIInsight, ProjectData, WorkforceData } from './types';
 import { KPI_DATA, REVENUE_CHART_DATA, WORKFORCE_DATA, PROJECTS, ASSETS_DATA } from './constants';
 import { getDashboardInsights } from './services/geminiService';
-import { getEmployees } from '../../services/api';
+import type { User } from '../../types';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 interface MDDashboardPageProps {
   userName?: string;
   userAvatar?: string;
+  employees?: User[];
 }
 
-const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User', userAvatar }) => {
+const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User', userAvatar, employees: employeesProp = [] }) => {
   const [insights, setInsights] = useState<AIInsight[]>([]);
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [selectedProject, setSelectedProject] = useState<ProjectData | null>(null);
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [workforceLoading, setWorkforceLoading] = useState(true);
+  // Use shared employees from App (mapped to API-like shape for workforce charts)
+  const employees = employeesProp.map((u) => ({
+    Designation: u.designation,
+    Role: u.role,
+    Branch: u.branch,
+    Function: (u as any).function,
+  }));
+  const workforceLoading = false; // Data comes from App, no local fetch
   const [workforceView, setWorkforceView] = useState<'designation' | 'role' | 'branch' | 'function'>('designation');
 
   // Workforce distribution by designation (from API employees)
@@ -87,20 +94,6 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User',
           : workforceByDesignation;
   const totalStaffCount = useMemo(() => workforceByDesignation.reduce((s, w) => s + w.value, 0), [workforceByDesignation]);
 
-  useEffect(() => {
-    const fetchEmployees = async () => {
-      try {
-        const list = await getEmployees();
-        setEmployees(Array.isArray(list) ? list : []);
-      } catch (err) {
-        console.error('MD Dashboard: failed to fetch employees', err);
-        setEmployees([]);
-      } finally {
-        setWorkforceLoading(false);
-      }
-    };
-    fetchEmployees();
-  }, []);
 
   // Consolidated data for all sections
   const allKpis = [
@@ -315,7 +308,7 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User',
                 </div>
               ) : workforceChartData.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                  <User size={40} className="mb-2 opacity-50" />
+                  <UserIcon size={40} className="mb-2 opacity-50" />
                   <p className="text-sm font-medium">No employee data available</p>
                 </div>
               ) : (
@@ -535,7 +528,7 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User',
                             `}>
                               <div className="flex items-center gap-2 mb-1.5">
                                 <div className="w-4 h-4 bg-slate-200 text-slate-500 rounded-full flex items-center justify-center">
-                                  <User size={10} />
+                                  <UserIcon size={10} />
                                 </div>
                                 <span className="text-[10px] font-bold text-slate-500">{update.person}</span>
                               </div>

@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { format, addDays, differenceInDays, parseISO } from 'date-fns';
 import { Tour } from './types';
-import { createTour, updateTour, getEmployees } from '../../services/api';
+import { createTour, updateTour } from '../../services/api';
 
 interface TourModalProps {
   date: Date;
   onClose: () => void;
   onSave: (tour: Tour) => void;
   initialTour?: Tour | null;
+  employees?: Array<{ id: string; name: string }>;
 }
 
 export const TourModal: React.FC<TourModalProps> = ({
@@ -15,6 +16,7 @@ export const TourModal: React.FC<TourModalProps> = ({
   onClose,
   onSave,
   initialTour,
+  employees: employeesProp = [],
 }) => {
   const isEdit = !!initialTour;
   const [name, setName] = useState(initialTour?.name ?? '');
@@ -25,24 +27,10 @@ export const TourModal: React.FC<TourModalProps> = ({
   );
   const [selectedUsers, setSelectedUsers] = useState<string[]>(initialTour?.attendees ?? []);
   const [tourDate, setTourDate] = useState(initialTour?.startDate ?? format(date, 'yyyy-MM-dd'));
-  const [employees, setEmployees] = useState<Array<{ id: string; name: string }>>([]);
-  const [employeesLoading, setEmployeesLoading] = useState(true);
+  const employees = employeesProp;
+  const employeesLoading = false;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    getEmployees()
-      .then((list) => {
-        const mapped = list.map((emp: any) => {
-          const id = String(emp['Employee_id'] ?? emp['Employee ID'] ?? emp.id ?? '');
-          const name = emp['Name'] ?? emp['Full Name'] ?? emp.name ?? 'Unknown';
-          return { id, name };
-        });
-        setEmployees(mapped);
-      })
-      .catch(() => setEmployees([]))
-      .finally(() => setEmployeesLoading(false));
-  }, []);
 
   useEffect(() => {
     if (initialTour) {
