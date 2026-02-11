@@ -30,7 +30,12 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     const isMockUser = /^u\d+$/.test(user.id);
     return !isMockUser;
   });
-  
+
+  useEffect(() => {
+    const employees = users.filter(user => !/^u\d+$/.test(user.id));
+    console.log('[AdminPanel] All employees:', employees);
+  }, [users]);
+
   // Password Reset State
   const [resetPasswordId, setResetPasswordId] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');

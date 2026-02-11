@@ -574,8 +574,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       const taskYMD = taskDue.includes('T') ? taskDue.split('T')[0] : taskDue.substring(0, 10);
       if (taskYMD !== selectedYMD) return false;
     }
-    // Apply branch filter - creator's branch must match
-    if (branchFilter && branchFilter.trim() !== '') {
+    // Apply branch filter - creator's branch must match (MD only)
+    if (currentUser.role === UserRole.MD && branchFilter && branchFilter.trim() !== '') {
       const creatorBranch = getCreatorBranch(task);
       if (!creatorBranch || normalizeBranch(creatorBranch) !== normalizeBranch(branchFilter)) return false;
     }
@@ -1199,8 +1199,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         return titleMatch || createdByMatch;
       });
     }
-    // Apply branch filter - creator's branch must match
-    if (branchFilter && branchFilter.trim() !== '') {
+    // Apply branch filter - creator's branch must match (MD only)
+    if (currentUser.role === UserRole.MD && branchFilter && branchFilter.trim() !== '') {
       filteredReportingTasks = filteredReportingTasks.filter(task => {
         const creatorBranch = getCreatorBranch(task);
         return creatorBranch && normalizeBranch(creatorBranch) === normalizeBranch(branchFilter);
@@ -1258,15 +1258,37 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                   className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                 />
               </div>
+              {currentUser.role === UserRole.MD && (
+                <select
+                  value={branchFilter}
+                  onChange={(e) => setBranchFilter(e.target.value)}
+                  className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 min-w-[140px]"
+                >
+                  <option value="">All branches</option>
+                  {availableBranches.map((b) => (
+                    <option key={b} value={b}>{String(b).replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+              )}
               <select
-                value={branchFilter}
-                onChange={(e) => setBranchFilter(e.target.value)}
-                className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 min-w-[140px]"
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 min-w-[100px]"
               >
-                <option value="">All branches</option>
-                {availableBranches.map((b) => (
-                  <option key={b} value={b}>{String(b).replace(/_/g, ' ')}</option>
-                ))}
+                <option value="ALL">All types</option>
+                <option value={TaskType.SOS}>SOS</option>
+                <option value={TaskType.ONE_DAY}>1 Day</option>
+                <option value={TaskType.TEN_DAYS}>10 Day</option>
+              </select>
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 min-w-[120px]"
+              >
+                <option value="ALL">All status</option>
+                <option value={TaskStatus.COMPLETED}>Completed</option>
+                <option value={TaskStatus.IN_PROGRESS}>In Progress</option>
+                <option value={TaskStatus.PENDING}>Pending</option>
               </select>
               <input
                 type="date"
@@ -1283,50 +1305,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                 </button>
               )}
             </div>
-          </div>
-        </div>
-
-        {/* Filter Buttons */}
-        <div className="flex flex-col gap-3 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex flex-wrap gap-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase self-center mr-1">Type:</span>
-            {[
-              { value: 'ALL', label: 'All' },
-              { value: TaskType.SOS, label: 'SOS' },
-              { value: TaskType.ONE_DAY, label: '1 Day' },
-              { value: TaskType.TEN_DAYS, label: '10 Day' },
-            ].map(({ value, label }) => (
-              <button
-                key={value}
-                onClick={() => setFilterType(value)}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  filterType === value ? 'bg-brand-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase self-center mr-1">Status:</span>
-            {[
-              { value: 'ALL', label: 'All' },
-              { value: TaskStatus.COMPLETED, label: 'Completed' },
-              { value: TaskStatus.IN_PROGRESS, label: 'In Progress' },
-              { value: TaskStatus.PENDING, label: 'Pending' },
-            ].map(({ value, label }) => (
-              <button
-                key={value}
-                onClick={() => setFilterStatus(value)}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  filterStatus === value
-                    ? 'bg-brand-600 text-white shadow-md'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -2083,15 +2061,37 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                   className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                 />
               </div>
+              {currentUser.role === UserRole.MD && (
+                <select
+                  value={branchFilter}
+                  onChange={(e) => setBranchFilter(e.target.value)}
+                  className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 min-w-[140px]"
+                >
+                  <option value="">All branches</option>
+                  {availableBranches.map((b) => (
+                    <option key={b} value={b}>{String(b).replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+              )}
               <select
-                value={branchFilter}
-                onChange={(e) => setBranchFilter(e.target.value)}
-                className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 min-w-[140px]"
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 min-w-[100px]"
               >
-                <option value="">All branches</option>
-                {availableBranches.map((b) => (
-                  <option key={b} value={b}>{String(b).replace(/_/g, ' ')}</option>
-                ))}
+                <option value="ALL">All types</option>
+                <option value={TaskType.SOS}>SOS</option>
+                <option value={TaskType.ONE_DAY}>1 Day</option>
+                <option value={TaskType.TEN_DAYS}>10 Day</option>
+              </select>
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 min-w-[120px]"
+              >
+                <option value="ALL">All status</option>
+                <option value={TaskStatus.COMPLETED}>Completed</option>
+                <option value={TaskStatus.IN_PROGRESS}>In Progress</option>
+                <option value={TaskStatus.PENDING}>Pending</option>
               </select>
               <input
                 type="date"
@@ -2108,48 +2108,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                 </button>
               )}
             </div>
-          </div>
-        </div>
-
-        {/* Filter Buttons */}
-        <div className="flex flex-col gap-3 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex flex-wrap gap-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase self-center mr-1">Type:</span>
-            {[
-              { value: 'ALL', label: 'All' },
-              { value: TaskType.SOS, label: 'SOS' },
-              { value: TaskType.ONE_DAY, label: '1 Day' },
-              { value: TaskType.TEN_DAYS, label: '10 Day' },
-            ].map(({ value, label }) => (
-              <button
-                key={value}
-                onClick={() => setFilterType(value)}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  filterType === value ? 'bg-brand-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase self-center mr-1">Status:</span>
-            {[
-              { value: 'ALL', label: 'All' },
-              { value: TaskStatus.COMPLETED, label: 'Completed' },
-              { value: TaskStatus.IN_PROGRESS, label: 'In Progress' },
-              { value: TaskStatus.PENDING, label: 'Pending' },
-            ].map(({ value, label }) => (
-              <button
-                key={value}
-                onClick={() => setFilterStatus(value)}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  filterStatus === value ? 'bg-brand-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
           </div>
         </div>
 
