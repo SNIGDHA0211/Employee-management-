@@ -125,6 +125,9 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     );
   };
 
+  const isDatePast = format(date, 'yyyy-MM-dd') < format(new Date(), 'yyyy-MM-dd');
+  const isCreateDisabled = !isEdit && isDatePast;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -310,6 +313,11 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                 {error}
               </div>
             )}
+            {isCreateDisabled && (
+              <div className="col-span-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                Cannot create a meeting for a past date.
+              </div>
+            )}
           </div>
 
           <div className="pt-4 flex gap-3">
@@ -322,7 +330,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || isCreateDisabled}
               className="flex-[2] px-4 py-3 text-sm font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {loading ? (isEdit ? 'Saving...' : 'Booking...') : (isEdit ? 'Save' : 'Book Slot')}

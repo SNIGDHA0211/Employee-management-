@@ -688,6 +688,30 @@ export const createEmployee = async (employeeData: {
 };
 
 /**
+ * Get all employees from accounts API (includes department, function for NMRHI filtering)
+ * Tries: GET /accounts/accounts/employees/ then /accounts/employees/ as fallback
+ */
+export const getEmployeesFromAccounts = async (): Promise<any[]> => {
+  const parseResponse = (data: any) => {
+    if (Array.isArray(data)) return data;
+    if (data?.employees && Array.isArray(data.employees)) return data.employees;
+    if (data?.users && Array.isArray(data.users)) return data.users;
+    if (data?.data && Array.isArray(data.data)) return data.data;
+    return [];
+  };
+  for (const path of ['/accounts/accounts/employees/', '/accounts/employees/']) {
+    try {
+      const response = await api.get(path, { headers: { 'Accept': 'application/json' } });
+      return parseResponse(response.data);
+    } catch (error: any) {
+      if (error?.response?.status === 404) continue;
+      console.error(`❌ [GET EMPLOYEES FROM ACCOUNTS] ${path}:`, error?.response?.data || error);
+    }
+  }
+  return [];
+};
+
+/**
  * Get all employees (Admin and MD access only)
  */
 export const getEmployees = async (): Promise<Employee[]> => {
@@ -721,12 +745,13 @@ export const getEmployees = async (): Promise<Employee[]> => {
 
     return employees;
   } catch (error: any) {
-    console.error("❌ [GET EMPLOYEES] Error:", error);
-    console.error("❌ [GET EMPLOYEES] Error Response:", error.response);
-    console.error("❌ [GET EMPLOYEES] Error Response Data:", error.response?.data);
-    console.error("❌ [GET EMPLOYEES] Error Response Status:", error.response?.status);
-    console.error("❌ [GET EMPLOYEES] Request URL:", error.config?.url);
-    console.error("❌ [GET EMPLOYEES] Request Headers:", error.config?.headers);
+    const status = error.response?.status;
+    const respData = error.response?.data;
+    const isHtmlError = typeof respData === 'string' && respData.includes('<!DOCTYPE');
+    console.error("❌ [GET EMPLOYEES] Error:", error.message, "| Status:", status ?? "no response");
+    if (respData && !isHtmlError) {
+      console.error("❌ [GET EMPLOYEES] Response:", typeof respData === 'object' ? JSON.stringify(respData).slice(0, 200) : respData);
+    }
     
     // Handle 500 Internal Server Error
     if (error.response?.status === 500) {
@@ -742,7 +767,9 @@ export const getEmployees = async (): Promise<Employee[]> => {
       } else if (errorData?.error) {
         errorMessage = errorData.error;
       } else if (typeof errorData === 'string') {
-        errorMessage = errorData;
+        errorMessage = errorData.includes('<!DOCTYPE') || errorData.includes('SessionInterrupted')
+          ? 'Session expired or server error. Please refresh and login again.'
+          : errorData.length > 300 ? errorData.slice(0, 300) + '...' : errorData;
       } else if (errorData && typeof errorData === 'object') {
         // Try to extract Django error message
         const errorText = JSON.stringify(errorData);
@@ -1002,12 +1029,13 @@ export const viewTasks = async (): Promise<any[]> => {try {
     if (Array.isArray(data)) {
       tasks = data;
     } else if (data && typeof data === 'object') {
-      const arr = data.tasks ?? data.data ?? data.results ?? data.view_tasks ?? data.viewTasks;
+      const arr = data.tasks ?? data.data ?? data.results ?? data.view_tasks ?? data.viewTasks ??
+        data['View Tasks Updated Response'];
       if (Array.isArray(arr)) tasks = arr;
       else {
         // Try any array value in the response
         const vals = Object.values(data);
-        const found = vals.find(v => Array.isArray(v) && v.length > 0 && (v[0]?.task_id != null || v[0]?.id != null || v[0]?.taskId != null));
+        const found = vals.find(v => Array.isArray(v) && v.length > 0 && (v[0]?.Task_id != null || v[0]?.task_id != null || v[0]?.id != null || v[0]?.taskId != null));
         if (Array.isArray(found)) tasks = found;
       }
     }
@@ -1018,7 +1046,7 @@ export const viewTasks = async (): Promise<any[]> => {try {
     // Log task IDs for debugging
     if (tasks.length > 0) {
       const firstTask = tasks[0];
-      const hasId = !!(firstTask.id || firstTask.task_id || firstTask.pk || firstTask.taskId);if (!hasId) {
+      const hasId = !!(firstTask.Task_id || firstTask.id || firstTask.task_id || firstTask.pk || firstTask.taskId);if (!hasId) {
         console.error("❌ [VIEW TASKS API] CRITICAL: Backend is not returning task IDs!");
         console.error("❌ [VIEW TASKS API] The API response must include one of: id, task_id, pk, or taskId");
         console.error("❌ [VIEW TASKS API] Without task IDs, status changes and other operations will fail.");
@@ -1047,29 +1075,32 @@ export const viewAssignedTasks = async (): Promise<any[]> => {
   try {
     const response = await api.get("/tasks/viewAssignedTasks/");
     const data = response?.data;
+    console.log('[viewAssignedTasks] Raw response:', data);
 
     let tasks: any[] = [];
 
     if (Array.isArray(data)) {
       tasks = data;
     } else if (data && typeof data === 'object') {
-      const arr = data.assigned_tasks ?? data.tasks ?? data.data ?? data.results ?? data.viewAssignedTasks;
+      const arr = data.assigned_tasks ?? data.tasks ?? data.data ?? data.results ?? data.viewAssignedTasks ??
+        data['View Tasks Updated Response'] ?? data['view_tasks'] ?? data['viewTasks'];
       if (Array.isArray(arr)) {
         tasks = arr;
-      } else if (data.task_id != null || data.id != null) {
+      } else if (data.Task_id != null || data.task_id != null || data.id != null) {
         // Single task: { task_id, title, description, status, created_by, "due-date" }
         tasks = [data];
       } else {
         const vals = Object.values(data);
-        const found = vals.find((v: any) => Array.isArray(v) && v.length > 0 && (v[0]?.task_id != null || v[0]?.id != null));
+        const found = vals.find((v: any) => Array.isArray(v) && v.length > 0 && (v[0]?.Task_id != null || v[0]?.task_id != null || v[0]?.id != null));
         if (Array.isArray(found)) tasks = found;
         else {
-          const single = vals.find((v: any) => v && typeof v === 'object' && (v.task_id != null || v.id != null));
+          const single = vals.find((v: any) => v && typeof v === 'object' && (v.Task_id != null || v.task_id != null || v.id != null));
           if (single) tasks = [single];
         }
       }
     }
 
+    console.log('[viewAssignedTasks] Extracted tasks:', tasks);
     return Array.isArray(tasks) ? tasks : [];
   } catch (error: any) {
     console.error("❌ [VIEW ASSIGNED TASKS API] Exception caught:", error);
@@ -2843,15 +2874,24 @@ export const loadChats = async (): Promise<{
       chats_info: chats
     };
   } catch (error: any) {
-    console.error("❌ [LOAD CHATS API] Exception:", error);
-    console.error("❌ [LOAD CHATS API] Error Response:", error.response?.data);
+    const respData = error.response?.data;
+    const isHtmlError = typeof respData === 'string' && (respData.includes('<!DOCTYPE') || respData.includes('SessionInterrupted'));
+    const status = error.response?.status;
 
-    if (error.response?.status === 404) {return {
-        Group_info: [],
-        chats_info: []
-      };
+    if (status === 404 || status === 403 || status === 500 || isHtmlError) {
+      // Session expired, SessionInterrupted, or server error - return empty data gracefully
+      if (isHtmlError || status === 500) {
+        console.warn("❌ [LOAD CHATS API] Session or server error, returning empty chats. Status:", status);
+      } else {
+        console.error("❌ [LOAD CHATS API] Error:", status, error.message);
+      }
+      return { Group_info: [], chats_info: [] };
     }
 
+    console.error("❌ [LOAD CHATS API] Exception:", error.message);
+    if (respData && typeof respData !== 'string') {
+      console.error("❌ [LOAD CHATS API] Error Response:", respData);
+    }
     throw error;
   }
 };

@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { Task, TaskType, TaskStatus, User, UserRole, Project } from '../types';
-import { AlertCircle, Calendar, CheckCircle2, Clock, MoreVertical, Plus, Send, Upload, Sparkles, User as UserIcon, Users as UsersIcon, Filter, Info, ChevronDown } from 'lucide-react';
+import { AlertCircle, Calendar, CheckCircle2, Clock, MoreVertical, Plus, Search, Send, Upload, Sparkles, User as UserIcon, Users as UsersIcon, Filter, Info, ChevronDown } from 'lucide-react';
 import { getTaskAssistance } from '../services/gemini';
 import api, { 
   getRoles as apiGetRoles,
   getDesignations as apiGetDesignations,
+  getBranch as apiGetBranch,
   getEmployees as apiGetEmployees,
   createTask as apiCreateTask,
   viewTasks as apiViewTasks,
@@ -16,6 +17,7 @@ import api, {
   getTaskMessages as apiGetTaskMessages,
   changeTaskStatus as apiChangeTaskStatus
 } from '../services/api';
+import { convertApiTasksToTasks } from '../utils/taskConversion';
 
 interface TaskBoardProps {
   currentUser: User;
@@ -88,6 +90,12 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
   const [viewFilterDesignation, setViewFilterDesignation] = useState<string>('');
   // Date filter for Reporting Tasks - null = show all
   const [reportingDateFilter, setReportingDateFilter] = useState<string | null>(null);
+  // Date filter for Assigned Tasks - null = show all
+  const [assignedDateFilter, setAssignedDateFilter] = useState<string | null>(null);
+  // Search filter - by task title or created by
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  // Branch filter - filter by branch of user who created the task
+  const [branchFilter, setBranchFilter] = useState<string>('');
   
   // Filtered Names from API (based on role and designation)
   const [filteredNames, setFilteredNames] = useState<any[]>([]);
@@ -96,6 +104,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
   // Task Types from API
   const [availableTaskTypes, setAvailableTaskTypes] = useState<string[]>([]);
   const [isLoadingTaskTypes, setIsLoadingTaskTypes] = useState(false);
+  // Branches for filter
+  const [availableBranches, setAvailableBranches] = useState<string[]>([]);
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
 
   // Fetch roles on component mount (for main view filters)
   useEffect(() => {
@@ -113,6 +124,23 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
     };
     
     fetchRoles();
+  }, []);
+
+  // Fetch branches on component mount (for branch filter)
+  useEffect(() => {
+    const fetchBranches = async () => {
+      setIsLoadingBranches(true);
+      try {
+        const branches = await apiGetBranch();
+        setAvailableBranches(Array.isArray(branches) ? branches.filter((b: any) => b != null && String(b).trim() !== '') : []);
+      } catch (err: any) {
+        console.error('❌ [TASK BOARD] Error fetching branches:', err);
+        setAvailableBranches([]);
+      } finally {
+        setIsLoadingBranches(false);
+      }
+    };
+    fetchBranches();
   }, []);
 
   // Fetch task types when modal opens
@@ -401,175 +429,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         }
         apiTasks = Array.isArray(apiTasks) ? apiTasks : (apiTasks && typeof apiTasks === 'object' ? [apiTasks] : []);
 
-        // Convert API tasks to frontend Task format
-        const convertedTasks: Task[] = apiTasks.map((apiTask: any) => {
-          // Handle different field names: task_type, type, current_status, status, assigned, assigned_to
-          const rawApiType = (apiTask.task_type || apiTask.type || apiTask['task_type'] || apiTask['type'] || 'Individual').trim();
-          const apiTypeLower = rawApiType.toLowerCase();
-          const typeMap: Record<string, TaskType> = {
-            'sos': TaskType.SOS, 'SOS': TaskType.SOS,
-            '1 day': TaskType.ONE_DAY, '1 Day': TaskType.ONE_DAY, '1day': TaskType.ONE_DAY, 'one day': TaskType.ONE_DAY,
-            '10 day': TaskType.TEN_DAYS, '10 Day': TaskType.TEN_DAYS, '10day': TaskType.TEN_DAYS, 'ten day': TaskType.TEN_DAYS,
-            'monthly': TaskType.MONTHLY, 'Monthly': TaskType.MONTHLY,
-            'quaterly': TaskType.Quaterly, 'Quaterly': TaskType.Quaterly, 'quarterly': TaskType.Quaterly, 'Quarterly': TaskType.Quaterly,
-            'group': TaskType.GROUP, 'Group': TaskType.GROUP,
-            'individual': TaskType.INDIVIDUAL, 'Individual': TaskType.INDIVIDUAL,
-            'one_day': TaskType.ONE_DAY, 'ten_days': TaskType.TEN_DAYS,
-          };
-          const mappedType = typeMap[rawApiType] || typeMap[apiTypeLower] || TaskType.INDIVIDUAL;
-          
-          // Handle different status field names: current_status, status
-          const apiStatus = (apiTask.current_status || apiTask.status || apiTask['current_status'] || apiTask['status'] || 'pending').toLowerCase();
-          const statusMap: Record<string, TaskStatus> = {
-            'pending': TaskStatus.PENDING, 'in_progress': TaskStatus.IN_PROGRESS, 'inprocess': TaskStatus.IN_PROGRESS,
-            'completed': TaskStatus.COMPLETED, 'overdue': TaskStatus.OVERDUE,
-          };
-          const mappedStatus = statusMap[apiStatus] || TaskStatus.PENDING;
-          
-          // Handle different assigned field names: assigned, assigned_to, assigneeId
-          // API can return assigned_to as array: [{ assignee: "Name" }] or assignees: [{ assignee: "Name" }]
-          // Or as string/id: assigned_to: "id" or assigneeId: "id"
-          let rawAssignedTo: string | number | undefined = apiTask.assigned || apiTask.assigneeId || apiTask.assignee_id;
-          if (rawAssignedTo === undefined) {
-            const at = apiTask.assigned_to ?? apiTask['assigned_to'];
-            if (Array.isArray(at) && at.length > 0 && at[0]?.assignee) {
-              rawAssignedTo = undefined; // Will extract below
-            } else if (typeof at === 'string' || typeof at === 'number') {
-              rawAssignedTo = at;
-            }
-          }
-          // Extract from assigned_to or assignees array: [{ assignee: "Name" }]
-          const assigneeArray = Array.isArray(apiTask.assigned_to) ? apiTask.assigned_to : apiTask.assignees;
-          if ((!rawAssignedTo || typeof rawAssignedTo !== 'string') && Array.isArray(assigneeArray) && assigneeArray.length > 0) {
-            const first = assigneeArray[0];
-            if (first?.assignee) {
-              const assigneeName = String(first.assignee).trim();
-              const foundUser = users.find(u =>
-                u.name === assigneeName ||
-                u.name?.toLowerCase() === assigneeName.toLowerCase() ||
-                u.email === assigneeName
-              );
-              rawAssignedTo = foundUser?.id ?? assigneeName;
-            }
-          }
-          if (!rawAssignedTo) rawAssignedTo = currentUser.id;
-          
-          // Get reporter/assigner - the person who created/assigned the task
-          // Backend returns created_by as a name string (e.g., "mayur shinde")
-          const rawReporterId = apiTask.reporterId || 
-                                apiTask['reporterId'] || 
-                                apiTask.created_by || 
-                                apiTask['created_by'] || 
-                                apiTask.reporter_id || 
-                                apiTask.created_by_id || 
-                                apiTask.created_by_name || 
-                                apiTask['created_by_name'] || 
-                                apiTask.assigner || 
-                                apiTask['assigner'] || 
-                                apiTask.assigned_by || 
-                                apiTask['assigned_by'] || 
-                                undefined;
-          
-          // If created_by is a name string, try to find the user ID
-          let reporterId = rawReporterId;
-          if (rawReporterId && typeof rawReporterId === 'string' && !rawReporterId.includes('-') && !rawReporterId.match(/^\d+$/)) {
-            // Looks like a name, try to find user
-            const foundReporter = users.find(u => 
-              u.name === rawReporterId || 
-              u.name.toLowerCase() === rawReporterId.toLowerCase() ||
-              u.email === rawReporterId
-            );
-            if (foundReporter) {
-              reporterId = foundReporter.id;
-            }
-          }
-          
-          // Clean description - remove [ExcludeFromMDReporting:true] markers
-          let rawDescription = apiTask.description || apiTask['description'] || '';
-          const cleanDescription = rawDescription
-            .replace(/\n\n\[ExcludeFromMDReporting:\w+\]/g, '')
-            .replace(/\n\[ExcludeFromMDReporting:\w+\]/g, '')
-            .replace(/\[ExcludeFromMDReporting:\w+\]/g, '')
-            .trim();
-          
-          // Extract task ID - prioritize task_id from backend (new format)
-          // Backend returns task_id as the primary identifier
-          let backendTaskId = apiTask.task_id || 
-                              apiTask['task_id'] || 
-                              apiTask.id || 
-                              apiTask['id'] || 
-                              apiTask['task-id'] ||
-                              apiTask.pk || 
-                              apiTask['pk'] ||
-                              apiTask.taskId ||
-                              apiTask['taskId'] ||
-                              apiTask._id ||
-                              apiTask['_id'];
-          
-          // If not found at top level, check nested structures
-          if (!backendTaskId) {
-            // Check if ID is in assignees array (sometimes tasks have ID in nested objects)
-            if (Array.isArray(apiTask.assignees) && apiTask.assignees.length > 0) {
-              const firstAssignee = apiTask.assignees[0];
-              if (firstAssignee?.task_id || firstAssignee?.id) {
-                backendTaskId = firstAssignee.task_id || firstAssignee.id;
-              }
-            }
-            
-            // Check if there's a nested task object
-            if (apiTask.task && (apiTask.task.id || apiTask.task.task_id || apiTask.task.pk)) {
-              backendTaskId = apiTask.task.id || apiTask.task.task_id || apiTask.task.pk;
-            }
-          }
-          
-          if (!backendTaskId) {
-            // Log all available fields to help debug
-            console.error('❌ [TASK CONVERSION] No backend task ID found in API response:', {
-              taskTitle: apiTask.title || apiTask['title'],
-              availableFields: Object.keys(apiTask),
-              allFields: JSON.stringify(apiTask, null, 2), // Full object for debugging
-              sampleFields: {
-                id: apiTask.id,
-                task_id: apiTask.task_id,
-                'task-id': apiTask['task-id'],
-                pk: apiTask.pk,
-                taskId: apiTask.taskId,
-                _id: apiTask._id
-              }
-            });
-          }
-          
-          // Convert to string for Task.id (which is typed as string)
-          // Store the backend ID separately if we have it, otherwise use fallback
-          const taskIdString = backendTaskId ? String(backendTaskId) : `t${Date.now()}-${Math.random()}`;
-          
-          const createdByName = apiTask.created_by ?? apiTask['created_by'] ?? undefined;
-          const task: Task & { _backendTaskId?: string | null } = {
-            id: taskIdString,
-            _backendTaskId: backendTaskId ? String(backendTaskId) : null, // Store actual backend ID for API calls
-            title: apiTask.title || apiTask['title'] || 'Untitled Task',
-            description: cleanDescription,
-            type: mappedType,
-            status: mappedStatus,
-            assigneeId: String(rawAssignedTo),
-            reporterId: (reporterId && String(reporterId).trim()) || (rawReporterId && String(rawReporterId).trim()) || '',
-            createdByName: typeof createdByName === 'string' ? createdByName : undefined,
-            dueDate: (() => {
-              const raw = apiTask.due_date || apiTask['due_date'] || apiTask['due-date'] || apiTask.dueDate || new Date().toISOString().split('T')[0];
-              if (!raw) return new Date().toISOString().split('T')[0];
-              const str = String(raw).trim();
-              // Parse DD/MM/YYYY or DD-MM-YYYY to YYYY-MM-DD
-              const ddmmyyyy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-              if (ddmmyyyy) return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2,'0')}-${ddmmyyyy[1].padStart(2,'0')}`;
-              return str;
-            })(),
-            createdAt: apiTask.created_at || apiTask['created_at'] || apiTask.createdAt || new Date().toISOString(),
-            comments: apiTask.comments || apiTask['comments'] || [],
-            priority: (apiTask.priority || apiTask['priority'] || 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
-            projectId: apiTask.projectId || apiTask['projectId'] || apiTask.project_id || undefined,
-          };
-          return task;
-        });
+        // Convert API tasks to frontend Task format (handles Task_id, Title, Assigned_to, etc.)
+        const convertedTasks = convertApiTasksToTasks(apiTasks, users, currentUser);
         
       const uniqueTasks = convertedTasks.filter((task, index, self) => 
         index === self.findIndex(t => t.id === task.id)
@@ -605,6 +466,28 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [openStatusDropdown]);
+
+  // Helper: get creator's branch for a task (by reporterId or createdByName)
+  const getCreatorBranch = (task: Task): string | undefined => {
+    const reporter = task.reporterId ? users.find(u =>
+      u.id === task.reporterId ||
+      u.name === task.reporterId ||
+      u.email === task.reporterId ||
+      String(u.id).toLowerCase() === String(task.reporterId).toLowerCase()
+    ) : null;
+    const byName = task.createdByName ? users.find(u =>
+      u.name === task.createdByName ||
+      u.name?.toLowerCase() === task.createdByName?.toLowerCase() ||
+      u.email === task.createdByName
+    ) : null;
+    const creator = reporter || byName;
+    const branch = creator?.branch ?? (creator as any)?.Branch ?? (creator as any)?.branch;
+    return branch ? String(branch).trim() : undefined;
+  };
+
+  // Normalize branch for comparison (handle TECH, FARM_CORE, Farm Core, etc.)
+  const normalizeBranch = (b: string): string =>
+    b.toUpperCase().replace(/\s+/g, '_');
 
   // Filtering logic for Assign Task Page
   const filteredTasks = tasks.filter(task => {
@@ -677,6 +560,25 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
     if (filterType !== 'ALL' && task.type !== filterType) return false;
     // Apply status filter
     if (filterStatus !== 'ALL' && task.status !== filterStatus) return false;
+    // Apply search filter - by task title or created by
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      const titleMatch = (task.title || '').toLowerCase().includes(q);
+      const createdByMatch = (task.createdByName || '').toLowerCase().includes(q);
+      if (!titleMatch && !createdByMatch) return false;
+    }
+    // Apply date filter - match task due date
+    if (assignedDateFilter && assignedDateFilter.trim() !== '') {
+      const selectedYMD = assignedDateFilter.includes('T') ? assignedDateFilter.split('T')[0] : assignedDateFilter;
+      const taskDue = task.dueDate || '';
+      const taskYMD = taskDue.includes('T') ? taskDue.split('T')[0] : taskDue.substring(0, 10);
+      if (taskYMD !== selectedYMD) return false;
+    }
+    // Apply branch filter - creator's branch must match
+    if (branchFilter && branchFilter.trim() !== '') {
+      const creatorBranch = getCreatorBranch(task);
+      if (!creatorBranch || normalizeBranch(creatorBranch) !== normalizeBranch(branchFilter)) return false;
+    }
     return true;
   });
 
@@ -956,157 +858,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       }
       apiTasks = Array.isArray(apiTasks) ? apiTasks : (apiTasks && typeof apiTasks === 'object' ? [apiTasks] : []);
 
-      // Convert API tasks to frontend Task format (same logic as in useEffect)
-      const convertedTasks: Task[] = apiTasks.map((apiTask: any) => {
-        const rawApiType = (apiTask.task_type || apiTask.type || apiTask['task_type'] || apiTask['type'] || 'Individual').trim();
-        const apiTypeLower = rawApiType.toLowerCase();
-        const typeMap: Record<string, TaskType> = {
-          'sos': TaskType.SOS, 'SOS': TaskType.SOS,
-          '1 day': TaskType.ONE_DAY, '1 Day': TaskType.ONE_DAY, '1day': TaskType.ONE_DAY, 'one day': TaskType.ONE_DAY,
-          '10 day': TaskType.TEN_DAYS, '10 Day': TaskType.TEN_DAYS, '10day': TaskType.TEN_DAYS, 'ten day': TaskType.TEN_DAYS,
-          'monthly': TaskType.MONTHLY, 'Monthly': TaskType.MONTHLY,
-          'quaterly': TaskType.Quaterly, 'Quaterly': TaskType.Quaterly, 'quarterly': TaskType.Quaterly, 'Quarterly': TaskType.Quaterly,
-          'group': TaskType.GROUP, 'Group': TaskType.GROUP,
-          'individual': TaskType.INDIVIDUAL, 'Individual': TaskType.INDIVIDUAL,
-          'one_day': TaskType.ONE_DAY, 'ten_days': TaskType.TEN_DAYS,
-        };
-        const mappedType = typeMap[rawApiType] || typeMap[apiTypeLower] || TaskType.INDIVIDUAL;
-        
-        const apiStatus = (apiTask.current_status || apiTask.status || apiTask['current_status'] || apiTask['status'] || 'pending').toLowerCase();
-        const statusMap: Record<string, TaskStatus> = {
-          'pending': TaskStatus.PENDING, 'in_progress': TaskStatus.IN_PROGRESS, 'inprocess': TaskStatus.IN_PROGRESS,
-          'completed': TaskStatus.COMPLETED, 'overdue': TaskStatus.OVERDUE,
-        };
-        const mappedStatus = statusMap[apiStatus] || TaskStatus.PENDING;
-        
-        // Handle assigned_to as array [{ assignee: "Name" }] or assignees, or string/id
-        let rawAssignedTo: string | number | undefined = apiTask.assigned || apiTask.assigneeId || apiTask.assignee_id;
-        const at = apiTask.assigned_to ?? apiTask['assigned_to'];
-        if (!rawAssignedTo && Array.isArray(at) && at.length > 0 && at[0]?.assignee) {
-          const assigneeName = String(at[0].assignee).trim();
-          const found = users.find(u => u.name === assigneeName || u.name?.toLowerCase() === assigneeName.toLowerCase() || u.email === assigneeName);
-          rawAssignedTo = found?.id ?? assigneeName;
-        } else if (typeof at === 'string' || typeof at === 'number') {
-          rawAssignedTo = at;
-        }
-        const assigneeArr = Array.isArray(apiTask.assigned_to) ? apiTask.assigned_to : apiTask.assignees;
-        if (!rawAssignedTo && Array.isArray(assigneeArr) && assigneeArr.length > 0 && assigneeArr[0]?.assignee) {
-          const assigneeName = String(assigneeArr[0].assignee).trim();
-          const found = users.find(u => u.name === assigneeName || u.name?.toLowerCase() === assigneeName.toLowerCase() || u.email === assigneeName);
-          rawAssignedTo = found?.id ?? assigneeName;
-        }
-        if (!rawAssignedTo) rawAssignedTo = currentUser.id;
-        
-        // Get reporter/assigner - backend returns created_by as a name string
-        const rawReporterId = apiTask.reporterId || 
-                              apiTask['reporterId'] || 
-                              apiTask.created_by || 
-                              apiTask['created_by'] || 
-                              apiTask.reporter_id || 
-                              apiTask.created_by_id || 
-                              apiTask.created_by_name || 
-                              apiTask['created_by_name'] || 
-                              apiTask.assigner || 
-                              apiTask['assigner'] || 
-                              apiTask.assigned_by || 
-                              apiTask['assigned_by'] || 
-                              undefined;
-        
-        // If created_by is a name string, try to find the user ID
-        let reporterId = rawReporterId;
-        if (rawReporterId && typeof rawReporterId === 'string' && !rawReporterId.includes('-') && !rawReporterId.match(/^\d+$/)) {
-          const foundReporter = users.find(u => 
-            u.name === rawReporterId || 
-            u.name.toLowerCase() === rawReporterId.toLowerCase() ||
-            u.email === rawReporterId
-          );
-          if (foundReporter) {
-            reporterId = foundReporter.id;
-          }
-        }
-        
-        let rawDescription = apiTask.description || apiTask['description'] || '';
-        const cleanDescription = rawDescription
-          .replace(/\n\n\[ExcludeFromMDReporting:\w+\]/g, '')
-          .replace(/\n\[ExcludeFromMDReporting:\w+\]/g, '')
-          .replace(/\[ExcludeFromMDReporting:\w+\]/g, '')
-          .trim();
-        
-        // Extract task ID - prioritize task_id from backend (new format)
-        let backendTaskId = apiTask.task_id || 
-                            apiTask['task_id'] || 
-                            apiTask.id || 
-                            apiTask['id'] || 
-                            apiTask['task-id'] ||
-                            apiTask.pk || 
-                            apiTask['pk'] ||
-                            apiTask.taskId ||
-                            apiTask['taskId'] ||
-                            apiTask._id ||
-                            apiTask['_id'];
-        
-        // If not found at top level, check nested structures
-        if (!backendTaskId) {
-          // Check if ID is in assignees array (sometimes tasks have ID in nested objects)
-          if (Array.isArray(apiTask.assignees) && apiTask.assignees.length > 0) {
-            const firstAssignee = apiTask.assignees[0];
-            if (firstAssignee?.task_id || firstAssignee?.id) {
-              backendTaskId = firstAssignee.task_id || firstAssignee.id;
-            }
-          }
-          
-          // Check if there's a nested task object
-          if (apiTask.task && (apiTask.task.id || apiTask.task.task_id || apiTask.task.pk)) {
-            backendTaskId = apiTask.task.id || apiTask.task.task_id || apiTask.task.pk;
-          }
-        }
-        
-        if (!backendTaskId) {
-          console.error('❌ [REFRESH TASKS] No backend task ID found in API response:', {
-            taskTitle: apiTask.title || apiTask['title'],
-            availableFields: Object.keys(apiTask),
-            allFields: JSON.stringify(apiTask, null, 2), // Full object for debugging
-            sampleFields: {
-              id: apiTask.id,
-              task_id: apiTask.task_id,
-              'task-id': apiTask['task-id'],
-              pk: apiTask.pk,
-              taskId: apiTask.taskId,
-              _id: apiTask._id
-            }
-          });
-        }
-        
-        // Convert to string for Task.id (which is typed as string)
-        // Store the backend ID separately if we have it, otherwise use fallback
-        const taskIdString = backendTaskId ? String(backendTaskId) : `t${Date.now()}-${Math.random()}`;
-        
-        const createdByNameRefresh = apiTask.created_by ?? apiTask['created_by'] ?? undefined;
-        const task: Task & { _backendTaskId?: string | null } = {
-          id: taskIdString,
-          _backendTaskId: backendTaskId ? String(backendTaskId) : null,
-          title: apiTask.title || apiTask['title'] || 'Untitled Task',
-          description: cleanDescription,
-          type: mappedType,
-          status: mappedStatus,
-          assigneeId: String(rawAssignedTo),
-          reporterId: reporterId || undefined,
-          createdByName: typeof createdByNameRefresh === 'string' ? createdByNameRefresh : undefined,
-          dueDate: (() => {
-            const raw = apiTask.due_date || apiTask['due_date'] || apiTask['due-date'] || apiTask.dueDate || new Date().toISOString().split('T')[0];
-            if (!raw) return new Date().toISOString().split('T')[0];
-            const str = String(raw).trim();
-            const ddmmyyyy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-            if (ddmmyyyy) return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2,'0')}-${ddmmyyyy[1].padStart(2,'0')}`;
-            return str;
-          })(),
-          createdAt: apiTask.created_at || apiTask['created_at'] || apiTask.createdAt || new Date().toISOString(),
-          comments: apiTask.comments || apiTask['comments'] || [],
-          priority: (apiTask.priority || apiTask['priority'] || 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
-          projectId: apiTask.projectId || apiTask['projectId'] || apiTask.project_id || undefined,
-        };
-        return task;
-      });
+      // Convert API tasks to frontend Task format (handles Task_id, Title, Assigned_to, etc.)
+      const convertedTasks = convertApiTasksToTasks(apiTasks, users, currentUser);
       const uniqueTasks = convertedTasks.filter((task, index, self) => 
         index === self.findIndex(t => t.id === task.id)
       );
@@ -1393,16 +1146,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
     
     let filteredReportingTasks = filterType === 'ALL'
       ? reportingTasks
-      : reportingTasks.filter(t => {
-          const typeLabels: Partial<Record<TaskType, string>> = {
-            [TaskType.SOS]: 'SOS',
-            [TaskType.ONE_DAY]: '1 Day',
-            [TaskType.TEN_DAYS]: '10 Day',
-            [TaskType.GROUP]: 'Group',
-            [TaskType.INDIVIDUAL]: 'Individual',
-          };
-          return typeLabels[t.type] === filterType;
-        });
+      : reportingTasks.filter(t => t.type === filterType);
     // Apply status filter
     if (filterStatus !== 'ALL') {
       filteredReportingTasks = filteredReportingTasks.filter(t => t.status === filterStatus);
@@ -1446,6 +1190,22 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         return true;
       });
     }
+    // Apply search filter - by task title or created by
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      filteredReportingTasks = filteredReportingTasks.filter(task => {
+        const titleMatch = (task.title || '').toLowerCase().includes(q);
+        const createdByMatch = (task.createdByName || '').toLowerCase().includes(q);
+        return titleMatch || createdByMatch;
+      });
+    }
+    // Apply branch filter - creator's branch must match
+    if (branchFilter && branchFilter.trim() !== '') {
+      filteredReportingTasks = filteredReportingTasks.filter(task => {
+        const creatorBranch = getCreatorBranch(task);
+        return creatorBranch && normalizeBranch(creatorBranch) === normalizeBranch(branchFilter);
+      });
+    }
 
     return (
       <div className="space-y-6">
@@ -1480,14 +1240,34 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
             </div>
           </div>
         )}
-        {/* Reporting Tasks title with inline calendar date picker */}
+        {/* Reporting Tasks title with inline calendar date picker and search */}
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
               <Calendar size={28} className="text-brand-600" />
               Reporting Tasks
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search by title or created by..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                />
+              </div>
+              <select
+                value={branchFilter}
+                onChange={(e) => setBranchFilter(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 min-w-[140px]"
+              >
+                <option value="">All branches</option>
+                {availableBranches.map((b) => (
+                  <option key={b} value={b}>{String(b).replace(/_/g, ' ')}</option>
+                ))}
+              </select>
               <input
                 type="date"
                 value={reportingDateFilter || ''}
@@ -1510,17 +1290,20 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         <div className="flex flex-col gap-3 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
           <div className="flex flex-wrap gap-2">
             <span className="text-xs font-semibold text-gray-500 uppercase self-center mr-1">Type:</span>
-            {['ALL', 'SOS', '1 Day', '10 Day'].map(type => (
+            {[
+              { value: 'ALL', label: 'All' },
+              { value: TaskType.SOS, label: 'SOS' },
+              { value: TaskType.ONE_DAY, label: '1 Day' },
+              { value: TaskType.TEN_DAYS, label: '10 Day' },
+            ].map(({ value, label }) => (
               <button
-                key={type}
-                onClick={() => setFilterType(type)}
+                key={value}
+                onClick={() => setFilterType(value)}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  filterType === type
-                    ? 'bg-brand-600 text-white shadow-md'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  filterType === value ? 'bg-brand-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                {type}
+                {label}
               </button>
             ))}
           </div>
@@ -1550,10 +1333,14 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         {/* Task Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {isLoadingTasks ? (
-            <div className="col-span-full text-center py-8 text-gray-500">Loading tasks...</div>
+            <div className="col-span-full text-center py-20 text-gray-400">
+              <Clock size={48} className="mx-auto mb-4 opacity-50 animate-spin" />
+              <p>Loading tasks...</p>
+            </div>
           ) : filteredReportingTasks.length === 0 ? (
-            <div className="col-span-full text-center py-8 text-gray-500">
-              No tasks found.
+            <div className="col-span-full text-center py-20 text-gray-400">
+              <CheckCircle2 size={48} className="mx-auto mb-4 opacity-50" />
+              <p>No tasks found.</p>
             </div>
           ) : (
             filteredReportingTasks.map(task => {
@@ -1580,10 +1367,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
               return (
                 <div
                   key={task.id}
-                  className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 hover:shadow-md transition-shadow"
+                  className={`bg-white rounded-xl border shadow-sm p-4 hover:shadow-md transition-shadow ${task.type === TaskType.SOS ? 'border-red-400 shadow-red-100 ring-2 ring-red-100' : 'border-gray-200'}`}
                 >
                   <div className="flex justify-between items-start mb-2">
-                    <span className="text-[10px] font-semibold text-gray-500 uppercase bg-gray-100 px-1.5 py-0.5 rounded">
+                    <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${task.type === TaskType.SOS ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
                       {typeLabels[task.type]}
                     </span>
                   </div>
@@ -1767,10 +1554,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                          <option value="SOS">SOS</option>
                          <option value="1 Day">1 Day</option>
                          <option value="10 Day">10 Day</option>
-                         <option value="Monthly">Monthly</option>
-                         <option value="Quaterly">Quaterly</option>
-                         <option value="Individual">Individual</option>
-                         <option value="Group">Group</option>
                        </select>
                     </div>
                     <div>
@@ -2282,59 +2065,93 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
           </div>
         </div>
       )}
-      {/* Controls */}
-      <div className="flex flex-col gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">
+      {/* Assigned Tasks title with search and date filter */}
+        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+              <Calendar size={28} className="text-brand-600" />
               Assigned Tasks
             </h2>
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap gap-2">
-                <span className="text-xs font-semibold text-gray-500 uppercase self-center">Type:</span>
-                {['ALL', TaskType.SOS, TaskType.ONE_DAY, TaskType.TEN_DAYS].map(type => {
-                  const typeLabels: Record<string, string> = {
-                    'ALL': 'All',
-                    [TaskType.SOS]: 'SOS',
-                    [TaskType.ONE_DAY]: '1 Day',
-                    [TaskType.TEN_DAYS]: '10 Day',
-                  };
-                  return (
-                    <button
-                      key={type}
-                      onClick={() => setFilterType(type)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${filterType === type ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
-                      {typeLabels[type] || type.replace('_', ' ')}
-                    </button>
-                  );
-                })}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[180px] sm:max-w-xs">
+                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search by title or created by..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                />
               </div>
-              <div className="flex flex-wrap gap-2">
-                <span className="text-xs font-semibold text-gray-500 uppercase self-center">Status:</span>
-                {[
-                  { value: 'ALL', label: 'All' },
-                  { value: TaskStatus.COMPLETED, label: 'Completed' },
-                  { value: TaskStatus.IN_PROGRESS, label: 'In Progress' },
-                  { value: TaskStatus.PENDING, label: 'Pending' },
-                ].map(({ value, label }) => (
-                  <button
-                    key={value}
-                    onClick={() => setFilterStatus(value)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${filterStatus === value ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                  >
-                    {label}
-                  </button>
+              <select
+                value={branchFilter}
+                onChange={(e) => setBranchFilter(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 min-w-[140px]"
+              >
+                <option value="">All branches</option>
+                {availableBranches.map((b) => (
+                  <option key={b} value={b}>{String(b).replace(/_/g, ' ')}</option>
                 ))}
-              </div>
+              </select>
+              <input
+                type="date"
+                value={assignedDateFilter || ''}
+                onChange={(e) => setAssignedDateFilter(e.target.value || null)}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+              />
+              {assignedDateFilter && (
+                <button
+                  onClick={() => setAssignedDateFilter(null)}
+                  className="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+                >
+                  All dates
+                </button>
+              )}
             </div>
           </div>
-          
-          <div className="flex gap-2">
-            {/* Assign Task button only on Assigned Task page (viewMode reporting), not on Reporting Task page */}
+        </div>
+
+        {/* Filter Buttons */}
+        <div className="flex flex-col gap-3 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+          <div className="flex flex-wrap gap-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase self-center mr-1">Type:</span>
+            {[
+              { value: 'ALL', label: 'All' },
+              { value: TaskType.SOS, label: 'SOS' },
+              { value: TaskType.ONE_DAY, label: '1 Day' },
+              { value: TaskType.TEN_DAYS, label: '10 Day' },
+            ].map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => setFilterType(value)}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  filterType === value ? 'bg-brand-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase self-center mr-1">Status:</span>
+            {[
+              { value: 'ALL', label: 'All' },
+              { value: TaskStatus.COMPLETED, label: 'Completed' },
+              { value: TaskStatus.IN_PROGRESS, label: 'In Progress' },
+              { value: TaskStatus.PENDING, label: 'Pending' },
+            ].map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => setFilterStatus(value)}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  filterStatus === value ? 'bg-brand-600 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
-      </div>
 
       {/* Task Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -2368,8 +2185,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
               u.name === task.assigneeId ||
               (typeof task.assigneeId === 'string' && u.email === task.assigneeId) ||
               String(u.id).toLowerCase() === String(task.assigneeId).toLowerCase() ||
-              (u as any).Employee_id === task.assigneeId ||
-              (u as any)['Employee ID'] === task.assigneeId
+              String((u as any).Employee_id) === String(task.assigneeId) ||
+              String((u as any)['Employee ID']) === String(task.assigneeId)
             );
             // Find reporter - try to find by ID, name, or email
             const reporter = task.reporterId ? users.find(u => 
@@ -2390,119 +2207,113 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
               ? allAssignees.map(a => a.name).join(', ')
               : (assignee?.name || (typeof task.assigneeId === 'string' ? String(task.assigneeId).trim() : '') || 'Unknown');
 
+            const typeLabels: Record<string, string> = {
+              [TaskType.SOS]: 'SOS',
+              [TaskType.ONE_DAY]: '1 Day',
+              [TaskType.TEN_DAYS]: '10 Day',
+              [TaskType.MONTHLY]: 'Monthly',
+              [TaskType.Quaterly]: 'Quaterly',
+              [TaskType.GROUP]: 'Group',
+              [TaskType.INDIVIDUAL]: 'Individual',
+            };
             return (
-              <div key={task.id} className={`bg-white rounded-xl border ${task.type === TaskType.SOS ? 'border-red-400 shadow-red-100 ring-2 ring-red-100' : 'border-gray-200'} shadow-sm hover:shadow-lg transition-all p-3 flex flex-col justify-between h-full relative group`}>
-                <div>
-                  <div className="flex justify-between items-start mb-2">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${task.type === TaskType.SOS ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
-                      {task.type === TaskType.ONE_DAY ? '1 Day' :
-                       task.type === TaskType.TEN_DAYS ? '10 Day' :
-                       task.type === TaskType.MONTHLY ? 'Monthly' :
-                       task.type === TaskType.Quaterly ? 'Quaterly' :
-                       task.type === TaskType.GROUP ? 'Group' :
-                       task.type === TaskType.INDIVIDUAL ? 'Individual' :
-                       task.type}
-                    </span>
-                  </div>
-                  
-                  <h3 className="font-bold text-gray-800 text-sm mb-1.5 leading-tight">{task.title}</h3>
-                  <p className="text-gray-500 text-xs mb-3 line-clamp-2">{task.description}</p>
-                  
-                  {/* Meta info */}
-                  <div className="space-y-1.5 text-[10px] text-gray-500 mt-auto">
-                    <div className="flex items-center space-x-1.5">
-                      <Clock size={12} className={isOverdue ? "text-red-500" : ""} />
-                      <span className={isOverdue ? "text-red-500 font-bold" : ""}>Due: {new Date(task.dueDate).toLocaleDateString()}</span>
-                    </div>
-                    
-                    {/* For MD: show Created by from API (created_by); else show Assigned by if reporter exists */}
-                    {currentUser.role === UserRole.MD && (task.createdByName || reporter?.name) && (
-                      <div className="flex items-center space-x-1 text-gray-500">
-                        <span className="text-[10px]">Created by: <strong className="text-brand-600">{task.createdByName || reporter?.name}</strong></span>
-                      </div>
-                    )}
-                    {currentUser.role !== UserRole.MD && reporter && (
-                      <div className="flex items-center space-x-1 text-gray-500">
-                        <span className="text-[10px]">Assigned by: <strong className="text-brand-600">{reporter.name}</strong></span>
-                      </div>
-                    )}
-                    {/* Assigned to: same style as Created by - always show */}
-                    <div className="flex items-center space-x-1 text-gray-500">
-                      <span className="text-[10px]">Assigned to: <strong className="text-brand-600">{assigneeDisplayName}</strong></span>
-                    </div>
-                  </div>
+              <div key={task.id} className={`bg-white rounded-xl border shadow-sm p-4 hover:shadow-md transition-shadow ${task.type === TaskType.SOS ? 'border-red-400 shadow-red-100 ring-2 ring-red-100' : 'border-gray-200'}`}>
+                <div className="flex justify-between items-start mb-2">
+                  <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${task.type === TaskType.SOS ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                    {typeLabels[task.type] || task.type}
+                  </span>
                 </div>
 
-                {/* Action Footer */}
-                <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center">
-                   <button onClick={() => setSelectedTask(task)} className="text-brand-600 text-xs font-medium hover:underline">
-                     View Details
-                   </button>
-                   
-                   {/* Status Dropdown - Show on ALL task cards */}
-                   <div className="relative status-dropdown-container">
-                     <button
-                       onClick={() => setOpenStatusDropdown(openStatusDropdown === task.id ? null : task.id)}
-                       disabled={changingStatusTaskId === task.id}
-                       className={`px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition-colors ${
+                <h3 className="font-bold text-gray-800 mb-1.5 text-sm">{task.title}</h3>
+                <p className="text-xs text-gray-600 mb-3 line-clamp-2">{task.description}</p>
+
+                <div className="flex items-center gap-1.5 text-xs text-gray-600 mb-3">
+                  <Clock size={14} className={isOverdue ? 'text-red-500' : 'text-gray-400'} />
+                  <span className={isOverdue ? 'text-red-600 font-semibold' : ''}>
+                    Due: {new Date(task.dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  </span>
+                </div>
+
+                {currentUser.role === UserRole.MD && (task.createdByName || reporter?.name) && (
+                  <div className="text-xs text-gray-500 mb-1.5">
+                    Created by: <strong className="text-brand-600">{task.createdByName || reporter?.name}</strong>
+                  </div>
+                )}
+                {currentUser.role !== UserRole.MD && reporter && (
+                  <div className="text-xs text-gray-500 mb-1.5">
+                    Assigned by: <strong className="text-brand-600">{reporter.name}</strong>
+                  </div>
+                )}
+                <div className="text-xs text-gray-500 mb-2">
+                  Assigned to: <strong className="text-brand-600">{assigneeDisplayName}</strong>
+                </div>
+
+                <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+                  <button onClick={() => setSelectedTask(task)} className="text-brand-600 hover:text-brand-700 text-xs font-medium">
+                    View Details
+                  </button>
+
+                  {/* Status Dropdown */}
+                  <div className="relative status-dropdown-container">
+                    <button
+                      onClick={() => setOpenStatusDropdown(openStatusDropdown === task.id ? null : task.id)}
+                      disabled={changingStatusTaskId === task.id}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 border transition-colors ${
                          task.status === TaskStatus.COMPLETED
                            ? 'bg-green-100 text-green-700 border-green-300'
                            : task.status === TaskStatus.IN_PROGRESS
                            ? 'bg-blue-100 text-blue-700 border-blue-300'
                            : 'bg-red-100 text-red-700 border-red-300'
-                       } ${
-                         changingStatusTaskId === task.id ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'
-                       }`}
-                     >
-                       {changingStatusTaskId === task.id ? (
-                         'Updating...'
-                       ) : (
-                         <>
-                           {task.status === TaskStatus.COMPLETED ? 'COMPLETED' : 
-                            task.status === TaskStatus.IN_PROGRESS ? 'IN PROGRESS' : 'PENDING'}
-                           <ChevronDown size={10} className={openStatusDropdown === task.id ? 'rotate-180' : ''} />
-                         </>
-                       )}
-                     </button>
-                     
-                     {/* Dropdown Menu */}
-                     {openStatusDropdown === task.id && changingStatusTaskId !== task.id && (
-                       <div className="absolute right-0 bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[120px]">
-                         <button
-                           onClick={() => {
-                             handleStatusChange(task.id, TaskStatus.PENDING);
-                             setOpenStatusDropdown(null);
-                           }}
-                           className={`w-full text-left px-2.5 py-1.5 text-[10px] hover:bg-red-50 first:rounded-t-lg ${
-                             task.status === TaskStatus.PENDING ? 'bg-red-100 font-semibold text-red-700' : 'text-gray-700'
-                           }`}
-                         >
-                           PENDING
-                         </button>
-                         <button
-                           onClick={() => {
-                             handleStatusChange(task.id, TaskStatus.IN_PROGRESS);
-                             setOpenStatusDropdown(null);
-                           }}
-                           className={`w-full text-left px-2.5 py-1.5 text-[10px] hover:bg-blue-50 ${
-                             task.status === TaskStatus.IN_PROGRESS ? 'bg-blue-100 font-semibold text-blue-700' : 'text-gray-700'
-                           }`}
-                         >
-                           IN PROGRESS
-                         </button>
-                         <button
-                           onClick={() => {
-                             handleStatusChange(task.id, TaskStatus.COMPLETED);
-                             setOpenStatusDropdown(null);
-                           }}
-                           className={`w-full text-left px-2.5 py-1.5 text-[10px] hover:bg-green-50 last:rounded-b-lg ${
-                             task.status === TaskStatus.COMPLETED ? 'bg-green-100 font-semibold text-green-700' : 'text-gray-700'
-                           }`}
-                         >
-                           COMPLETED
-                         </button>
-                       </div>
-                     )}
+                       } ${changingStatusTaskId === task.id ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'}`}
+                    >
+                      {changingStatusTaskId === task.id ? (
+                        'Updating...'
+                      ) : (
+                        <>
+                          {task.status === TaskStatus.COMPLETED ? 'COMPLETED' : 
+                           task.status === TaskStatus.IN_PROGRESS ? 'IN PROGRESS' : 'PENDING'}
+                          <ChevronDown size={12} className={openStatusDropdown === task.id ? 'rotate-180' : ''} />
+                        </>
+                      )}
+                    </button>
+
+                    {openStatusDropdown === task.id && changingStatusTaskId !== task.id && (
+                      <div className="absolute right-0 bottom-full mb-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[140px]">
+                        <button
+                          onClick={() => {
+                            handleStatusChange(task.id, TaskStatus.PENDING);
+                            setOpenStatusDropdown(null);
+                          }}
+                          className={`w-full text-left px-3 py-2 text-xs hover:bg-red-50 first:rounded-t-lg ${
+                              task.status === TaskStatus.PENDING ? 'bg-red-100 font-semibold text-red-700' : 'text-gray-700'
+                          }`}
+                        >
+                          PENDING
+                        </button>
+                        <button
+                          onClick={() => {
+                            handleStatusChange(task.id, TaskStatus.IN_PROGRESS);
+                            setOpenStatusDropdown(null);
+                          }}
+                          className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 ${
+                            task.status === TaskStatus.IN_PROGRESS ? 'bg-blue-100 font-semibold text-blue-700' : 'text-gray-700'
+                          }`}
+                        >
+                          IN PROGRESS
+                        </button>
+                        <button
+                          onClick={() => {
+                            handleStatusChange(task.id, TaskStatus.COMPLETED);
+                            setOpenStatusDropdown(null);
+                          }}
+                          className={`w-full text-left px-3 py-2 text-xs hover:bg-green-50 last:rounded-b-lg ${
+                            task.status === TaskStatus.COMPLETED ? 'bg-green-100 font-semibold text-green-700' : 'text-gray-700'
+                          }`}
+                        >
+                          COMPLETED
+                        </button>
+                      </div>
+                    )}
                    </div>
                 </div>
               </div>
@@ -2566,10 +2377,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                        <option value="SOS">SOS</option>
                        <option value="1 Day">1 Day</option>
                        <option value="10 Day">10 Day</option>
-                       <option value="Monthly">Monthly</option>
-                       <option value="Quaterly">Quaterly</option>
-                       <option value="Individual">Individual</option>
-                       <option value="Group">Group</option>
                      </select>
                   </div>
                   <div>
@@ -2836,7 +2643,7 @@ const TaskDetailModal: React.FC<{ task: Task; onClose: () => void; currentUser: 
       setIsLoadingMessages(true);
       try {
         // Extract numeric ID from task ID (backend expects integer)
-        let taskIdToFetch = task.id;
+        let taskIdToFetch: string | number = task.id;
         if (typeof task.id === 'string' && task.id.startsWith('t')) {
           // Extract number from string like "t1767789989844-0.11216026287831349"
           const match = task.id.match(/\d+/);

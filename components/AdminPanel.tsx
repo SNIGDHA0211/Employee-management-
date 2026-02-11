@@ -415,7 +415,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       id: formData.employeeId || `u${Date.now()}`,
       name: formData.name,
       email: formData.email,
-      role: formData.role,
+      role: formData.role as UserRole,
       designation: formData.designation,
       birthDate: formData.birthDate,
       joinDate: formData.joinDate,
@@ -423,8 +423,8 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       status: 'PRESENT',
       leaveBalance: 12,
       score: 0,
-      password: formData.password || '12345', 
-      branch: formData.branch,
+      password: formData.password || '12345',
+      branch: (formData.branch || undefined) as User['branch'],
     };
     onAddUser(newUser);
       
@@ -597,19 +597,20 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       });
 
       // Update the selected user in the list
-      const updatedUser = {
+      const branchValue = editFormData.branch as User['branch'];
+      const updatedUser: User = {
         ...selectedUser,
         name: editFormData.name,
         email: editFormData.email,
         role: editFormData.role as UserRole,
         designation: editFormData.designation,
-        branch: editFormData.branch,
-        department: editFormData.department,
+        branch: branchValue || undefined,
         joinDate: editFormData.joinDate,
         birthDate: editFormData.birthDate,
       };
       (updatedUser as any).rawRole = editFormData.role;
-      
+      (updatedUser as any).department = editFormData.department;
+
       setSelectedUser(updatedUser);
       setIsEditMode(false);
       setEditPhotoPreview(null);

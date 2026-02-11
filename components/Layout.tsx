@@ -26,10 +26,24 @@ interface SidebarProps {
   isOpen: boolean;
   setIsOpen: (val: boolean) => void;
   onUserProfileClick?: () => void;
+  onTasksHover?: () => void;
+  /** NMRHI category IDs employee can access (from department/function). Default: all. */
+  allowedNMRHICategories?: string[];
 }
 
 
-export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab, onLogout, isOpen, setIsOpen, onUserProfileClick }) => {
+const NMRHI_ITEMS = [
+  { id: 'nmrhi-npd', label: 'NPD', letter: 'N', color: 'bg-blue-600' },
+  { id: 'nmrhi-mmr', label: 'MMR', letter: 'M', color: 'bg-emerald-600' },
+  { id: 'nmrhi-rg', label: 'RG', letter: 'R', color: 'bg-amber-600' },
+  { id: 'nmrhi-hc', label: 'HC', letter: 'H', color: 'bg-purple-600' },
+  { id: 'nmrhi-ip', label: 'IP', letter: 'I', color: 'bg-rose-600' },
+] as const;
+
+export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab, onLogout, isOpen, setIsOpen, onUserProfileClick, onTasksHover, allowedNMRHICategories }) => {
+  const visibleNMRHI = allowedNMRHICategories && allowedNMRHICategories.length > 0
+    ? NMRHI_ITEMS.filter((item) => allowedNMRHICategories.includes(item.id))
+    : NMRHI_ITEMS;
   const [expandedNMRHI, setExpandedNMRHI] = useState(false);
   
   const menuItems = [
@@ -125,6 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
                     }
                     setIsOpen(false);
                   }}
+                  onMouseEnter={() => isTasksItem && onTasksHover?.()}
                   className={`w-full flex items-center justify-between px-4 py-3 min-h-[44px] rounded-lg transition-all duration-200 ${
                     isActive ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20' : 'text-gray-400 hover:bg-slate-800 hover:text-white'
                   }`}
@@ -138,8 +153,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
             );
           })}
 
-          {/* NMRHI Section for MD Role */}
-          {user.role === UserRole.MD && (
+          {/* NMRHI Section - MD sees all 5; Employees see only pages matching their function */}
+          {allowedNMRHICategories && allowedNMRHICategories.length > 0 && (
             <div className="mt-4 pt-4 border-t border-slate-800">
               <button
                 onClick={() => {
@@ -165,64 +180,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
                 />
               </button>
 
-              {/* NMRHI Submenu */}
+              {/* NMRHI Submenu - filtered by employee department/function */}
               {expandedNMRHI && (
                 <div className="ml-4 mt-1 space-y-1">
-                  <button
-                    onClick={() => { setActiveTab('nmrhi-npd'); setIsOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-2.5 min-h-[44px] rounded-lg transition-all duration-200 ${
-                      activeTab === 'nmrhi-npd' 
-                        ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
-                        : 'text-gray-400 hover:bg-slate-800 hover:text-white'
-                    }`}
-                  >
-                    <span className="w-6 h-6 rounded bg-blue-600 text-white text-[10px] font-black flex items-center justify-center flex-shrink-0">N</span>
-                    <span className="truncate">NPD</span>
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab('nmrhi-mmr'); setIsOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-2.5 min-h-[44px] rounded-lg transition-all duration-200 ${
-                      activeTab === 'nmrhi-mmr' 
-                        ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
-                        : 'text-gray-400 hover:bg-slate-800 hover:text-white'
-                    }`}
-                  >
-                    <span className="w-6 h-6 rounded bg-emerald-600 text-white text-[10px] font-black flex items-center justify-center flex-shrink-0">M</span>
-                    <span className="truncate">MMR</span>
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab('nmrhi-rg'); setIsOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-2.5 min-h-[44px] rounded-lg transition-all duration-200 ${
-                      activeTab === 'nmrhi-rg' 
-                        ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
-                        : 'text-gray-400 hover:bg-slate-800 hover:text-white'
-                    }`}
-                  >
-                    <span className="w-6 h-6 rounded bg-amber-600 text-white text-[10px] font-black flex items-center justify-center flex-shrink-0">R</span>
-                    <span className="truncate">RG</span>
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab('nmrhi-hc'); setIsOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-2.5 min-h-[44px] rounded-lg transition-all duration-200 ${
-                      activeTab === 'nmrhi-hc' 
-                        ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
-                        : 'text-gray-400 hover:bg-slate-800 hover:text-white'
-                    }`}
-                  >
-                    <span className="w-6 h-6 rounded bg-purple-600 text-white text-[10px] font-black flex items-center justify-center flex-shrink-0">H</span>
-                    <span className="truncate">HC</span>
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab('nmrhi-ip'); setIsOpen(false); }}
-                    className={`w-full flex items-center space-x-3 px-4 py-2.5 min-h-[44px] rounded-lg transition-all duration-200 ${
-                      activeTab === 'nmrhi-ip' 
-                        ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
-                        : 'text-gray-400 hover:bg-slate-800 hover:text-white'
-                    }`}
-                  >
-                    <span className="w-6 h-6 rounded bg-rose-600 text-white text-[10px] font-black flex items-center justify-center flex-shrink-0">I</span>
-                    <span className="truncate">IP</span>
-                  </button>
+                  {visibleNMRHI.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => { setActiveTab(item.id); setIsOpen(false); }}
+                      className={`w-full flex items-center space-x-3 px-4 py-2.5 min-h-[44px] rounded-lg transition-all duration-200 ${
+                        activeTab === item.id 
+                          ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 font-medium' 
+                          : 'text-gray-400 hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <span className={`w-6 h-6 rounded ${item.color} text-white text-[10px] font-black flex items-center justify-center flex-shrink-0`}>{item.letter}</span>
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>

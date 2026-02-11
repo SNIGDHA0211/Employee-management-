@@ -1,5 +1,30 @@
 import { StrategyCategory } from './types';
 
+/** NMRHI category IDs mapped to function codes from employees API */
+export const NMRHI_CATEGORY_IDS = ['nmrhi-npd', 'nmrhi-mmr', 'nmrhi-rg', 'nmrhi-hc', 'nmrhi-ip'] as const;
+export const FUNCTION_CODE_TO_CATEGORY: Record<string, string> = {
+  NPD: 'nmrhi-npd', MMR: 'nmrhi-mmr', RG: 'nmrhi-rg', HC: 'nmrhi-hc', IP: 'nmrhi-ip',
+};
+
+/**
+ * Get allowed NMRHI category IDs from employee's department/function.
+ * Employee API returns: department, function (e.g. "None", "NPD", "MMR", "NPD, MMR").
+ * Returns only the category IDs that match - no default to all. If none match, returns [].
+ */
+export function getNMRHIAllowedCategories(employee: any): string[] {
+  if (!employee) return [];
+  const dept = String(employee.department || employee.Department || '').toUpperCase();
+  const fn = String(employee.function || employee.Function || '').toUpperCase();
+  const combined = `${dept} ${fn}`.replace(/[,|]/g, ' ');
+  const allowed: string[] = [];
+  if (/\bNPD\b/.test(combined)) allowed.push('nmrhi-npd');
+  if (/\bMMR\b/.test(combined)) allowed.push('nmrhi-mmr');
+  if (/\bRG\b/.test(combined)) allowed.push('nmrhi-rg');
+  if (/\bHC\b/.test(combined)) allowed.push('nmrhi-hc');
+  if (/\bIP\b/.test(combined)) allowed.push('nmrhi-ip');
+  return allowed;
+}
+
 /** Display metadata only. Sections (functional_goals, actionable_goals) are fetched from API. */
 const FUNCTION_META: Array<{ id: string; name: string; fullName: string; description: string; fnCode: string }> = [
   { id: 'nmrhi-npd', name: 'N', fullName: 'NPD - New Product Development', description: 'Strategic framework for developing new products, from ideation to market launch.', fnCode: 'NPD' },

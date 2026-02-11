@@ -12,7 +12,12 @@ import api, {
   getTours,
   getBookSlots,
   getMeetingPush,
+  viewTasks as apiViewTasks,
+  viewAssignedTasks as apiViewAssignedTasks,
+  getEmployeesFromAccounts,
 } from './services/api';
+import { getNMRHIAllowedCategories } from './components/NMRHI/constants';
+import { convertApiTasksToTasks } from './utils/taskConversion';
 import { clearAuthData } from './services/utils/auth';
 import { Sidebar, Header, BirthdayBanner } from './components/Layout';
 import { MeetCard } from './components/MeetCard';
@@ -109,16 +114,16 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
 
     try {
         // Try backend API login first (username can be fullName, email, or ID)
-        // Try admin endpoint first, then fallback to regular login if it fails
+        // Try regular login first (/accounts/login/), then admin endpoint (/admin/) as fallback
         let loginResponse: any;
         
         try {
-          loginResponse = await apiLogin(username, password, true);
-        } catch (adminError: any) {
+          loginResponse = await apiLogin(username, password, false);
+        } catch (regularError: any) {
           try {
-            loginResponse = await apiLogin(username, password, false);
-          } catch (regularError: any) {
-            throw regularError; // Throw the error to be caught by outer catch
+            loginResponse = await apiLogin(username, password, true);
+          } catch (adminError: any) {
+            throw regularError; // Throw the regular error to preserve original message
           }
         }
         
@@ -609,6 +614,7 @@ export default function App() {
   const currentUserRef = useRef<User | null>(null);
   currentUserRef.current = currentUser;
   const [notificationMeetings, setNotificationMeetings] = useState<any[]>([]);
+  const [allowedNMRHICategories, setAllowedNMRHICategories] = useState<string[]>([]);
   const [meetRooms, setMeetRooms] = useState<Array<{ id: number; name: string }>>([]);
   const [meetEmployees, setMeetEmployees] = useState<Array<{ id: string; name: string }>>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -1096,6 +1102,42 @@ export default function App() {
     if (currentUser?.id) fetchEmployees();
   }, [currentUser?.id, fetchEmployees]);
 
+  // NMRHI allowed categories: MD sees all; Employees see only pages matching their function (from users list)
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    if (currentUser.role === UserRole.MD) {
+      setAllowedNMRHICategories(['nmrhi-npd', 'nmrhi-mmr', 'nmrhi-rg', 'nmrhi-hc', 'nmrhi-ip']);
+      return;
+    }
+    // Use users from fetchEmployees (already has department/function from API)
+    const emp = users.find((u: any) =>
+      u.id === currentUser.id ||
+      (u.Employee_id && (currentUser as any).Employee_id && String(u.Employee_id) === String((currentUser as any).Employee_id)) ||
+      (u.email && currentUser.email && u.email.toLowerCase() === currentUser.email.toLowerCase()) ||
+      (u.name && currentUser.name && u.name.trim().toLowerCase() === currentUser.name.trim().toLowerCase())
+    );
+    if (emp) {
+      const allowed = getNMRHIAllowedCategories(emp);
+      setAllowedNMRHICategories(allowed);
+      return;
+    }
+    // Fallback: when users is empty or no match, try accounts API
+    if (users.length === 0) {
+      getEmployeesFromAccounts()
+        .then((employees) => {
+          const acc = employees.find((e: any) =>
+            e.Email_id === currentUser.email ||
+            (e.Name && e.Name.trim().toLowerCase() === currentUser.name?.trim().toLowerCase()) ||
+            String(e.Employee_id) === String((currentUser as any).Employee_id || currentUser.id)
+          );
+          setAllowedNMRHICategories(getNMRHIAllowedCategories(acc));
+        })
+        .catch(() => setAllowedNMRHICategories([]));
+    } else {
+      setAllowedNMRHICategories([]);
+    }
+  }, [currentUser?.id, currentUser?.email, currentUser?.name, currentUser?.role, users]);
+
   // Derive meetEmployees from shared users (avoid duplicate fetch)
   useEffect(() => {
     if (users.length > 0) {
@@ -1110,6 +1152,20 @@ export default function App() {
   const handleDeleteUser = useCallback((userId: string) => {
     setUsers((prev) => prev.filter((u) => u.id !== userId));
   }, []);
+
+  // Prefetch tasks when user hovers over Tasks in sidebar (reduces perceived load time)
+  const prefetchTasks = useCallback(async () => {
+    if (!currentUser?.id || activeTab === 'assignTask' || activeTab === 'reportingTask') return;
+    try {
+      const isMD = currentUser.role === UserRole.MD;
+      const apiTasks = isMD ? await apiViewTasks() : await apiViewAssignedTasks();
+      const arr = Array.isArray(apiTasks) ? apiTasks : (apiTasks && typeof apiTasks === 'object' ? [apiTasks] : []);
+      const converted = convertApiTasksToTasks(arr, users, currentUser);
+      setTasks(converted);
+    } catch {
+      // Silent fail - TaskBoard will fetch on mount
+    }
+  }, [currentUser?.id, currentUser?.role, users, activeTab]);
 
   const handleAddTour = (newTour: Tour) => {
      setTours([...tours, newTour]);
@@ -1784,19 +1840,19 @@ export default function App() {
         );
 
       case 'nmrhi-npd':
-        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-npd" />;
+        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-npd" allowedCategoryIds={allowedNMRHICategories} />;
       
       case 'nmrhi-mmr':
-        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-mmr" />;
+        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-mmr" allowedCategoryIds={allowedNMRHICategories} />;
       
       case 'nmrhi-rg':
-        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-rg" />;
+        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-rg" allowedCategoryIds={allowedNMRHICategories} />;
       
       case 'nmrhi-hc':
-        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-hc" />;
+        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-hc" allowedCategoryIds={allowedNMRHICategories} />;
       
       case 'nmrhi-ip':
-        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-ip" />;
+        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-ip" allowedCategoryIds={allowedNMRHICategories} />;
 
       case 'projects':
         // Commented out - Projects page temporarily disabled
@@ -1843,6 +1899,8 @@ export default function App() {
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
         onUserProfileClick={() => setShowUserProfileSidebar(true)}
+        onTasksHover={prefetchTasks}
+        allowedNMRHICategories={allowedNMRHICategories}
       />
       
       <div className="flex-1 flex flex-col overflow-hidden">

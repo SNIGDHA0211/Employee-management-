@@ -18,20 +18,32 @@ function apiToSections(data: any): StrategySection[] {
 interface NMRHIPageProps {
   currentUserName?: string;
   categoryId?: string;
+  /** Category IDs employee can access (from department/function). Empty = all. */
+  allowedCategoryIds?: string[];
 }
 
-const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, categoryId }) => {
+const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, categoryId, allowedCategoryIds }) => {
   const [categories, setCategories] = useState<StrategyCategory[]>(STRATEGY_CATEGORIES);
+  const visibleCategories = (allowedCategoryIds && allowedCategoryIds.length > 0)
+    ? categories.filter((c) => allowedCategoryIds.includes(c.id))
+    : [];
   const [activeCategory, setActiveCategory] = useState<StrategyCategory | null>(null);
   const [progress, setProgress] = useState<AppProgress>({});
   const [loading, setLoading] = useState(true);
 
+  // Fetch only the functions the employee has access to (from department/function)
   useEffect(() => {
     let mounted = true;
+    const idsToFetch = (allowedCategoryIds && allowedCategoryIds.length > 0)
+      ? allowedCategoryIds.filter((id) => FUNCTION_CODES[id])
+      : [];
+    if (idsToFetch.length === 0) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    const fnIds = Object.keys(FUNCTION_CODES);
     Promise.all(
-      fnIds.map(async (catId) => {
+      idsToFetch.map(async (catId) => {
         const fnCode = FUNCTION_CODES[catId];
         try {
           const data = await getFunctionsAndActionableGoals(fnCode);
@@ -53,16 +65,18 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, categoryId }) =>
       if (mounted) setLoading(false);
     });
     return () => { mounted = false; };
-  }, []);
+  }, [allowedCategoryIds]);
 
   useEffect(() => {
     if (categoryId) {
-      const cat = categories.find((c) => c.id === categoryId);
+      const hasAccess = !allowedCategoryIds || allowedCategoryIds.length === 0 || allowedCategoryIds.includes(categoryId);
+      const cat = hasAccess ? categories.find((c) => c.id === categoryId) : null;
       if (cat) setActiveCategory(cat);
+      else if (!hasAccess) setActiveCategory(null); // No access - stay on overview
     } else {
       setActiveCategory(null);
     }
-  }, [categoryId, categories]);
+  }, [categoryId, categories, allowedCategoryIds]);
 
   useEffect(() => {
     if (activeCategory) {
@@ -178,9 +192,15 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, categoryId }) =>
       </header>
 
       <div className="max-w-[1400px] mx-auto">
-        {/* Strategy Cards Grid */}
+        {/* Strategy Cards Grid - filtered by employee department/function */}
+        {visibleCategories.length === 0 ? (
+          <div className="text-center py-16 px-6 bg-white rounded-2xl border-2 border-slate-100">
+            <p className="text-slate-500 font-semibold mb-2">No NMRHI pages assigned to your function.</p>
+            <p className="text-slate-400 text-sm">Contact your admin to get access to NPD, MMR, RG, HC, or IP.</p>
+          </div>
+        ) : (
         <div className="min-w-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 max-w-7xl mx-auto">
-          {categories.map((category, idx) => {
+          {visibleCategories.map((category, idx) => {
             const progressPercent = getCategoryProgress(category);
             const isLoading = loading;
             
@@ -264,6 +284,7 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, categoryId }) =>
             );
           })}
         </div>
+        )}
       </div>
 
       {/* Footer */}

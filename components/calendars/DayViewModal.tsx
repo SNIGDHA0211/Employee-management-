@@ -55,6 +55,8 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
     return HALLS.filter((h) => !bookedHalls.includes(h));
   };
 
+  const isDatePast = format(date, 'yyyy-MM-dd') < format(new Date(), 'yyyy-MM-dd');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
       <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-300">
@@ -71,8 +73,9 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
           </div>
           <div className="flex gap-3">
             <button
-              onClick={onNewBooking}
-              className="bg-white/20 hover:bg-white/30 text-white w-12 h-12 flex items-center justify-center rounded-2xl transition-all shadow-lg active:scale-95"
+              onClick={isDatePast ? undefined : onNewBooking}
+              disabled={isDatePast}
+              className={`w-12 h-12 flex items-center justify-center rounded-2xl transition-all shadow-lg active:scale-95 ${isDatePast ? 'bg-white/10 text-white/50 cursor-not-allowed' : 'bg-white/20 hover:bg-white/30 text-white'}`}
             >
               <svg
                 className="w-6 h-6"
@@ -234,10 +237,10 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
 
                     {availableHalls.length > 0 && (
                       <div
-                        onClick={onNewBooking}
-                        className="w-full text-left p-6 rounded-[2rem] bg-slate-50/50 border-2 border-slate-200 border-dashed hover:bg-slate-50 hover:border-indigo-200 transition-all group cursor-pointer"
+                        onClick={isDatePast ? undefined : onNewBooking}
+                        className={`w-full text-left p-6 rounded-[2rem] border-2 border-dashed transition-all group ${isDatePast ? 'bg-slate-50/30 border-slate-100 cursor-not-allowed opacity-60' : 'bg-slate-50/50 border-slate-200 hover:bg-slate-50 hover:border-indigo-200 cursor-pointer'}`}
                       >
-                        <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-3 group-hover:text-indigo-400 transition-colors">
+                        <span className={`text-[11px] font-black uppercase tracking-[0.2em] flex items-center gap-3 transition-colors ${isDatePast ? 'text-slate-300' : 'text-slate-400 group-hover:text-indigo-400'}`}>
                           <svg
                             className="w-4 h-4"
                             fill="none"
@@ -251,7 +254,7 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
                               d="M12 6v6m0 0v6m0-6h6m-6 0H6"
                             />
                           </svg>
-                          This slot of meeting is available
+                          {isDatePast ? 'Past date – booking disabled' : 'This slot of meeting is available'}
                         </span>
                       </div>
                     )}
