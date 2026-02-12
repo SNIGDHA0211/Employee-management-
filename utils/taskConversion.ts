@@ -41,16 +41,52 @@ export function convertApiTasksToTasks(
         rawAssignedTo = at;
       }
     }
-    const assigneeArray = Array.isArray(apiTask.Assigned_to) ? apiTask.Assigned_to : (Array.isArray(apiTask.assigned_to) ? apiTask.assigned_to : apiTask.assignees);
+    let assigneeArray: any[] | undefined;
+    const at = apiTask.Assigned_to ?? apiTask.assigned_to ?? apiTask['assigned_to'];
+    if (Array.isArray(at)) {
+      assigneeArray = at;
+    } else if (Array.isArray(apiTask.assignees)) {
+      assigneeArray = apiTask.assignees;
+    } else if (Array.isArray(apiTask.Report_to)) {
+      assigneeArray = apiTask.Report_to;
+    } else if (Array.isArray(apiTask.report_to)) {
+      assigneeArray = apiTask.report_to;
+    } else if (Array.isArray(apiTask.assigned_to_ids)) {
+      assigneeArray = apiTask.assigned_to_ids;
+    } else if (at && typeof at === 'object' && Array.isArray(at.ids)) {
+      assigneeArray = at.ids;
+    } else if (typeof at === 'string' && at.includes(',')) {
+      assigneeArray = at.split(',').map((s: string) => s.trim()).filter(Boolean);
+    } else if (Array.isArray(apiTask.assignee_details)) {
+      assigneeArray = apiTask.assignee_details;
+    } else if (Array.isArray(apiTask.assigned_to_details)) {
+      assigneeArray = apiTask.assigned_to_details;
+    } else if (typeof apiTask.report_to === 'string' && apiTask.report_to.trim()) {
+      assigneeArray = apiTask.report_to.includes(',')
+        ? apiTask.report_to.split(',').map((s: string) => s.trim()).filter(Boolean).map((name: string) => ({ assignee: name }))
+        : [{ assignee: apiTask.report_to.trim() }];
+    }
     let assigneeIds: string[] | undefined;
-    if ((!rawAssignedTo || typeof rawAssignedTo !== 'string') && Array.isArray(assigneeArray) && assigneeArray.length > 0) {
+    if (Array.isArray(assigneeArray) && assigneeArray.length > 0) {
       const resolvedIds: string[] = [];
       for (const item of assigneeArray) {
-        if (typeof item === 'number' || (typeof item === 'string' && /^\d+$/.test(item))) {
+        if (typeof item === 'number') {
           resolvedIds.push(String(item));
           continue;
         }
-        const assigneeName = typeof item === 'string' ? item.trim() : (item?.assignee ? String(item.assignee).trim() : '');
+        if (typeof item === 'string' && item.trim()) {
+          resolvedIds.push(item.trim());
+          continue;
+        }
+        if (item && typeof item === 'object') {
+          const objId = item.assignee_id ?? item.assigneeId ?? item.id ?? item.employee_id ?? item.Employee_id ?? item['Employee_id'];
+          if (objId != null) {
+            resolvedIds.push(String(objId).trim());
+            continue;
+          }
+        }
+        const rawName = item?.assignee ?? item?.Assignee ?? item?.name ?? item?.Name;
+        const assigneeName = typeof rawName === 'string' ? rawName.trim() : (rawName && typeof rawName === 'object' && (rawName as any).name ? String((rawName as any).name) : '');
         if (assigneeName) {
           const foundUser = users.find(u =>
             u.name === assigneeName ||
@@ -64,7 +100,25 @@ export function convertApiTasksToTasks(
       }
       if (resolvedIds.length > 0) {
         rawAssignedTo = resolvedIds[0];
-        if (resolvedIds.length > 1) assigneeIds = resolvedIds;
+        assigneeIds = resolvedIds;
+      }
+    }
+    if (Array.isArray(assigneeIds) && assigneeIds.length > 0) {
+      const reportTo = apiTask.report_to ?? apiTask.Report_to;
+      if (typeof reportTo === 'string' && reportTo.includes(',')) {
+        const extras = reportTo.split(',').map((s: string) => s.trim()).filter(Boolean);
+        const seen = new Set(assigneeIds);
+        for (const name of extras) {
+          const found = users.find(u =>
+            u.name === name || u.name?.toLowerCase() === name.toLowerCase() || u.email === name ||
+            String((u as any).Employee_id) === name
+          );
+          const id = found?.id ?? (found ? (found as any).Employee_id : null) ?? name;
+          if (id && !seen.has(String(id))) {
+            seen.add(String(id));
+            assigneeIds = [...(assigneeIds || []), String(id)];
+          }
+        }
       }
     }
     if (!rawAssignedTo) rawAssignedTo = currentUser.id;
@@ -84,7 +138,7 @@ export function convertApiTasksToTasks(
       if (foundReporter) reporterId = foundReporter.id;
     }
 
-      const rawDescription = apiTask.Description || apiTask.description || apiTask['Description'] || apiTask['description'] || '';
+    const rawDescription = apiTask.Description || apiTask.description || apiTask['Description'] || apiTask['description'] || '';
     const cleanDescription = rawDescription
       .replace(/\n\n\[ExcludeFromMDReporting:\w+\]/g, '')
       .replace(/\n\[ExcludeFromMDReporting:\w+\]/g, '')

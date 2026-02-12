@@ -397,6 +397,28 @@ interface GetEmployeesResponse {
  * @param useAdminEndpoint - Whether to use admin endpoint
  * @endpoint POST /accounts/login/ or POST /admin/
  */
+function extractServerMessage(error: any, status?: number): Error & { response?: any } {
+  const data = error.response?.data;
+  let serverMsg = "";
+  if (data) {
+    if (typeof data === "string") serverMsg = data;
+    else if (data.message) serverMsg = data.message;
+    else if (data.detail) serverMsg = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+    else if (data.error) serverMsg = data.error;
+    else if (Array.isArray(data.non_field_errors) && data.non_field_errors.length > 0)
+      serverMsg = data.non_field_errors.join(" ");
+    else if (typeof data === "object" && Object.keys(data).length > 0) {
+      const firstVal = Object.values(data)[0];
+      serverMsg = Array.isArray(firstVal) ? (firstVal as string[]).join(" ") : String(firstVal);
+    }
+  }
+  const fallback =
+    status === 403 ? "Access forbidden. You do not have permission." : "Invalid credentials. Please check your username and password.";
+  const err = new Error(serverMsg || fallback) as Error & { response?: any };
+  err.response = error.response; // Preserve so App can check status
+  return err;
+}
+
 export const login = async (
   username: string,
   password: string,
@@ -421,8 +443,6 @@ export const login = async (
 
   // Try multiple field names - backend might expect Employee_id, Email_id, Email, email, or username
   const fieldNames = ["username", "Employee_id", "Email_id", "Email", "email"];
-
-  let lastError: Error | null = null;
 
   for (const fieldName of fieldNames) {
     try {
@@ -457,7 +477,8 @@ export const login = async (
           return data;
         }
       } catch (formError: any) {
-        if (formError.response?.status === 406) {
+        const status = formError.response?.status;
+        if (status === 406) {
           try {
             const requestBody: any = {};
             requestBody[fieldName] = trimmedUsername;
@@ -479,27 +500,22 @@ export const login = async (
               return data;
             }
           } catch (jsonError: any) {
-            // If 401/403, try next field name
-            if (
-              jsonError.response?.status === 401 ||
-              jsonError.response?.status === 403
-            ) {
-              lastError = jsonError;
-              continue;
+            if (jsonError.response?.status === 401 || jsonError.response?.status === 403) {
+              throw extractServerMessage(jsonError, jsonError.response?.status);
             }
             throw jsonError;
           }
-        } else if (
-          formError.response?.status === 401 ||
-          formError.response?.status === 403
-        ) {
-          lastError = formError;
-          continue;
+        } else if (status === 401 || status === 403) {
+          // Don't retry with other field names - 403/401 means forbidden/unauthorized
+          throw extractServerMessage(formError, status);
         } else {
           throw formError;
         }
       }
     } catch (error: any) {
+      if (error.response?.status === 400) {
+        throw extractServerMessage(error, 400);
+      }
       // Check if it's a network error (CORS or connection issue)
       // Axios network errors have code 'ERR_NETWORK' or 'ERR_CONNECTION_REFUSED'
       if (
@@ -528,10 +544,6 @@ ${isDevelopment ? 'Note: Using Vite proxy (/api) to bypass CORS. Make sure:\n- B
     }
   }
 
-  // If we tried all field names and none worked, throw the last error or a generic one
-  if (lastError) {
-    throw lastError;
-  }
   throw new Error(
     "Login failed: Unable to authenticate with any field name. Please check your credentials."
   );
@@ -577,10 +589,6 @@ export const getEmployeeDashboard = async (): Promise<Employee> => {
   try {
     const response = await api.get("/accounts/employee/dashboard/", {
       params: { _t: Date.now() },
-      headers: {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        Pragma: "no-cache",
-      },
     });
 
     const data = response.data;
@@ -689,7 +697,7 @@ export const createEmployee = async (employeeData: {
 
 /**
  * Get all employees from accounts API (includes department, function for NMRHI filtering)
- * Tries: GET /accounts/accounts/employees/ then /accounts/employees/ as fallback
+ * Tries: GET /accounts/employees/ then /accounts/accounts/employees/ as fallback
  */
 export const getEmployeesFromAccounts = async (): Promise<any[]> => {
   const parseResponse = (data: any) => {
@@ -699,7 +707,7 @@ export const getEmployeesFromAccounts = async (): Promise<any[]> => {
     if (data?.data && Array.isArray(data.data)) return data.data;
     return [];
   };
-  for (const path of ['/accounts/accounts/employees/', '/accounts/employees/']) {
+  for (const path of ['/accounts/employees/', '/accounts/accounts/employees/']) {
     try {
       const response = await api.get(path, { headers: { 'Accept': 'application/json' } });
       return parseResponse(response.data);
@@ -1495,28 +1503,42 @@ export const getDepartments = async (role?: string): Promise<string[]> => {
 
 /**
  * Get team leads for a specific role
- * @endpoint GET /accounts/getTeamleads/?Role=
- * @param role - Role to get team leads for (Employee, Intern, etc.)
+ * @endpoint GET /accounts/getTeamleads/?Role= or GET /accounts/getTeamleads/ (no param)
+ * @param role - Role context (Employee/Intern when fetching TLs for assignment). API may expect "TeamLead" or no param.
  * @returns Array of team lead objects with Name and Employee_id
  */
 export const getTeamleads = async (role: string): Promise<Array<{ Name: string; Employee_id: string }>> => {
-  try {
-    const endpoint = `/accounts/getTeamleads/?Role=${encodeURIComponent(role)}`;const response = await api.get(endpoint);
-    const data = response.data;// Handle different response formats
-    if (Array.isArray(data)) {
-      // Filter out empty objects
-      const validTeamLeads = data.filter((tl: any) => tl && tl.Name && tl.Employee_id);return validTeamLeads;
-    } else if (data.teamLeads && Array.isArray(data.teamLeads)) {
-      return data.teamLeads.filter((tl: any) => tl && tl.Name && tl.Employee_id);
-    } else if (data.data && Array.isArray(data.data)) {
-      return data.data.filter((tl: any) => tl && tl.Name && tl.Employee_id);
-    } else {return [];
+  const tryEndpoints = [
+    `/accounts/getTeamleads/`,  // No Role param - backend may return all team leads
+    `/accounts/getTeamleads/?Role=${encodeURIComponent('TeamLead')}`,
+    `/accounts/getTeamleads/?Role=${encodeURIComponent(role)}`,
+  ];
+
+  for (const endpoint of tryEndpoints) {
+    try {
+      const response = await api.get(endpoint);
+      const data = response.data;
+      // Handle different response formats
+      if (Array.isArray(data)) {
+        const validTeamLeads = data.filter((tl: any) => tl && tl.Name && tl.Employee_id);
+        return validTeamLeads;
+      }
+      if (data?.teamLeads && Array.isArray(data.teamLeads)) {
+        return data.teamLeads.filter((tl: any) => tl && tl.Name && tl.Employee_id);
+      }
+      if (data?.data && Array.isArray(data.data)) {
+        return data.data.filter((tl: any) => tl && tl.Name && tl.Employee_id);
+      }
+      return [];
+    } catch (error: any) {
+      const status = error.response?.status;
+      const msg = error.response?.data?.message || error.response?.data?.detail || error.message;
+      console.warn(`[GET TEAM LEADS] ${endpoint} failed (${status}):`, msg);
+      // Continue to next endpoint
     }
-  } catch (error: any) {
-    console.error("❌ [GET TEAM LEADS] Error fetching team leads:", error);
-    // Return empty array instead of throwing for better UX
-    return [];
   }
+  console.error("❌ [GET TEAM LEADS] All endpoints failed");
+  return [];
 };
 
 /**

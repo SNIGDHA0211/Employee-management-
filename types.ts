@@ -69,6 +69,8 @@ export const formatRoleForDisplay = (role: UserRole | string): string => {
     case 'ADMIN':
       return 'Admin';
     case 'TEAM_LEADER':
+    case 'TEAMLEAD':
+    case 'TEAMLEADER':
       return 'Team Leader';
     case 'EMPLOYEE':
       return 'Employee';

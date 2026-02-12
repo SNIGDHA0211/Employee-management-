@@ -1,12 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { UserPlus, Trash2, Shield, Calendar, Mail, User as UserIcon, Upload, Hash, Camera, Lock, Key, Building2, X, Briefcase, Users as UsersIcon, Pencil, Check, XCircle, Clock, Plus } from 'lucide-react';
+import { UserPlus, Trash2, Shield, Calendar, Mail, User as UserIcon, Upload, Hash, Camera, Lock, Key, Building2, X, Briefcase, Users as UsersIcon, Pencil, Check, XCircle, Clock, Plus, Search } from 'lucide-react';
 import api, { 
   getDesignations as apiGetDesignations,
   getBranch as apiGetBranch,
   getDepartmentsandFunctions as apiGetDepartmentsandFunctions,
-  getTeamleads as apiGetTeamleads,
   getRoles as apiGetRoles,
   createEmployee as apiCreateEmployee,
   updateProfile as apiUpdateProfile,
@@ -30,6 +29,18 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     const isMockUser = /^u\d+$/.test(user.id);
     return !isMockUser;
   });
+
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const filteredDisplayUsers = userSearchQuery.trim()
+    ? displayUsers.filter(user => {
+        const q = userSearchQuery.trim().toLowerCase();
+        const name = (user.name || '').toLowerCase();
+        const email = (user.email || '').toLowerCase();
+        const id = (user.id || '').toLowerCase();
+        const empId = String((user as any).Employee_id || '').toLowerCase();
+        return name.includes(q) || email.includes(q) || id.includes(q) || empId.includes(q);
+      })
+    : displayUsers;
 
   useEffect(() => {
     const employees = users.filter(user => !/^u\d+$/.test(user.id));
@@ -98,7 +109,6 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
   const [roles, setRoles] = useState<string[]>([]);
   const [teamLeads, setTeamLeads] = useState<Array<{ Name: string; Employee_id: string }>>([]);
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
-  const [isLoadingTeamLeads, setIsLoadingTeamLeads] = useState(false);
   const optionsLoadedRef = useRef(false);
   const hasLoadedOnceRef = useRef(false);
 
@@ -122,11 +132,16 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         ? branchesData.filter(b => b != null && typeof b === 'string' && b.trim() !== '')
         : [];
       
-      // Filter and sanitize roles - only keep valid strings
-      const validRoles = Array.isArray(rolesData)
+      // Filter and sanitize roles - ensure TeamLead is included (API may omit it)
+      let validRoles = Array.isArray(rolesData)
         ? rolesData.filter(r => r != null && typeof r === 'string' && r.trim() !== '')
         : [];
-      
+      const hasTeamLead = validRoles.some((r: string) => {
+        const u = String(r).toUpperCase().replace(/[_\s]/g, '');
+        return u === 'TEAMLEAD' || u === 'TEAMLEADER' || (u.includes('TEAM') && u.includes('LEAD'));
+      });
+      if (!hasTeamLead) validRoles = [...validRoles, 'TeamLead'];
+
       setDesignations(validDesignations);
       setBranches(validBranches);
       setRoles(validRoles);
@@ -141,27 +156,24 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     }
   };
 
-  // Fetch team leads based on selected role
-  const fetchTeamLeadsForRole = async (role: string) => {
-    // Only fetch team leads for Employee and Intern roles
+  // Derive team leads from users (get employees) - no separate API call
+  const deriveTeamLeadsFromUsers = (role: string) => {
     const normalizedRole = String(role).trim().toUpperCase();
     if (normalizedRole !== 'EMPLOYEE' && normalizedRole !== 'INTERN') {
       setTeamLeads([]);
-      setFormData(prev => ({ ...prev, teamLead: '' })); // Clear team lead selection
+      setFormData(prev => ({ ...prev, teamLead: '' }));
       return;
     }
-
-    setIsLoadingTeamLeads(true);
-    try {
-      const teamLeadsData = await apiGetTeamleads(role);
-      setTeamLeads(teamLeadsData || []);
-    } catch (error: any) {
-      console.error('❌ [ADMIN] Error fetching team leads:', error);
-      setTeamLeads([]);
-      setError('Failed to load team leads. Please try again.');
-    } finally {
-      setIsLoadingTeamLeads(false);
-    }
+    const isTeamLead = (u: User) => {
+      if (u.role === UserRole.TEAM_LEADER) return true;
+      const raw = String((u as any).rawRole || u.role || '').toUpperCase().replace(/[_\s]/g, '');
+      return raw === 'TEAMLEAD' || raw === 'TEAMLEADER' || (raw.includes('TEAM') && raw.includes('LEAD'));
+    };
+    const tlList = users
+      .filter(u => !/^u\d+$/.test(u.id) && isTeamLead(u))
+      .map(u => ({ Name: u.name || 'Unknown', Employee_id: String((u as any).Employee_id || u.id || '') }))
+      .filter(tl => tl.Employee_id);
+    setTeamLeads(tlList);
   };
 
   // Fetch departments and functions based on selected role (using combined endpoint)
@@ -218,9 +230,9 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         setFunctions([]);
       }
       
-      // Fetch team leads for Employee and Intern roles
+      // Derive team leads from users for Employee and Intern roles
       if (roleStr === 'EMPLOYEE' || roleStr === 'INTERN') {
-        fetchTeamLeadsForRole(String(formData.role));
+        deriveTeamLeadsFromUsers(String(formData.role));
       } else {
         setTeamLeads([]);
         setFormData(prev => ({ ...prev, teamLead: '' })); // Clear team lead selection
@@ -231,7 +243,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       setTeamLeads([]);
       setFormData(prev => ({ ...prev, teamLead: '' }));
     }
-  }, [formData.role]);
+  }, [formData.role, users]);
 
   // Map a single API employee object to User (shared by onRefreshEmployees and fetchListData)
   const mapEmployeeToUser = (emp: any): User & { rawRole?: string; department?: string; function?: string; teamLead?: string } => {
@@ -289,13 +301,15 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         const roleUpper = roleString.toUpperCase();
         let userRole: UserRole = UserRole.EMPLOYEE;
         
-        // Normalize team leader variations: "Team lead", "Team Leader", "TEAM LEADER", "TEAM_LEADER", etc.
-        const normalizedRole = roleUpper.replace(/[_\s]+/g, '_'); // Replace spaces/underscores with single underscore
-        
+        // Normalize team leader variations: "Team lead", "Team Leader", "TEAM LEADER", "TEAM_LEADER", "TeamLead", etc.
+        const normalizedRole = roleUpper.replace(/[_\s]+/g, '_');
+        const normalizedCompact = roleUpper.replace(/[_\s]+/g, '');
+
         if (roleUpper === 'MD') userRole = UserRole.MD;
         else if (roleUpper === 'ADMIN') userRole = UserRole.ADMIN;
         else if (normalizedRole === 'TEAM_LEADER' || 
                  normalizedRole === 'TEAMLEADER' ||
+                 normalizedCompact === 'TEAMLEAD' ||
                  (roleUpper.includes('TEAM') && roleUpper.includes('LEAD'))) {
           userRole = UserRole.TEAM_LEADER;
         }
@@ -754,7 +768,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      <div className="border-b border-gray-200 bg-gray-50 p-4 flex space-x-4">
+      <div className="border-b border-gray-200 bg-gray-50 p-4 flex flex-wrap items-center gap-3">
         <button 
           onClick={() => setActiveTab('list')}
           className={`px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === 'list' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
@@ -768,6 +782,25 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
           <UserPlus size={18} />
           <span>Add Employee</span>
         </button>
+        {activeTab === 'list' && (
+          <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-md ml-auto">
+            <div className="relative flex-1">
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search by employee name, email, or ID..."
+                value={userSearchQuery}
+                onChange={(e) => setUserSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:outline-none bg-white"
+              />
+            </div>
+            {userSearchQuery && (
+              <span className="text-sm text-gray-500 whitespace-nowrap">
+                {filteredDisplayUsers.length} of {displayUsers.length}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="p-6">
@@ -813,7 +846,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {displayUsers.length === 0 ? (
+                {filteredDisplayUsers.length === 0 ? (
                   <tr>
                     <td colSpan={13} className="py-8 text-center">
                       {error ? (
@@ -821,13 +854,15 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                           <span className="text-red-600 font-semibold">⚠️ Error loading employees</span>
                           <span className="text-sm text-gray-600 max-w-2xl px-4">{error}</span>
                         </div>
+                      ) : userSearchQuery.trim() ? (
+                        <span className="text-gray-500">No employees match &quot;{userSearchQuery.trim()}&quot;</span>
                       ) : (
                         <span className="text-gray-500">No employees found in the system.</span>
                       )}
                     </td>
                   </tr>
                 ) : (
-                  displayUsers.map(user => {
+                  filteredDisplayUsers.map(user => {
                     // Ensure avatar URL is properly formatted
                     const avatarUrl = user.avatar && user.avatar.trim() 
                       ? (user.avatar.startsWith('http') || user.avatar.startsWith('data:') 
@@ -1169,7 +1204,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                         .filter(r => r != null && typeof r === 'string' && r.trim() !== '')
                         .map((role, index) => (
                           <option key={`role-api-${String(role)}-${index}`} value={String(role)}>
-                            {String(role)}
+                            {formatRoleForDisplay(String(role))}
                           </option>
                         ))
                     ) : (
@@ -1319,7 +1354,6 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white"
                       value={formData.teamLead}
                       onChange={e => setFormData({...formData, teamLead: e.target.value})}
-                      disabled={isLoadingTeamLeads}
                     >
                       <option value="">Select Team Lead</option>
                       {Array.isArray(teamLeads) && teamLeads.length > 0 ? (
@@ -1329,13 +1363,12 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                           </option>
                         ))
                       ) : (
-                        !isLoadingTeamLeads && <option disabled>No team leads available</option>
+                        <option disabled>No team leads available</option>
                       )}
                     </select>
                   </div>
-                  {isLoadingTeamLeads && <p className="text-xs text-gray-500">Loading team leads...</p>}
-                  {!isLoadingTeamLeads && teamLeads.length === 0 && formData.role && (
-                    <p className="text-xs text-yellow-600">No team leads found. Check console for errors.</p>
+                  {teamLeads.length === 0 && formData.role && (
+                    <p className="text-xs text-gray-500">No team leads in employees list.</p>
                   )}
                 </div>
               )}

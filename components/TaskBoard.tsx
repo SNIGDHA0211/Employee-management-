@@ -17,7 +17,7 @@ import api, {
   getTaskMessages as apiGetTaskMessages,
   changeTaskStatus as apiChangeTaskStatus
 } from '../services/api';
-import { convertApiTasksToTasks } from '../utils/taskConversion';
+import { convertApiTasksToTasks } from '@/utils/taskConversion';
 
 interface TaskBoardProps {
   currentUser: User;
@@ -92,7 +92,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
   const [reportingDateFilter, setReportingDateFilter] = useState<string | null>(null);
   // Date filter for Assigned Tasks - null = show all
   const [assignedDateFilter, setAssignedDateFilter] = useState<string | null>(null);
-  // Search filter - by task title or created by
+  // Search filter - by task title, description, or created by
   const [searchQuery, setSearchQuery] = useState<string>('');
   // Branch filter - filter by branch of user who created the task
   const [branchFilter, setBranchFilter] = useState<string>('');
@@ -430,16 +430,25 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         apiTasks = Array.isArray(apiTasks) ? apiTasks : (apiTasks && typeof apiTasks === 'object' ? [apiTasks] : []);
 
         // Convert API tasks to frontend Task format (handles Task_id, Title, Assigned_to, etc.)
-        const convertedTasks = convertApiTasksToTasks(apiTasks, users, currentUser);
-        
-      const uniqueTasks = convertedTasks.filter((task, index, self) => 
-        index === self.findIndex(t => t.id === task.id)
-      );
-      if (!cancelled) setTasks(uniqueTasks);
+        let convertedTasks: Task[];
+        try {
+          convertedTasks = convertApiTasksToTasks(apiTasks, users, currentUser);
+        } catch (convertErr: any) {
+          throw new Error(convertErr?.message || 'Invalid task data received from server.');
+        }
+        const uniqueTasks = convertedTasks.filter((task, index, self) =>
+          index === self.findIndex(t => t.id === task.id)
+        );
+        if (!cancelled) setTasks(uniqueTasks);
       } catch (err: any) {
         if (!cancelled) {
-          console.error('❌ [FETCH ERROR]', err);
-          setTaskError(err.message || 'Failed to fetch tasks from server');
+          const status = err?.response?.status;
+          const msg = status === 404
+            ? 'Tasks endpoint not found. Please check if the backend server is running and the API is configured correctly.'
+            : status === 500
+            ? 'Server error while loading tasks. The backend may be temporarily unavailable. Please try again later.'
+            : (err.message || 'Failed to fetch tasks from server');
+          setTaskError(msg);
         }
       } finally {
         if (!cancelled) setIsLoadingTasks(false);
@@ -560,12 +569,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
     if (filterType !== 'ALL' && task.type !== filterType) return false;
     // Apply status filter
     if (filterStatus !== 'ALL' && task.status !== filterStatus) return false;
-    // Apply search filter - by task title or created by
+    // Apply search filter - by task title, description, or created by
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       const titleMatch = (task.title || '').toLowerCase().includes(q);
+      const descMatch = (task.description || '').toLowerCase().includes(q);
       const createdByMatch = (task.createdByName || '').toLowerCase().includes(q);
-      if (!titleMatch && !createdByMatch) return false;
+      if (!titleMatch && !descMatch && !createdByMatch) return false;
     }
     // Apply date filter - match task due date
     if (assignedDateFilter && assignedDateFilter.trim() !== '') {
@@ -754,8 +764,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       setIsLoadingReportingByByIndex({});
       
       // Refresh tasks from API to get the actual task with server-generated ID
-      // Don't add locally first to avoid duplicates
-      setTimeout(async () => {
+      // Use same conversion as initial fetch to avoid undefined/mismatched fields
+      const refreshAfterCreate = async () => {
         try {
           let apiTasks: any[];
           const isMD = currentUser.role === UserRole.MD;
@@ -765,76 +775,18 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
             apiTasks = isMD ? await apiViewTasks() : await apiViewAssignedTasks();
           }
           apiTasks = Array.isArray(apiTasks) ? apiTasks : (apiTasks && typeof apiTasks === 'object' ? [apiTasks] : []);
-          // Map backend type to frontend TaskType enum (reuse same logic)
-          // Accept both new format (capitalized with spaces) and old formats (lowercase/underscores) for backward compatibility
-          const typeMap: Record<string, TaskType> = {
-            'sos': TaskType.SOS, 'SOS': TaskType.SOS,
-            '1 day': TaskType.ONE_DAY, '1 Day': TaskType.ONE_DAY, '1day': TaskType.ONE_DAY, 'one day': TaskType.ONE_DAY,
-            '10 day': TaskType.TEN_DAYS, '10 Day': TaskType.TEN_DAYS, '10day': TaskType.TEN_DAYS, 'ten day': TaskType.TEN_DAYS,
-            'monthly': TaskType.MONTHLY, 'Monthly': TaskType.MONTHLY,
-            'quaterly': TaskType.Quaterly, 'Quaterly': TaskType.Quaterly, 'quarterly': TaskType.Quaterly, 'Quarterly': TaskType.Quaterly,
-            'group': TaskType.GROUP, 'Group': TaskType.GROUP,
-            'individual': TaskType.INDIVIDUAL, 'Individual': TaskType.INDIVIDUAL,
-            'one_day': TaskType.ONE_DAY, 'ten_days': TaskType.TEN_DAYS,
-          };
-          const statusMap: Record<string, TaskStatus> = {
-            'pending': TaskStatus.PENDING,
-            'in_progress': TaskStatus.IN_PROGRESS,
-            'completed': TaskStatus.COMPLETED,
-            'overdue': TaskStatus.OVERDUE,
-          };
-          
-          const convertedTasks: Task[] = apiTasks.map((apiTask: any) => {
-            const rawApiType = (apiTask.task_type || apiTask.type || apiTask['task_type'] || apiTask['type'] || 'Individual').trim();
-            const apiTypeLower = rawApiType.toLowerCase();
-            const apiStatus = (apiTask.status || apiTask['status'] || 'pending').toLowerCase();
-            // Extract assignee: API may have assigned_to as array [{ assignee: "Name" }]
-            let rawAssignedTo: string | number = currentUser.id;
-            const at = apiTask.assigned_to ?? apiTask['assigned_to'];
-            if (Array.isArray(at) && at.length > 0 && at[0]?.assignee) {
-              const assigneeName = String(at[0].assignee).trim();
-              const found = users.find(u => u.name === assigneeName || u.name?.toLowerCase() === assigneeName.toLowerCase() || u.email === assigneeName);
-              rawAssignedTo = found?.id ?? assigneeName;
-            } else if (typeof at === 'string' || typeof at === 'number') {
-              rawAssignedTo = at;
-            } else if (apiTask.assigned || apiTask.assigneeId || apiTask.assignee_id) {
-              rawAssignedTo = apiTask.assigned || apiTask.assigneeId || apiTask.assignee_id;
-            }
-            const rawReporterId = apiTask.reporterId || apiTask['reporterId'] || apiTask.created_by || apiTask['created_by'] || apiTask.reporter_id || apiTask.created_by_id || apiTask.created_by_name || apiTask['created_by_name'] || apiTask.assigner || apiTask['assigner'] || apiTask.assigned_by || apiTask['assigned_by'] || undefined;
-            const backendId = apiTask.task_id ?? apiTask['task_id'] ?? apiTask.id ?? apiTask['id'] ?? apiTask['task-id'];
-            return {
-              id: backendId ? String(backendId) : `t${Date.now()}-${Math.random()}`,
-              title: apiTask.title || apiTask['title'] || 'Untitled Task',
-              description: apiTask.description || apiTask['description'] || '',
-              type: typeMap[rawApiType] || typeMap[apiTypeLower] || TaskType.INDIVIDUAL,
-              status: statusMap[apiStatus] || TaskStatus.PENDING,
-              assigneeId: String(rawAssignedTo),
-              reporterId: rawReporterId,
-              dueDate: (() => {
-                const raw = apiTask.due_date || apiTask['due_date'] || apiTask['due-date'] || apiTask.dueDate || new Date().toISOString().split('T')[0];
-                if (!raw) return new Date().toISOString().split('T')[0];
-                const str = String(raw).trim();
-                const ddmmyyyy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-                if (ddmmyyyy) return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2,'0')}-${ddmmyyyy[1].padStart(2,'0')}`;
-                return str;
-              })(),
-              createdAt: apiTask.created_at || apiTask['created_at'] || apiTask.createdAt || new Date().toISOString(),
-              comments: apiTask.comments || apiTask['comments'] || [],
-              priority: (apiTask.priority || apiTask['priority'] || 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
-              projectId: apiTask.projectId || apiTask['projectId'] || apiTask.project_id || undefined,
-            };
-          });
-          
-          // Remove duplicates based on task ID (in case API returns duplicates)
-          const uniqueTasks = convertedTasks.filter((task, index, self) => 
+          const convertedTasks = convertApiTasksToTasks(apiTasks, users, currentUser);
+          const uniqueTasks = convertedTasks.filter((task, index, self) =>
             index === self.findIndex(t => t.id === task.id)
           );
-          
           setTasks(uniqueTasks);
         } catch (err) {
-          // Error handling - no console logs
+          // On refresh failure, keep existing tasks - don't clear
+          console.error('❌ [CREATE TASK] Refresh after create failed:', err);
         }
-      }, 500);
+      };
+      // Brief delay so backend has the new task indexed
+      setTimeout(refreshAfterCreate, 300);
       
     } catch (err: any) {
       setTaskError(err.message || 'Failed to create task. Please try again.');
@@ -1190,13 +1142,14 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
         return true;
       });
     }
-    // Apply search filter - by task title or created by
+    // Apply search filter - by task title, description, or created by
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       filteredReportingTasks = filteredReportingTasks.filter(task => {
         const titleMatch = (task.title || '').toLowerCase().includes(q);
+        const descMatch = (task.description || '').toLowerCase().includes(q);
         const createdByMatch = (task.createdByName || '').toLowerCase().includes(q);
-        return titleMatch || createdByMatch;
+        return titleMatch || descMatch || createdByMatch;
       });
     }
     // Apply branch filter - creator's branch must match (MD only)
@@ -1252,7 +1205,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                 <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 <input
                   type="text"
-                  placeholder="Search by title or created by..."
+                  placeholder="Search by title, description, or created by..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
@@ -1364,7 +1317,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                   </div>
 
                   {/* Display assigner and assignee names */}
-                  {/* For MD: show Created by from API (created_by); else show Assigned by if reporter exists */}
+                  {/* MD: Created by. TL→Intern/Employee: Assigned by + Assigned to. Intern/Employee: Created by + Reporting to */}
                   {currentUser.role === UserRole.MD && (task.createdByName || reporter?.name) && (
                     <div className="text-xs text-gray-500 mb-1.5">
                       Created by: <strong className="text-brand-600">{task.createdByName || reporter?.name}</strong>
@@ -1372,12 +1325,18 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                   )}
                   {currentUser.role !== UserRole.MD && reporter && (
                     <div className="text-xs text-gray-500 mb-1.5">
-                      Assigned by: <strong className="text-brand-600">{reporter.name}</strong>
+                      {['INTERN', 'EMPLOYEE'].includes(String(reporter.role).toUpperCase())
+                        ? 'Created by:'
+                        : 'Assigned by:'}{' '}
+                      <strong className="text-brand-600">{reporter.name}</strong>
                     </div>
                   )}
                   {assignee && (
                     <div className="text-xs text-gray-500 mb-2">
-                      Reporting to: <strong className="text-brand-600">{assignee.name}</strong>
+                      {reporter && (String(reporter.role).toUpperCase() === 'TEAM_LEADER' && ['INTERN', 'EMPLOYEE'].includes(String(assignee.role).toUpperCase()))
+                        ? 'Assigned to:'
+                        : 'Reporting to:'}{' '}
+                      <strong className="text-brand-600">{assignee.name}</strong>
                     </div>
                   )}
 
@@ -2055,7 +2014,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                 <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 <input
                   type="text"
-                  placeholder="Search by title or created by..."
+                  placeholder="Search by title, description, or created by..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
@@ -2199,11 +2158,19 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                 )}
                 {currentUser.role !== UserRole.MD && reporter && (
                   <div className="text-xs text-gray-500 mb-1.5">
-                    Assigned by: <strong className="text-brand-600">{reporter.name}</strong>
+                    {['INTERN', 'EMPLOYEE'].includes(String(reporter.role).toUpperCase())
+                      ? 'Created by:'
+                      : 'Assigned by:'}{' '}
+                    <strong className="text-brand-600">{reporter.name}</strong>
                   </div>
                 )}
                 <div className="text-xs text-gray-500 mb-2">
-                  Assigned to: <strong className="text-brand-600">{assigneeDisplayName}</strong>
+                  {['INTERN', 'EMPLOYEE'].includes(String(currentUser.role).toUpperCase())
+                    ? 'Assigned to:'
+                    : (reporter && ['INTERN', 'EMPLOYEE'].includes(String(reporter.role).toUpperCase())
+                      ? 'Reporting to:'
+                      : 'Assigned to:')}{' '}
+                  <strong className="text-brand-600">{assigneeDisplayName}</strong>
                 </div>
 
                 <div className="flex justify-between items-center pt-3 border-t border-gray-100">
@@ -2772,3 +2739,4 @@ const TaskDetailModal: React.FC<{ task: Task; onClose: () => void; currentUser: 
 function CheckSquare(props: any) {
     return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
 }
+  

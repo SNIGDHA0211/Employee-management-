@@ -19,7 +19,7 @@ import api, {
 import { getNMRHIAllowedCategories } from './components/NMRHI/constants';
 import { convertApiTasksToTasks } from './utils/taskConversion';
 import { clearAuthData } from './services/utils/auth';
-import { Sidebar, Header, BirthdayBanner } from './components/Layout';
+import { Sidebar, Header } from './components/Layout';
 import { MeetCard } from './components/MeetCard';
 import { TaskBoard } from './components/TaskBoard';
 import { ChatSystem } from './components/ChatSystem';
@@ -120,10 +120,16 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
         try {
           loginResponse = await apiLogin(username, password, false);
         } catch (regularError: any) {
-          try {
-            loginResponse = await apiLogin(username, password, true);
-          } catch (adminError: any) {
-            throw regularError; // Throw the regular error to preserve original message
+          const status = regularError?.response?.status;
+          // Only try admin endpoint for 401/403; 400 means invalid credentials - don't retry
+          if (status === 401 || status === 403) {
+            try {
+              loginResponse = await apiLogin(username, password, true);
+            } catch (adminError: any) {
+              throw adminError; // Show admin endpoint error (e.g. "Access forbidden")
+            }
+          } else {
+            throw regularError;
           }
         }
         
@@ -255,6 +261,24 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
           return UserRole.EMPLOYEE;
         };
 
+        // Helper to extract name from dashboard - supports many backend field name variations
+        const extractNameFromDashboard = (dash: any, empId: string, uname: string): string => {
+          const first = dash?.['first_name'] || dash?.first_name;
+          const last = dash?.['last_name'] || dash?.last_name;
+          let name = '';
+          if (first || last) {
+            name = [first, last].filter(Boolean).join(' ').trim();
+          }
+          if (!name) {
+            const raw = dash?.['Name'] || dash?.['Full Name'] || dash?.name || dash?.['full_name'] || dash?.['Full_name'] || dash?.['fullName'] || dash?.['employee_name'] || dash?.['Employee_Name'];
+            name = typeof raw === 'string' ? raw.trim() : '';
+          }
+          // Don't use Employee_id or username as name when they look like numeric IDs
+          const looksLikeId = (s: string) => /^\d+$/.test(String(s).trim());
+          if (name && looksLikeId(name) && (name === empId || name === uname)) name = '';
+          return name || '';
+        };
+        
         // Try to fetch full employee details from dashboard endpoint first
         let employeeDashboard: any = null;
         try {
@@ -279,10 +303,12 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
                       ? String(employeeDashboard?.id)
                       : userProfile.id));
             
+            const dashName = extractNameFromDashboard(employeeDashboard, dashboardEmployeeId, username);
+            const fallbackName = userProfile.name && !/^\d+$/.test(String(userProfile.name).trim()) ? userProfile.name : '';
             userProfile = {
               ...userProfile,
               id: dashboardEmployeeId, // Set to Employee_id from dashboard (preserved as string)
-              name: employeeDashboard?.['Name'] || employeeDashboard?.['Full Name'] || employeeDashboard?.name || userProfile.name,
+              name: dashName || fallbackName || dashboardEmployeeId,
               email: employeeDashboard?.['Email_id'] || employeeDashboard?.['Email Address'] || employeeDashboard?.email || userProfile.email,
               role: mappedRole,
               designation: employeeDashboard?.['Designation'] || employeeDashboard?.designation || userProfile.designation,
@@ -331,7 +357,7 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
                     ? String(employeeDashboard?.id)
                     : String(username)));
           
-          const fullName = employeeDashboard?.['Name'] || employeeDashboard?.['Full Name'] || employeeDashboard?.name || loginResponse?.username || username;
+          const fullName = extractNameFromDashboard(employeeDashboard, employeeId, username) || loginResponse?.username || username;
           const email = employeeDashboard?.['Email_id'] || employeeDashboard?.['Email Address'] || employeeDashboard?.email || (username.includes('@') ? username : `${username}@planeteye.com`);
           const designation = employeeDashboard?.['Designation'] || employeeDashboard?.designation || '';
           const branch = employeeDashboard?.['Branch'] || employeeDashboard?.branch || '';
@@ -1003,10 +1029,11 @@ export default function App() {
 
         const mapApiRoleToUserRole = (apiRole: any): UserRole => {
           const extractedRole = extractRoleFromApiResponse(apiRole);
-          const normalizedRole = extractedRole.toUpperCase().trim();
+          const normalizedRole = extractedRole.toUpperCase().trim().replace(/\s+/g, '_');
+          const normalizedCompact = normalizedRole.replace(/_/g, '');
           if (normalizedRole === 'MD') return UserRole.MD;
           if (normalizedRole === 'ADMIN') return UserRole.ADMIN;
-          if (normalizedRole === 'TEAM_LEADER' || normalizedRole === 'TEAM LEADER') return UserRole.TEAM_LEADER;
+          if (normalizedRole === 'TEAM_LEADER' || normalizedRole === 'TEAM_LEAD' || normalizedCompact === 'TEAMLEAD' || normalizedCompact === 'TEAMLEADER') return UserRole.TEAM_LEADER;
           if (normalizedRole === 'EMPLOYEE') return UserRole.EMPLOYEE;
           if (normalizedRole === 'INTERN') return UserRole.INTERN;
           if (Object.values(UserRole).includes(normalizedRole as UserRole)) {
@@ -1073,20 +1100,29 @@ export default function App() {
           return u;
         });
 
-        // If we have a logged-in user, also update their numberOfDaysFromJoining from the API data
+        // If we have a logged-in user, also update their numberOfDaysFromJoining and name from the API data
         if (cu) {
           const match = finalUsers.find(u =>
             u.id === cu.id ||
+            (u.Employee_id && (cu as any).Employee_id && String(u.Employee_id) === String((cu as any).Employee_id)) ||
             u.email === cu.email ||
-            u.name.toLowerCase() === cu.name.toLowerCase()
+            (cu.name && u.name && u.name.toLowerCase() === cu.name.toLowerCase())
           );
 
-          if (match && match.numberOfDaysFromJoining !== undefined && match.numberOfDaysFromJoining !== null) {
-            setCurrentUser(prev =>
-              prev
-                ? { ...prev, numberOfDaysFromJoining: match.numberOfDaysFromJoining }
-                : prev
-            );
+          if (match) {
+            const needsNameEnrichment = !cu.name || /^\d+$/.test(String(cu.name).trim()) || String(cu.name).trim() === String((cu as any).Employee_id || cu.id).trim();
+            const hasValidName = match.name && match.name.trim() && match.name !== 'Unknown' && !/^\d+$/.test(String(match.name).trim());
+            setCurrentUser(prev => {
+              if (!prev) return prev;
+              const updates: Partial<User> = {};
+              if (match.numberOfDaysFromJoining !== undefined && match.numberOfDaysFromJoining !== null) {
+                updates.numberOfDaysFromJoining = match.numberOfDaysFromJoining;
+              }
+              if (needsNameEnrichment && hasValidName) {
+                updates.name = match.name;
+              }
+              return Object.keys(updates).length ? { ...prev, ...updates } : prev;
+            });
           }
         }
         
@@ -1101,6 +1137,26 @@ export default function App() {
   useEffect(() => {
     if (currentUser?.id) fetchEmployees();
   }, [currentUser?.id, fetchEmployees]);
+
+  // When users is empty (e.g. fetchEmployees failed for non-admin), try getEmployeesFromAccounts to enrich currentUser name
+  useEffect(() => {
+    if (!currentUser?.id || users.length > 0) return;
+    getEmployeesFromAccounts()
+      .then((employees) => {
+        const acc = employees.find((e: any) =>
+          String(e.Employee_id) === String((currentUser as any).Employee_id || currentUser.id) ||
+          e.Email_id === currentUser.email
+        );
+        if (acc) {
+          const empName = acc['Name'] || acc['Full Name'] || acc.name || acc['full_name'] || '';
+          const needsEnrichment = !currentUser.name || /^\d+$/.test(String(currentUser.name).trim()) || String(currentUser.name).trim() === String((currentUser as any).Employee_id || currentUser.id).trim();
+          if (needsEnrichment && empName && typeof empName === 'string' && empName.trim() && !/^\d+$/.test(empName.trim())) {
+            setCurrentUser(prev => prev ? { ...prev, name: empName.trim() } : prev);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [currentUser?.id, currentUser?.name, users.length]);
 
   // NMRHI allowed categories: MD sees all; Employees see only pages matching their function (from users list)
   useEffect(() => {
@@ -1121,7 +1177,7 @@ export default function App() {
       setAllowedNMRHICategories(allowed);
       return;
     }
-    // Fallback: when users is empty or no match, try accounts API
+    // Fallback: when users is empty or no match, try accounts API (also enriches currentUser name for non-admin users)
     if (users.length === 0) {
       getEmployeesFromAccounts()
         .then((employees) => {
@@ -1131,6 +1187,14 @@ export default function App() {
             String(e.Employee_id) === String((currentUser as any).Employee_id || currentUser.id)
           );
           setAllowedNMRHICategories(getNMRHIAllowedCategories(acc));
+          // Enrich currentUser name when dashboard didn't return it
+          if (acc) {
+            const empName = acc['Name'] || acc['Full Name'] || acc.name || acc['full_name'] || '';
+            const needsEnrichment = !currentUser.name || /^\d+$/.test(String(currentUser.name).trim()) || String(currentUser.name).trim() === String((currentUser as any).Employee_id || currentUser.id).trim();
+            if (needsEnrichment && empName && typeof empName === 'string' && empName.trim() && !/^\d+$/.test(empName.trim())) {
+              setCurrentUser(prev => prev ? { ...prev, name: empName.trim() } : prev);
+            }
+          }
         })
         .catch(() => setAllowedNMRHICategories([]));
     } else {
@@ -1552,7 +1616,6 @@ export default function App() {
 
        return (
          <div className="space-y-6">
-            <BirthdayBanner users={users} currentUser={currentUser} />
             <h2 className="text-2xl font-bold text-gray-800">Executive Overview</h2>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1904,7 +1967,7 @@ export default function App() {
       />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={currentUser} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onMeetClick={() => setShowMeetCard(true)} meetingRefreshTrigger={meetingRefreshTrigger} notificationMeetings={notificationMeetings} />
+        <Header user={currentUser} users={users} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onMeetClick={() => setShowMeetCard(true)} meetingRefreshTrigger={meetingRefreshTrigger} notificationMeetings={notificationMeetings} />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-4 md:p-6">
           {renderContent()}
         </main>

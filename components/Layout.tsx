@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart } from 'lucide-react';
 import { getMotivationalQuote } from '../services/gemini';
 import { getMeetingPush } from '../services/api';
 
@@ -99,24 +99,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
           >
             <div className="relative flex-shrink-0">
               <img 
-                src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`} 
-                alt={user.name} 
+                src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name && !/^\d+$/.test(String(user.name).trim()) ? user.name : 'Employee')}&background=random`} 
+                alt={user.name || 'Employee'} 
                 className="w-10 h-10 rounded-full border-2 border-brand-500 object-cover"
                 onLoad={() => {}}
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
                   console.error('❌ [SIDEBAR AVATAR] Image failed to load:', target.src);
-                  // If the image fails to load and it's not already a fallback, use ui-avatars
                   if (!target.src.includes('ui-avatars.com')) {
-                    const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`;
-                    target.src = fallbackUrl;
+                    const displayName = user.name && !/^\d+$/.test(String(user.name).trim()) ? user.name : 'Employee';
+                    target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`;
                   }
                 }}
               />
             </div>
             <div className="overflow-hidden">
-              <p className="font-medium text-sm truncate">{user.name}</p>
-              <p className="text-xs text-brand-400 truncate font-bold">{formatRoleForDisplay(user.role)}</p>
+              <p className="font-medium text-sm truncate">
+                {user.name && !/^\d+$/.test(String(user.name).trim()) ? user.name : 'Employee'}
+              </p>
+              <p className="text-xs text-brand-400 truncate font-bold">
+                {user.name && !/^\d+$/.test(String(user.name).trim()) ? formatRoleForDisplay(user.role) : `ID: ${(user as any).Employee_id || user.id} • ${formatRoleForDisplay(user.role)}`}
+              </p>
             </div>
           </div>
         </div>
@@ -239,7 +242,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
   );
 };
 
-export const Header: React.FC<{ user: User; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number; notificationMeetings?: any[] }> = ({ user, toggleSidebar, onMeetClick, meetingRefreshTrigger, notificationMeetings = [] }) => {
+export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number; notificationMeetings?: any[] }> = ({ user, users = [], toggleSidebar, onMeetClick, meetingRefreshTrigger, notificationMeetings = [] }) => {
   const [quote, setQuote] = useState("Loading thought...");
   const [showMeetingDropdown, setShowMeetingDropdown] = useState(false);
   const [localMeetings, setLocalMeetings] = useState<any[]>([]);
@@ -286,15 +289,41 @@ export const Header: React.FC<{ user: User; toggleSidebar: () => void; onMeetCli
   const meetingCount = meetings.length;
   const sortedMeetings = [...meetings].sort((a: any, b: any) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
 
+  const todayStr = new Date().toISOString().split('T')[0];
+  const birthdayUsers = users.filter((u: User) => u.birthDate?.endsWith(todayStr.slice(5)));
+  const showBirthdayWish = birthdayUsers.length > 0;
+
   return (
     <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-4 sticky top-0 z-10 shadow-sm">
-      <div className="flex items-center space-x-4">
-        <button onClick={toggleSidebar} className="p-2 hover:bg-gray-100 rounded-lg md:hidden">
+      <div className="flex items-center space-x-4 flex-1 min-w-0">
+        <button onClick={toggleSidebar} className="p-2 hover:bg-gray-100 rounded-lg md:hidden flex-shrink-0">
           <Menu size={24} />
         </button>
-        <div className="hidden md:flex items-center text-sm text-gray-600 italic">
-          <Sun size={16} className="text-orange-400 mr-2" />
-          "{quote}"
+        <div className="hidden md:flex items-center flex-1 min-w-0" style={{ maxWidth: '100%' }}>
+          {showBirthdayWish ? (
+            <div className="flex items-center gap-3 w-full max-w-full bg-gradient-to-r from-pink-500/90 via-purple-500/90 to-indigo-500/90 text-white px-4 py-2 rounded-lg shadow-md border border-white/20">
+              <Cake size={20} className="flex-shrink-0 text-pink-100" />
+              <div className="min-w-0 flex-1 truncate">
+                <span className="font-bold text-sm">Wishing you a very Happy Birthday {birthdayUsers.map((u: User) => u.name).join(', ')}</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-2.5 py-1 rounded-full font-bold text-sm">
+                <Heart size={16} className="text-pink-300 fill-pink-300" />
+                <span>{birthdayUsers.length}</span>
+              </div>
+              <button
+                onClick={() => alert(`Wish sent to ${birthdayUsers.map((u: User) => u.name).join(', ')}!`)}
+                className="flex-shrink-0 flex items-center gap-1.5 bg-white text-purple-600 px-3 py-1.5 rounded-lg font-semibold text-sm hover:bg-purple-50 transition-colors"
+              >
+                <Gift size={14} />
+                <span>Send Wishes</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center text-sm text-gray-600 italic min-w-0 truncate">
+              <Sun size={16} className="text-orange-400 mr-2 flex-shrink-0" />
+              <span className="truncate">&quot;{quote}&quot;</span>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex items-center space-x-4">
@@ -370,7 +399,7 @@ export const Header: React.FC<{ user: User; toggleSidebar: () => void; onMeetCli
 
 export const BirthdayBanner: React.FC<{ users: User[], currentUser: User }> = ({ users, currentUser }) => {
   const todayStr = new Date().toISOString().split('T')[0];
-  const birthdayUsers = users.filter(u => u.birthDate.endsWith(todayStr.slice(5)));
+  const birthdayUsers = users.filter(u => u.birthDate?.endsWith(todayStr.slice(5)));
   
   const [showConfetti, setShowConfetti] = useState(false);
 
@@ -395,17 +424,21 @@ export const BirthdayBanner: React.FC<{ users: User[], currentUser: User }> = ({
           <Cake size={32} />
         </div>
         <div>
-          <h3 className="font-bold text-2xl mb-1">Happy Birthday! 🎂</h3>
-          <p className="text-white/90 font-medium">
-            Let's celebrate: {birthdayUsers.map(u => u.name).join(', ')}
+          <h3 className="font-bold text-2xl mb-1">Birthday Wishes 🎂</h3>
+          <p className="text-white/95 font-medium text-lg">
+            Let&apos;s celebrate: {birthdayUsers.map(u => u.name).join(', ')}
           </p>
           {birthdayUsers.find(u => u.id === currentUser.id) && (
-             <p className="text-yellow-300 font-bold mt-1 text-sm">It's your special day! Have a wonderful one!</p>
+             <p className="text-yellow-300 font-bold mt-1 text-sm">It&apos;s your special day! Have a wonderful one!</p>
           )}
         </div>
       </div>
       
-      <div className="mt-4 md:mt-0 z-10 flex space-x-2">
+      <div className="mt-4 md:mt-0 z-10 flex items-center space-x-4">
+        <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full font-bold text-lg">
+          <Heart size={24} className="text-pink-300 fill-pink-300" />
+          <span>{birthdayUsers.length}</span>
+        </div>
         <button 
           onClick={() => alert(`Wish sent to ${birthdayUsers.map(u => u.name).join(', ')}!`)}
           className="bg-white text-purple-600 px-6 py-2 rounded-full font-bold shadow-md hover:scale-105 transition-transform flex items-center space-x-2"
