@@ -60,24 +60,26 @@ export interface Vendor {
   status: StatusType;
 }
 
-// Helper function to format role for display
+// Helper function to format role for display - uses backend case (HR, MD, TeamLead, Employee, Intern)
 export const formatRoleForDisplay = (role: UserRole | string): string => {
-  const roleStr = String(role).toUpperCase();
-  switch (roleStr) {
+  const roleStr = String(role).trim();
+  const upper = roleStr.toUpperCase().replace(/[_\s]/g, '');
+  switch (upper) {
     case 'MD':
       return 'MD';
     case 'ADMIN':
       return 'Admin';
-    case 'TEAM_LEADER':
+    case 'HR':
+      return 'HR';
     case 'TEAMLEAD':
     case 'TEAMLEADER':
-      return 'Team Leader';
+      return 'TeamLead';
     case 'EMPLOYEE':
       return 'Employee';
     case 'INTERN':
       return 'Intern';
     default:
-      return String(role);
+      return roleStr;
   }
 };
 

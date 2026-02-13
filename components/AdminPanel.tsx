@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { UserPlus, Trash2, Shield, Calendar, Mail, User as UserIcon, Upload, Hash, Camera, Lock, Key, Building2, X, Briefcase, Users as UsersIcon, Pencil, Check, XCircle, Clock, Plus, Search } from 'lucide-react';
+import { UserPlus, Trash2, Shield, Calendar, Mail, User as UserIcon, Upload, Hash, Camera, Lock, Key, Building2, X, Briefcase, Users as UsersIcon, Pencil, Clock, Plus, Search } from 'lucide-react';
 import api, { 
   getDesignations as apiGetDesignations,
   getBranch as apiGetBranch,
@@ -68,19 +68,23 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
   });
   const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
 
-  // Inline editing state
-  const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [inlineEditData, setInlineEditData] = useState<Record<string, {
-    name: string;
-    email: string;
-    role: string;
-    designation: string;
-    branch: string;
-    department: string;
-    function: string;
-    joinDate: string;
-    birthDate: string;
-  }>>({});
+  // Update Employee sidebar (opens when pencil clicked)
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [updateSidebarFormData, setUpdateSidebarFormData] = useState({
+    name: '',
+    email: '',
+    role: '',
+    designation: '',
+    branch: '',
+    department: '',
+    function: '',
+    teamLead: '',
+    joinDate: '',
+    birthDate: '',
+    password: '',
+  });
+  const [updateSidebarAvatarPreview, setUpdateSidebarAvatarPreview] = useState<string | null>(null);
+  const [updateSidebarAvatarFile, setUpdateSidebarAvatarFile] = useState<File | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -385,7 +389,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
   };
 
   // Fetch list data (employees + options) once on mount only — same pattern as AssetManager
-  // Refetch only after add/update/delete mutations (see handleSubmit, handleSaveEdit, handleSaveInlineEdit, delete handler)
+  // Refetch only after add/update/delete mutations (see handleSubmit, handleSaveEdit, handleUpdateSidebarSubmit, delete handler)
   useEffect(() => {
     fetchListData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -538,21 +542,82 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     e.target.value = '';
   };
 
-  const handleTablePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>, user: User) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleOpenEditSidebar = (user: User) => {
+    const rawRole = (user as any).rawRole || String(user.role);
+    const roleUpper = rawRole.toUpperCase().trim();
+    setEditingUser(user);
+    setUpdateSidebarFormData({
+      name: user.name,
+      email: user.email || '',
+      role: rawRole,
+      designation: user.designation || '',
+      branch: user.branch || '',
+      department: (user as any).department || '',
+      function: (user as any).function || '',
+      teamLead: (user as any).teamLead || (user as any).Team_Lead || '',
+      joinDate: user.joinDate ? new Date(user.joinDate).toISOString().split('T')[0] : '',
+      birthDate: user.birthDate ? new Date(user.birthDate).toISOString().split('T')[0] : '',
+      password: '',
+    });
+    setUpdateSidebarAvatarPreview(user.avatar || null);
+    setUpdateSidebarAvatarFile(null);
+    if (roleUpper !== 'MD' && roleUpper !== 'ADMIN') {
+      fetchDepartmentsAndFunctionsForRole(rawRole);
+    }
+  };
+
+  const handleCloseEditSidebar = () => {
+    setEditingUser(null);
+    setUpdateSidebarFormData({
+      name: '',
+      email: '',
+      role: '',
+      designation: '',
+      branch: '',
+      department: '',
+      function: '',
+      teamLead: '',
+      joinDate: '',
+      birthDate: '',
+      password: '',
+    });
+    setUpdateSidebarAvatarPreview(null);
+    setUpdateSidebarAvatarFile(null);
+  };
+
+  const handleUpdateSidebarSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setIsLoading(true);
+    setError(null);
     try {
-      setIsLoading(true);
-      setError(null);
-      await apiChangePhoto(user.id, file);
-      alert('Photo updated successfully!');
+      const employeeIdForApi = (editingUser as any).Employee_id ?? editingUser.id;
+      if (updateSidebarAvatarFile instanceof File) {
+        await apiChangePhoto(employeeIdForApi, updateSidebarAvatarFile);
+      }
+      await apiUpdateProfile({
+        employeeId: employeeIdForApi,
+        password: updateSidebarFormData.password || undefined,
+        fullName: updateSidebarFormData.name,
+        role: updateSidebarFormData.role,
+        designation: updateSidebarFormData.designation || undefined,
+        branch: updateSidebarFormData.branch || undefined,
+        department: updateSidebarFormData.department || undefined,
+        function: updateSidebarFormData.function || undefined,
+        teamLead: updateSidebarFormData.teamLead || undefined,
+        joiningDate: updateSidebarFormData.joinDate,
+        dateOfBirth: updateSidebarFormData.birthDate,
+        profilePicture: null,
+        emailAddress: updateSidebarFormData.email,
+      });
       await onRefreshEmployees?.();
+      handleCloseEditSidebar();
+      alert('Employee updated successfully!');
     } catch (err: any) {
-      setError(err.message || 'Failed to update photo.');
+      setError(err?.response?.data?.message || err?.message || 'Failed to update employee.');
     } finally {
       setIsLoading(false);
     }
-    e.target.value = '';
   };
 
   const handleEditClick = () => {
@@ -606,9 +671,11 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         password: editFormData.password || undefined,
         fullName: editFormData.name,
         role: editFormData.role,
-        designation: editFormData.designation,
-        branch: editFormData.branch,
-        department: editFormData.department,
+        designation: editFormData.designation || undefined,
+        branch: editFormData.branch || undefined,
+        department: editFormData.department || undefined,
+        function: (selectedUser as any).function || undefined,
+        teamLead: (selectedUser as any).teamLead || (selectedUser as any).Team_Lead || undefined,
         joiningDate: editFormData.joinDate,
         dateOfBirth: editFormData.birthDate,
         profilePicture: null,
@@ -647,123 +714,12 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     }
   };
 
-  // Inline editing handlers
-  const handleStartInlineEdit = (user: User) => {
-    setEditingUserId(user.id);
-    setInlineEditData({
-      [user.id]: {
-        name: user.name,
-        email: user.email || '',
-        role: (user as any).rawRole || String(user.role),
-        designation: user.designation || '',
-        branch: user.branch || '',
-        department: (user as any).department || '',
-        function: (user as any).function || '',
-        joinDate: user.joinDate ? new Date(user.joinDate).toISOString().split('T')[0] : '',
-        birthDate: user.birthDate ? new Date(user.birthDate).toISOString().split('T')[0] : '',
-      }
-    });
-    
-    // Fetch departments for the user's role
-    const userRole = (user as any).rawRole || String(user.role);
-    const roleUpper = userRole.toUpperCase().trim();
-    if (roleUpper !== 'MD' && roleUpper !== 'ADMIN') {
-      fetchDepartmentsAndFunctionsForRole(userRole);
-    } else {
-      setDepartments([]);
-      setFunctions([]);
-    }
-  };
-
-  const handleCancelInlineEdit = () => {
-    setEditingUserId(null);
-    setInlineEditData({});
-  };
-
-  const handleSaveInlineEdit = async (userId: string) => {
-    const editData = inlineEditData[userId];
-    if (!editData) return;
-
-    const user = displayUsers.find(u => u.id === userId);
-    if (!user) return;
-
-    // Validate required fields
-    if (!editData.name || !editData.name.trim()) {
-      setError('Name is required');
-      return;
-    }
-    if (!editData.email || !editData.email.trim()) {
-      setError('Email is required');
-      return;
-    }
-    if (!editData.role || !editData.role.trim()) {
-      setError('Role is required');
-      return;
-    }
-    if (!editData.joinDate) {
-      setError('Joining date is required');
-      return;
-    }
-    if (!editData.birthDate) {
-      setError('Birth date is required');
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      await apiUpdateProfile({
-        employeeId: userId,
-        fullName: editData.name.trim(),
-        role: editData.role.trim(),
-        designation: editData.designation?.trim() || '',
-        branch: editData.branch?.trim() || '',
-        department: editData.department?.trim() || '',
-        joiningDate: editData.joinDate,
-        dateOfBirth: editData.birthDate,
-        profilePicture: null, // Don't update photo in inline edit
-        emailAddress: editData.email.trim(),
-      });
-
-      // Refresh employees from API
-      await onRefreshEmployees?.();
-      
-      setEditingUserId(null);
-      setInlineEditData({});
-      
-      alert('Employee updated successfully!');
-    } catch (err: any) {
-      // Handle specific error cases
-      let errorMessage = 'Failed to update employee. Please try again.';
-      
-      if (err.response?.status === 403) {
-        errorMessage = 'Permission Denied: You do not have permission to update employee profiles. Only ADMIN or MD roles can update employee data.';
-      } else if (err.response?.status === 401) {
-        errorMessage = 'Authentication Error: Please login again.';
-      } else if (err.response?.status === 404) {
-        errorMessage = 'Employee not found. The employee may have been deleted.';
-      } else if (err.response?.status === 400) {
-        errorMessage = err.response?.data?.message || err.response?.data?.error || 'Invalid data. Please check all fields and try again.';
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-      
-      setError(errorMessage);
-      // Keep the row in edit mode so user can fix and retry
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const updateInlineEditField = (userId: string, field: string, value: string) => {
-    setInlineEditData(prev => ({
-      ...prev,
-      [userId]: {
-        ...prev[userId],
-        [field]: value,
-      }
-    }));
+  const handleUpdateSidebarAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUpdateSidebarAvatarFile(file);
+    const preview = URL.createObjectURL(file);
+    setUpdateSidebarAvatarPreview(preview);
   };
 
   return (
@@ -873,7 +829,8 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                     return (
                   <tr 
                     key={user.id} 
-                    className={`group ${editingUserId === user.id ? 'bg-blue-50' : ''}`}
+                    className="group cursor-pointer hover:bg-gray-50 transition-colors"
+                    onClick={() => handleOpenEditSidebar(user)}
                   >
                     <td className="py-3 text-sm text-gray-500 font-mono">{user.id}</td>
                     <td className="py-3 pr-4">
@@ -891,160 +848,49 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                                   }
                                 }}
                               />
-                              {editingUserId === user.id && (
-                                <label
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-brand-600 text-white rounded-full flex items-center justify-center cursor-pointer hover:bg-brand-700 shadow border-2 border-white z-10"
-                                  title="Change photo"
-                                >
-                                  <Plus size={10} strokeWidth={2.5} />
-                                  <input type="file" className="hidden" accept="image/*" onChange={(ev) => handleTablePhotoChange(ev, user)} />
-                                </label>
-                              )}
                             </div>
                         <div className="flex-1">
-                          {editingUserId === user.id ? (
-                            <input
-                              type="text"
-                              value={inlineEditData[user.id]?.name || user.name}
-                              onChange={(e) => updateInlineEditField(user.id, 'name', e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                            />
-                          ) : (
-                            <p className="font-bold text-gray-800 text-sm">{user.name}</p>
-                          )}
+                          <p className="font-bold text-gray-800 text-sm">{user.name}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="py-3" onClick={(e) => editingUserId === user.id && e.stopPropagation()}>
-                      {editingUserId === user.id ? (
-                        <input
-                          type="email"
-                          value={inlineEditData[user.id]?.email || user.email || ''}
-                          onChange={(e) => updateInlineEditField(user.id, 'email', e.target.value)}
-                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                        />
-                      ) : (
-                        <p className="text-xs text-gray-600">{user.email || 'N/A'}</p>
-                      )}
+                    <td className="py-3">
+                      <p className="text-xs text-gray-600">{user.email || 'N/A'}</p>
                     </td>
-                    <td className="py-3" onClick={(e) => editingUserId === user.id && e.stopPropagation()}>
-                      {editingUserId === user.id ? (
-                        <select
-                          value={inlineEditData[user.id]?.designation || user.designation || ''}
-                          onChange={(e) => updateInlineEditField(user.id, 'designation', e.target.value)}
-                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                        >
-                          <option value="">Select Designation</option>
-                          {designations.map((designation) => (
-                            <option key={designation} value={designation}>{designation}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-xs font-semibold px-2 py-1 rounded bg-blue-50 text-blue-700">
-                          {user.designation || 'N/A'}
-                        </span>
-                      )}
+                    <td className="py-3">
+                      <span className="text-xs font-semibold px-2 py-1 rounded bg-blue-50 text-blue-700">
+                        {user.designation || 'N/A'}
+                      </span>
                     </td>
-                    <td className="py-3" onClick={(e) => editingUserId === user.id && e.stopPropagation()}>
-                      {editingUserId === user.id ? (
-                        <select
-                          value={inlineEditData[user.id]?.branch || user.branch || ''}
-                          onChange={(e) => updateInlineEditField(user.id, 'branch', e.target.value)}
-                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                        >
-                          <option value="">Select Branch</option>
-                          {branches.map((branch) => (
-                            <option key={branch} value={branch}>{branch}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <p className="text-xs text-gray-600">{user.branch || 'N/A'}</p>
-                      )}
+                    <td className="py-3">
+                      <p className="text-xs text-gray-600">{user.branch || 'N/A'}</p>
                     </td>
-                    <td className="py-3" onClick={(e) => editingUserId === user.id && e.stopPropagation()}>
-                      {editingUserId === user.id ? (
-                        <select
-                          value={inlineEditData[user.id]?.department || (user as any).department || ''}
-                          onChange={(e) => updateInlineEditField(user.id, 'department', e.target.value)}
-                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                        >
-                          <option value="">Select Department</option>
-                          {departments.map((dept) => (
-                            <option key={dept} value={dept}>{dept}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <p className="text-xs text-gray-600">{(user as any).department || 'N/A'}</p>
-                      )}
+                    <td className="py-3">
+                      <p className="text-xs text-gray-600">{(user as any).department || 'N/A'}</p>
                     </td>
                     {/* Function Column */}
-                    <td className="py-3" onClick={(e) => editingUserId === user.id && e.stopPropagation()}>
-                      {editingUserId === user.id ? (
-                        <select
-                          value={inlineEditData[user.id]?.function || (user as any).function || ''}
-                          onChange={(e) => updateInlineEditField(user.id, 'function', e.target.value)}
-                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                        >
-                          <option value="">Select Function</option>
-                          {functions.map((func) => (
-                            <option key={func} value={func}>{func}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <p className="text-xs text-gray-600">{(user as any).function || 'N/A'}</p>
-                      )}
+                    <td className="py-3">
+                      <p className="text-xs text-gray-600">{(user as any).function || 'N/A'}</p>
                     </td>
                     {/* Team Lead Column */}
-                    <td className="py-3" onClick={(e) => editingUserId === user.id && e.stopPropagation()}>
+                    <td className="py-3">
                       <p className="text-xs text-gray-600">{(user as any).teamLead || (user as any).Team_Lead || 'N/A'}</p>
                     </td>
-                    <td className="py-3" onClick={(e) => editingUserId === user.id && e.stopPropagation()}>
-                      {editingUserId === user.id ? (
-                        <select
-                          value={inlineEditData[user.id]?.role || (user as any).rawRole || String(user.role)}
-                          onChange={(e) => updateInlineEditField(user.id, 'role', e.target.value)}
-                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                        >
-                          {roles.map((role) => (
-                            <option key={role} value={role}>{role}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-xs font-semibold px-2 py-1 rounded bg-gray-100 text-gray-700">
-                          {(user as any).rawRole || String(user.role) || 'N/A'}
-                        </span>
-                      )}
+                    <td className="py-3">
+                      <span className="text-xs font-semibold px-2 py-1 rounded bg-gray-100 text-gray-700">
+                        {(user as any).rawRole || String(user.role) || 'N/A'}
+                      </span>
                     </td>
-                    <td className="py-3" onClick={(e) => editingUserId === user.id && e.stopPropagation()}>
-                      {editingUserId === user.id ? (
-                        <input
-                          type="date"
-                          value={inlineEditData[user.id]?.birthDate || (user.birthDate ? new Date(user.birthDate).toISOString().split('T')[0] : '')}
-                          onChange={(e) => updateInlineEditField(user.id, 'birthDate', e.target.value)}
-                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                        />
-                      ) : (
-                        <p className="text-xs text-gray-600">{user.birthDate || 'N/A'}</p>
-                      )}
+                    <td className="py-3">
+                      <p className="text-xs text-gray-600">{user.birthDate || 'N/A'}</p>
                     </td>
-                    <td className="py-3" onClick={(e) => editingUserId === user.id && e.stopPropagation()}>
-                      {editingUserId === user.id ? (
-                        <input
-                          type="date"
-                          value={inlineEditData[user.id]?.joinDate || (user.joinDate ? new Date(user.joinDate).toISOString().split('T')[0] : '')}
-                          onChange={(e) => updateInlineEditField(user.id, 'joinDate', e.target.value)}
-                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                        />
-                      ) : (
-                        <div className="flex flex-col">
-                          <p className="text-xs text-gray-600">{user.joinDate || 'N/A'}</p>
-                          {user.numberOfDaysFromJoining && (
-                            <p className="text-[10px] text-gray-400">{user.numberOfDaysFromJoining}</p>
-                          )}
-                        </div>
-                      )}
+                    <td className="py-3">
+                      <div className="flex flex-col">
+                        <p className="text-xs text-gray-600">{user.joinDate || 'N/A'}</p>
+                        {user.numberOfDaysFromJoining && (
+                          <p className="text-[10px] text-gray-400">{user.numberOfDaysFromJoining}</p>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3">
                       <span className="inline-flex items-center space-x-1">
@@ -1054,31 +900,11 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                     </td>
                     <td className="py-3 align-top">
                       <div className="flex items-start justify-center space-x-2" onClick={(e) => e.stopPropagation()}>
-                        {editingUserId === user.id ? (
-                          <>
-                            <button
-                              onClick={() => handleSaveInlineEdit(user.id)}
-                              disabled={isLoading}
-                              className="p-2 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
-                              title="Save Changes"
-                            >
-                              <Check size={16} />
-                            </button>
-                            <button
-                              onClick={handleCancelInlineEdit}
-                              disabled={isLoading}
-                              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-50"
-                              title="Cancel"
-                            >
-                              <XCircle size={16} />
-                            </button>
-                          </>
-                        ) : (
-                          <>
+                        <>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleStartInlineEdit(user);
+                                handleOpenEditSidebar(user);
                               }}
                               className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                               title="Edit Employee"
@@ -1123,8 +949,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                             >
                               <Trash2 size={16} />
                             </button>
-                          </>
-                        )}
+                        </>
                       </div>
                     </td>
                   </tr>
@@ -1218,12 +1043,11 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 {!isLoadingOptions && roles.length === 0 && <p className="text-xs text-yellow-600">No roles found. Using default roles.</p>}
               </div>
 
-              {/* Designation - Hidden when MD role is selected */}
+              {/* Designation - Optional, hidden when MD role is selected */}
               {formData.role && String(formData.role).toUpperCase().trim() !== 'MD' && (
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-gray-700">Designation</label>
                   <select 
-                    required
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" 
                     value={formData.designation} 
                     onChange={e => setFormData({...formData, designation: e.target.value})}
@@ -1247,14 +1071,13 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 </div>
               )}
 
-              {/* Branch - Hidden when MD role is selected */}
+              {/* Branch - Optional, hidden when MD role is selected */}
               {formData.role && String(formData.role).toUpperCase().trim() !== 'MD' && (
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-gray-700">Branch</label>
                   <div className="relative">
                     <Building2 className="absolute left-3 top-3 text-gray-400" size={18} />
                     <select 
-                      required
                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" 
                       value={formData.branch} 
                       onChange={e => setFormData({...formData, branch: e.target.value})}
@@ -1279,14 +1102,13 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 </div>
               )}
 
-              {/* Department - Hidden when MD role is selected */}
+              {/* Department - Optional, hidden when MD role is selected */}
               {formData.role && String(formData.role).toUpperCase().trim() !== 'MD' && (
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-gray-700">Department</label>
                   <div className="relative">
                     <Briefcase className="absolute left-3 top-3 text-gray-400" size={18} />
                     <select 
-                      required
                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" 
                       value={formData.department} 
                       onChange={e => setFormData({...formData, department: e.target.value})}
@@ -1311,14 +1133,13 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 </div>
               )}
 
-              {/* Function - Hidden when MD role is selected */}
+              {/* Function - Optional, hidden when MD role is selected */}
               {formData.role && String(formData.role).toUpperCase().trim() !== 'MD' && (
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-gray-700">Function</label>
                   <div className="relative">
                     <Briefcase className="absolute left-3 top-3 text-gray-400" size={18} />
                     <select
-                      required
                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white"
                       value={formData.function}
                       onChange={e => setFormData({...formData, function: e.target.value})}
@@ -1343,14 +1164,13 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 </div>
               )}
 
-              {/* Team Lead - Only shown for Employee and Intern roles */}
+              {/* Team Lead - Optional, only shown for Employee and Intern roles */}
               {formData.role && (String(formData.role).toUpperCase().trim() === 'EMPLOYEE' || String(formData.role).toUpperCase().trim() === 'INTERN') && (
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-gray-700">Team Lead</label>
                   <div className="relative">
                     <UsersIcon className="absolute left-3 top-3 text-gray-400" size={18} />
                     <select
-                      required
                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white"
                       value={formData.teamLead}
                       onChange={e => setFormData({...formData, teamLead: e.target.value})}
@@ -1432,6 +1252,123 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                   </div>
               </div>
           </div>
+      )}
+
+      {/* Update Employee Sidebar - opens when pencil clicked or row clicked */}
+      {editingUser && (
+        <>
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-60 z-50 backdrop-blur-sm"
+            onClick={handleCloseEditSidebar}
+          />
+          <div className="fixed right-0 top-0 bottom-0 w-[420px] max-w-[95vw] bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-800">Update Employee</h2>
+              <button onClick={handleCloseEditSidebar} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleUpdateSidebarSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Avatar */}
+              <div className="flex flex-col items-center">
+                <div className="relative group">
+                  <div className="w-20 h-20 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden">
+                    {updateSidebarAvatarPreview ? (
+                      <img src={updateSidebarAvatarPreview} alt="Preview" className="w-full h-full object-cover" />
+                    ) : (
+                      <Camera className="text-gray-400" size={28} />
+                    )}
+                  </div>
+                  <label className="absolute bottom-0 right-0 bg-brand-600 text-white p-1.5 rounded-full cursor-pointer hover:bg-brand-700 shadow-sm">
+                    <Upload size={12} />
+                    <input type="file" className="hidden" accept="image/*" onChange={handleUpdateSidebarAvatarChange} />
+                  </label>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Change Photo</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-700">Full Name *</label>
+                <input required type="text" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" placeholder="John Doe" value={updateSidebarFormData.name} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, name: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-700">Email *</label>
+                <input required type="email" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" placeholder="john@example.com" value={updateSidebarFormData.email} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, email: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-700">Role *</label>
+                <select required className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" value={updateSidebarFormData.role} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, role: e.target.value }))}>
+                  {roles.map((r) => <option key={r} value={r}>{formatRoleForDisplay(r)}</option>)}
+                  {updateSidebarFormData.role && !roles.includes(updateSidebarFormData.role) && <option value={updateSidebarFormData.role}>{updateSidebarFormData.role}</option>}
+                </select>
+              </div>
+              {updateSidebarFormData.role && String(updateSidebarFormData.role).toUpperCase().trim() !== 'MD' && (
+                <>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700">Designation</label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" value={updateSidebarFormData.designation} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, designation: e.target.value }))}>
+                      <option value="">Select Designation</option>
+                      {designations.map((d) => <option key={d} value={d}>{d}</option>)}
+                      {updateSidebarFormData.designation && !designations.includes(updateSidebarFormData.designation) && <option value={updateSidebarFormData.designation}>{updateSidebarFormData.designation}</option>}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700">Branch</label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" value={updateSidebarFormData.branch} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, branch: e.target.value }))}>
+                      <option value="">Select Branch</option>
+                      {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+                      {updateSidebarFormData.branch && !branches.includes(updateSidebarFormData.branch) && <option value={updateSidebarFormData.branch}>{updateSidebarFormData.branch}</option>}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700">Department</label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" value={updateSidebarFormData.department} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, department: e.target.value }))}>
+                      <option value="">Select Department</option>
+                      {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+                      {updateSidebarFormData.department && !departments.includes(updateSidebarFormData.department) && <option value={updateSidebarFormData.department}>{updateSidebarFormData.department}</option>}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700">Function</label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" value={updateSidebarFormData.function} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, function: e.target.value }))}>
+                      <option value="">Select Function</option>
+                      {functions.map((f) => <option key={f} value={f}>{f}</option>)}
+                      {updateSidebarFormData.function && !functions.includes(updateSidebarFormData.function) && <option value={updateSidebarFormData.function}>{updateSidebarFormData.function}</option>}
+                    </select>
+                  </div>
+                  {(String(updateSidebarFormData.role).toUpperCase().trim() === 'EMPLOYEE' || String(updateSidebarFormData.role).toUpperCase().trim() === 'INTERN') && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-gray-700">Team Lead</label>
+                      <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" value={updateSidebarFormData.teamLead} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, teamLead: e.target.value }))}>
+                        <option value="">Select Team Lead</option>
+                        {teamLeads.map((tl) => <option key={tl.Employee_id} value={tl.Employee_id}>{tl.Name}</option>)}
+                        {updateSidebarFormData.teamLead && !teamLeads.some(t => t.Employee_id === updateSidebarFormData.teamLead) && <option value={updateSidebarFormData.teamLead}>Current: {updateSidebarFormData.teamLead}</option>}
+                      </select>
+                    </div>
+                  )}
+                </>
+              )}
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-700">Date of Birth *</label>
+                <input required type="date" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={updateSidebarFormData.birthDate} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, birthDate: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-700">Joining Date *</label>
+                <input required type="date" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" value={updateSidebarFormData.joinDate} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, joinDate: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-700">New Password (optional)</label>
+                <input type="password" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" placeholder="Leave blank to keep current" value={updateSidebarFormData.password} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, password: e.target.value }))} />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <button type="button" onClick={handleCloseEditSidebar} disabled={isLoading} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                <button type="submit" disabled={isLoading} className="flex-1 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium disabled:opacity-50 flex items-center justify-center gap-2">
+                  {isLoading ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /><span>Updating...</span></> : <span>Update</span>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </>
       )}
 
       {/* User Profile Sidebar */}
@@ -1544,12 +1481,19 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Designation</p>
                   {isEditMode ? (
-                    <input
-                      type="text"
+                    <select
                       value={editFormData.designation}
                       onChange={(e) => setEditFormData({ ...editFormData, designation: e.target.value })}
-                      className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                    />
+                      className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white"
+                    >
+                      <option value="">Select Designation</option>
+                      {designations.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                      {editFormData.designation && !designations.includes(editFormData.designation) && (
+                        <option value={editFormData.designation}>{editFormData.designation}</option>
+                      )}
+                    </select>
                   ) : (
                     <p className="text-lg font-semibold text-gray-800 mt-1">
                       {selectedUser.designation || 'N/A'}

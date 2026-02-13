@@ -872,9 +872,11 @@ export const updateProfile = async (employeeData: {
   password?: string;
   fullName: string;
   role: string;
-  designation: string;
-  branch: string;
-  department: string;
+  designation?: string;
+  branch?: string;
+  department?: string;
+  function?: string;
+  teamLead?: string;
   joiningDate: string;
   dateOfBirth: string;
   profilePicture: File | string | null;
@@ -888,11 +890,18 @@ export const updateProfile = async (employeeData: {
   formData.append("Name", employeeData.fullName);
   formData.append("Role", employeeData.role);
   formData.append("Email_id", employeeData.emailAddress);
-  formData.append("Designation", employeeData.designation);
+  formData.append("Email", employeeData.emailAddress); // Backend update may expect Email
+  formData.append("Designation", employeeData.designation ?? '');
   formData.append("Date_of_join", employeeData.joiningDate);
   formData.append("Date_of_birth", employeeData.dateOfBirth);
-  formData.append("Branch", employeeData.branch);
-  formData.append("Department", employeeData.department);
+  formData.append("Branch", employeeData.branch ?? '');
+  formData.append("Department", employeeData.department ?? '');
+  if (employeeData.function != null && employeeData.function !== '') {
+    formData.append("Function", employeeData.function);
+  }
+  if (employeeData.teamLead != null && employeeData.teamLead !== '') {
+    formData.append("Team_Lead", employeeData.teamLead);
+  }
 
   // Add password if provided
   if (employeeData.password) {
@@ -908,7 +917,7 @@ export const updateProfile = async (employeeData: {
   // This prevents the error: "The 'Photo_link' attribute has no file associated with it"
 
   const response = await api.post(
-    `/accounts/admin/updateProfile/${employeeData.employeeId}/`,
+    `/accounts/admin/updateProfile/${encodeURIComponent(employeeData.employeeId)}/`,
     formData,
     {
       headers: {
