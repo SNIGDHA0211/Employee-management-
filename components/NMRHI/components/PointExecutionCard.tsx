@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { PointProgress, DailyLog } from '../types';
+import { getD3LabelForMonth } from '../constants';
 import DailyLogEntry from './DailyLogEntry';
 
 interface PointExecutionCardProps {
@@ -13,10 +14,14 @@ interface PointExecutionCardProps {
   onDeleteEntry?: (id: string) => Promise<void>;
   isUnlocked: boolean;
   readOnly?: boolean;
+  grpId?: string;
+  filterMonth?: number;
 }
 
-const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId = 0, index, progress, onUpdate, onAddEntry, onUpdateEntry, onDeleteEntry, isUnlocked, readOnly }) => {
+const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId = 0, index, progress, onUpdate, onAddEntry, onUpdateEntry, onDeleteEntry, isUnlocked, readOnly, grpId, filterMonth }) => {
   const [isAdding, setIsAdding] = useState(false);
+  const progressRef = useRef(progress);
+  useEffect(() => { progressRef.current = progress; }, [progress]);
   if (!isUnlocked) {
     return (
       <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-8 flex flex-col items-center justify-center opacity-60 grayscale">
@@ -66,7 +71,11 @@ const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId =
   };
 
   const updateLog = async (logId: string, updates: Partial<DailyLog>) => {
-    const newLogs = progress.logs.map(l => l.id === logId ? { ...l, ...updates } : l);
+    const currentProgress = progressRef.current;
+    const currentLogs = currentProgress?.logs ?? progress.logs;
+    const newLogs = currentLogs.map((l: DailyLog) =>
+      String(l.id) === String(logId) ? { ...l, ...updates } : l
+    );
     onUpdate({ logs: newLogs });
     if (!logId.startsWith('temp-') && onUpdateEntry) {
       const payload: { status?: string; note?: string } = {};
@@ -76,7 +85,8 @@ const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId =
         try {
           await onUpdateEntry(logId, payload);
         } catch {
-          // Error already logged in parent
+          // Revert on error - restore original state
+          onUpdate({ logs: currentLogs });
         }
       }
     }
@@ -95,6 +105,7 @@ const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId =
   };
 
   const todayStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const canAddEntry = !readOnly;
 
   return (
     <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200 overflow-hidden mb-8">
@@ -105,7 +116,14 @@ const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId =
           </div>
           <div>
             <h4 className="text-slate-900 font-black text-lg leading-tight">{point}</h4>
-            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Actionable Goal</p>
+            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
+              Actionable Goal
+              {grpId && (
+                <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded text-[9px] font-black">
+                  {grpId} · {grpId === 'D3' ? getD3LabelForMonth(filterMonth ?? new Date().getMonth() + 1) : grpId === 'D2' ? 'Days 11-20' : 'Days 1-10'}
+                </span>
+              )}
+            </p>
           </div>
         </div>
         <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
@@ -118,20 +136,32 @@ const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId =
             <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-md text-[9px]">{progress.logs.length} entries</span>
           </h5>
           {!readOnly && (
-            <button 
-              onClick={addRow}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-full shadow-lg shadow-blue-100 transition-all flex items-center gap-2 active:scale-95"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-              Add New Entry
-            </button>
+            canAddEntry ? (
+              <button 
+                onClick={addRow}
+                className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-full shadow-lg shadow-blue-100 transition-all flex items-center gap-2 active:scale-95"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                Add New Entry
+              </button>
+            ) : grpId && (
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full">
+                Add entries during {grpId === 'D1' ? 'Days 1-10' : grpId === 'D2' ? 'Days 11-20' : getD3LabelForMonth(filterMonth ?? new Date().getMonth() + 1)}
+              </span>
+            )
           )}
         </div>
 
         <div className="space-y-2">
           {progress.logs.length === 0 ? (
             <div className="text-center py-10 border-2 border-dashed border-slate-200 rounded-2xl bg-white/50">
-              <p className="text-slate-400 text-xs font-medium">No logs recorded yet. Start by adding today's row.</p>
+              {canAddEntry ? (
+                <p className="text-slate-400 text-xs font-medium">No logs recorded yet. Start by adding today&apos;s row.</p>
+              ) : grpId ? (
+                <p className="text-slate-400 text-xs font-medium">No entries for this period. Add entries during {grpId === 'D1' ? 'Days 1-10' : grpId === 'D2' ? 'Days 11-20' : getD3LabelForMonth(filterMonth ?? new Date().getMonth() + 1)}.</p>
+              ) : (
+                <p className="text-slate-400 text-xs font-medium">No logs recorded yet.</p>
+              )}
             </div>
           ) : (
             <div className="mt-4">
@@ -143,7 +173,7 @@ const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId =
                   isDraft={log.id.startsWith('temp-')}
                   onUpdate={(updates) => updateLog(log.id, updates)}
                   onDelete={() => deleteLog(log.id)}
-                  onSubmit={log.id.startsWith('temp-') && onAddEntry && goalId ? () => handleSubmitEntry(log) : undefined}
+                  onSubmit={log.id.startsWith('temp-') && onAddEntry && goalId && canAddEntry ? () => handleSubmitEntry(log) : undefined}
                   isSubmitting={isAdding}
                   readOnly={readOnly}
                 />

@@ -17,6 +17,7 @@ export interface PointProgress {
 export interface ActionablePoint {
   id: number;
   purpose: string;
+  grp_id?: 'D1' | 'D2' | 'D3';
 }
 
 export interface StrategySection {

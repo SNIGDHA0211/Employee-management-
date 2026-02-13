@@ -62,7 +62,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
   // Reporting By / Reporting To (for role-based Create Task form)
   const [reportingById, setReportingById] = useState<string>('');
   const [reportingToId, setReportingToId] = useState<string>('');
-  const [tlCreateTaskMode, setTlCreateTaskMode] = useState<'ASSIGN_TO' | 'REPORTING_BY'>('ASSIGN_TO');
   const [reportingByRole, setReportingByRole] = useState<string>('');
   const [reportingByDesignation, setReportingByDesignation] = useState<string>('');
   const [reportingByUserId, setReportingByUserId] = useState<string>('');
@@ -277,7 +276,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       setAssigneeDesignations({});
       setReportingById('');
       setReportingToId('');
-      setTlCreateTaskMode('ASSIGN_TO');
       setReportingByRole('');
       setReportingByDesignation('');
       setReportingByUserId('');
@@ -661,7 +659,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       const usersForDropdown = availableUsers.length > 0 ? availableUsers : users;
       const employeeIds: string[] = [];
       
-      const isTlReportingBy = currentUser.role === UserRole.TEAM_LEADER && tlCreateTaskMode === 'REPORTING_BY';
+      const isTlReportingBy = false;
       const isEmployee = currentUser.role === UserRole.EMPLOYEE;
       const isIntern = currentUser.role === UserRole.INTERN;
       
@@ -1527,25 +1525,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                     </div>
                  </div>
 
-                 {/* Assignee / Reporting section - role based: TL = Assigned To + Reporting By, Intern = Reporting To only, Employee = Reporting By only, MD = Assigned To only */}
+                 {/* Assignee / Reporting section - role based: MD/TL = Assigned To, Employee/Intern = Reporting By */}
                  <div className="space-y-3">
-                   {/* Team Leader: choose what to configure first */}
-                   {currentUser.role === UserRole.TEAM_LEADER && (
-                     <div>
-                       <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Select</label>
-                       <select
-                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                         value={tlCreateTaskMode}
-                         onChange={(e) => setTlCreateTaskMode(e.target.value as any)}
-                       >
-                         <option value="ASSIGN_TO">Assigned To</option>
-                         <option value="REPORTING_BY">Reporting By</option>
-                       </select>
-                     </div>
-                   )}
-
-                   {/* MD: always show Assigned To. Team Leader: show Assigned To only if selected */}
-                   {(currentUser.role === UserRole.MD || (currentUser.role === UserRole.TEAM_LEADER && tlCreateTaskMode === 'ASSIGN_TO')) && (
+                   {/* MD and TL: show Assigned To */}
+                   {(currentUser.role === UserRole.MD || currentUser.role === UserRole.TEAM_LEADER) && (
                     <>{newTaskType === TaskType.GROUP ? (
                         <>
                             <div className="max-h-40 overflow-y-auto space-y-2 border rounded-lg p-2 bg-white">
@@ -1757,8 +1740,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                         </div>
                     )}
                    </>)}
-                   {/* TL Reporting By / Employee Reporting By / Intern Reporting To: multiple Role/Designation/User rows with + button */}
-                   {((currentUser.role === UserRole.TEAM_LEADER && tlCreateTaskMode === 'REPORTING_BY') || currentUser.role === UserRole.EMPLOYEE || currentUser.role === UserRole.INTERN) && (
+                   {/* Employee Reporting By / Intern Reporting To: multiple Role/Designation/User rows with + button */}
+                   {(currentUser.role === UserRole.EMPLOYEE || currentUser.role === UserRole.INTERN) && (
                     <div className="space-y-2">
                       <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">
                         {currentUser.role === UserRole.INTERN ? 'Reporting To' : 'Reporting By'}
@@ -2190,11 +2173,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                 <div className="text-xs text-gray-500 mb-2">
                   {(assigneeDisplayName === 'Tushar Daulatrao Patil' || assigneeDisplayName?.includes('Tushar Daulatrao Patil') || allAssignees.some((a: User) => a.name === 'Tushar Daulatrao Patil' && String((a as any).role).toUpperCase() === 'MD'))
                     ? 'Reporting to:'
-                    : ['INTERN', 'EMPLOYEE', 'TEAM_LEADER'].includes(String(currentUser.role).toUpperCase())
-                      ? 'Report to:'
-                      : (reporter && ['INTERN', 'EMPLOYEE'].includes(String(reporter.role).toUpperCase())
-                        ? 'Reporting to:'
-                        : 'Assigned to:')}{' '}
+                    : String(currentUser.role).toUpperCase() === 'INTERN'
+                      ? 'Assigned to:'
+                      : ['EMPLOYEE', 'TEAM_LEADER'].includes(String(currentUser.role).toUpperCase())
+                        ? 'Report to:'
+                        : (reporter && ['INTERN', 'EMPLOYEE'].includes(String(reporter.role).toUpperCase())
+                          ? 'Reporting to:'
+                          : 'Assigned to:')}{' '}
                   <strong className="text-brand-600">{assigneeDisplayName}</strong>
                 </div>
 

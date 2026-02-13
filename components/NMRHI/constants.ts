@@ -26,8 +26,8 @@ export const NMRHI_STATIC_DATA: Record<string, { function: string; functional_go
         { actionable_id: 19, purpose: 'Show economical by other comparison', grp_id: 'D3' },
       ]},
       { functional_id: 5, main_goal: 'Official', actionable_goals: [
-        { actionable_id: 14, purpose: 'MSDS, TDS, COA, MOA', grp_id: 'D2' },
-        { actionable_id: 13, purpose: 'Certificate, Registration', grp_id: 'D1' },
+        { actionable_id: 14, purpose: 'MSDS, TDS, COA, MOA', grp_id: 'D1' },
+        { actionable_id: 13, purpose: 'Certificate, Registration', grp_id: 'D2' },
         { actionable_id: 15, purpose: 'Patent, copyright, trademark, IP', grp_id: 'D3' },
       ]},
     ],
@@ -166,6 +166,7 @@ export function staticDataToSections(data: { functional_goals?: any[] } | null):
       .map((a: any) => ({
         id: Number(a.actionable_id ?? a.id ?? a.Id ?? 0),
         purpose: String(a.purpose ?? a.Purpose ?? ''),
+        grp_id: (a.grp_id ?? a.grpId ?? 'D1') as 'D1' | 'D2' | 'D3',
       }));
     return { title, points };
   });
@@ -216,4 +217,29 @@ export const STRATEGY_CATEGORIES: StrategyCategory[] = FUNCTION_META.map((m) => 
 export const FUNCTION_CODES: Record<string, string> = Object.fromEntries(
   FUNCTION_META.map((m) => [m.id, m.fnCode])
 );
+
+/**
+ * D1 = days 1-10, D2 = days 11-20, D3 = days 21 to last day of month.
+ * D3 is flexible based on month (28/29/30/31 days).
+ * Uses local timezone - consider server timezone if API validates by server date.
+ */
+export function getActiveGrpIdForDay(dayOfMonth: number): 'D1' | 'D2' | 'D3' {
+  const d = Math.max(1, Math.min(31, Math.floor(Number(dayOfMonth)) || 1));
+  if (d <= 10) return 'D1';
+  if (d <= 20) return 'D2';
+  return 'D3';
+}
+
+/** Get last day of month (1-31). month 1-12, year for leap Feb. */
+export function getLastDayOfMonth(month: number, year?: number): number {
+  const m = Math.max(1, Math.min(12, Math.floor(Number(month)) || 1));
+  if (!year) year = new Date().getFullYear();
+  return new Date(year, m, 0).getDate();
+}
+
+/** Get D3 label for a month, e.g. "Days 21-28" for Feb, "Days 21-31" for Jan. */
+export function getD3LabelForMonth(month: number, year?: number): string {
+  const last = getLastDayOfMonth(month, year);
+  return `Days 21-${last}`;
+}
 

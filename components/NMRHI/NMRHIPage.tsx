@@ -9,8 +9,8 @@ function entryToDailyLog(entry: any): { id: string; date: string; note: string; 
   const d = entry.date || '';
   const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const displayDate = m ? `${m[3]} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m[2], 10) - 1]} ${m[1]}` : d;
-  const s = String(entry.status || 'PENDING').toUpperCase();
-  const status = s === 'COMPLETED' ? 'completed' : s === 'IN_PROGRESS' ? 'in-progress' : 'pending';
+  const s = String(entry.status || 'PENDING').toUpperCase().replace(/[-_\s]+/g, '');
+  const status = s === 'COMPLETED' ? 'completed' : s === 'INPROCESS' || s === 'INPROGRESS' ? 'in-progress' : 'pending';
   return {
     id: String(entry.id ?? entry.Id ?? Math.random().toString(36).slice(2)),
     date: displayDate,
@@ -119,7 +119,8 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
         const newProgress: AppProgress = {};
         entries.forEach((entry) => {
           const goal = entry.goal ?? entry.Goal;
-          const key = goalIdToKey[goal];
+          const goalNum = typeof goal === 'string' ? parseInt(goal, 10) : Number(goal);
+          const key = goalIdToKey[goalNum] ?? goalIdToKey[goal];
           if (!key) return;
           const log = entryToDailyLog(entry);
           if (!newProgress[key]) newProgress[key] = { unlocked: true, logs: [] };
@@ -145,10 +146,11 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
   }, [activeCategory?.id, filterMonth, filterEmployeeId, hasAppliedFilter]);
 
   const handleUpdateProgress = (key: string, updates: Partial<PointProgress>) => {
-    setProgress(prev => ({
-      ...prev,
-      [key]: { ...prev[key], ...updates }
-    }));
+    setProgress(prev => {
+      const current = prev[key] || { unlocked: true, logs: [] };
+      const merged = { ...current, ...updates };
+      return { ...prev, [key]: merged };
+    });
   };
 
   const handleAddEntry = async (key: string, goalId: number, date: string, note: string, status: string, tempId?: string) => {
@@ -317,6 +319,7 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
               onUpdateEntry={!isMD ? handleUpdateEntry : undefined}
               onDeleteEntry={!isMD ? handleDeleteEntry : undefined}
               readOnly={isMD}
+              filterMonth={hasAppliedFilter ? filterMonth : currentMonth}
             />
           </div>
         </div>

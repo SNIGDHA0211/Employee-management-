@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { StrategyCategory, AppProgress, PointProgress } from '../types';
+import { getD3LabelForMonth } from '../constants';
 import PointExecutionCard from './PointExecutionCard';
 
 interface StrategyDetailProps {
@@ -10,12 +11,19 @@ interface StrategyDetailProps {
   onUpdateEntry?: (id: string, updates: { status?: string; note?: string }) => Promise<void>;
   onDeleteEntry?: (id: string) => Promise<void>;
   readOnly?: boolean;
+  filterMonth?: number;
 }
 
-const StrategyDetail: React.FC<StrategyDetailProps> = ({ category, progress, onUpdateProgress, onAddEntry, onUpdateEntry, onDeleteEntry, readOnly }) => {
+const StrategyDetail: React.FC<StrategyDetailProps> = ({ category, progress, onUpdateProgress, onAddEntry, onUpdateEntry, onDeleteEntry, readOnly, filterMonth }) => {
   const [activeSectionIdx, setActiveSectionIdx] = useState(0);
   const activeSection = category.sections[activeSectionIdx];
   const hasSections = category.sections.length > 0;
+  const firstD1Idx = activeSection?.points.findIndex((p: any) => p?.grp_id === 'D1') ?? -1;
+  const firstD2Idx = activeSection?.points.findIndex((p: any) => p?.grp_id === 'D2') ?? -1;
+  const firstD3Idx = activeSection?.points.findIndex((p: any) => p?.grp_id === 'D3') ?? -1;
+  const scrollToGrp = (grp: 'D1' | 'D2' | 'D3') => {
+    document.getElementById(`grp-${grp}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   if (!hasSections) {
     return (
@@ -67,28 +75,42 @@ const StrategyDetail: React.FC<StrategyDetailProps> = ({ category, progress, onU
       </div>
 
       <div className="max-w-3xl">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <h3 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-3">
             <span className="w-1.5 h-8 bg-blue-600 rounded-full"></span>
             {activeSection.title} Objectives
           </h3>
-          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Focused Execution Mode
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hidden sm:inline">Jump:</span>
+            {(['D1', 'D2', 'D3'] as const).map((grp) => (
+              <button
+                key={grp}
+                onClick={() => scrollToGrp(grp)}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all bg-slate-100 text-slate-600 hover:bg-slate-200"
+                title={`Jump to ${grp} (${grp === 'D1' ? 'Days 1-10' : grp === 'D2' ? 'Days 11-20' : getD3LabelForMonth(filterMonth ?? new Date().getMonth() + 1)})`}
+              >
+                {grp}
+              </button>
+            ))}
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">
+              · Add during current period
+            </span>
           </div>
         </div>
 
         <div className="space-y-4">
           {activeSection.points.map((point, pIdx) => {
             const key = `${category.id}-${activeSectionIdx}-${pIdx}`;
-            const pointProgress = progress[key] || { unlocked: pIdx === 0, logs: [] };
+            const pointProgress = progress[key] || { unlocked: true, logs: [] };
             
-            // Point 1 is always unlocked for a new section. 
-            // Others depend on user manual unlocking or previous completion logic.
-            const isActuallyUnlocked = pIdx === 0 ? true : pointProgress.unlocked;
+            // All D1, D2, D3 visible and unlocked by default
+            const isActuallyUnlocked = pointProgress.unlocked !== false;
+            const grpId = (point as { grp_id?: string }).grp_id;
 
+            const grpScrollId = pIdx === firstD1Idx ? 'grp-D1' : pIdx === firstD2Idx ? 'grp-D2' : pIdx === firstD3Idx ? 'grp-D3' : undefined;
             return (
+              <div key={point.id} id={grpScrollId} className="scroll-mt-24">
               <PointExecutionCard
-                key={pIdx}
                 index={pIdx}
                 point={typeof point === 'string' ? point : point.purpose}
                 goalId={typeof point === 'object' && point?.id ? point.id : 0}
@@ -99,7 +121,10 @@ const StrategyDetail: React.FC<StrategyDetailProps> = ({ category, progress, onU
                 onUpdateEntry={onUpdateEntry}
                 onDeleteEntry={onDeleteEntry}
                 readOnly={readOnly}
+                grpId={grpId}
+                filterMonth={filterMonth}
               />
+              </div>
             );
           })}
         </div>

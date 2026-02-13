@@ -3436,9 +3436,11 @@ export const createActionableEntry = async (payload: {
   date: string;
   note: string;
 }): Promise<any> => {
+  const s = String(payload.status).toUpperCase().replace(/[-_\s]+/g, '');
+  const statusForApi = s === 'INPROGRESS' || s === 'INPROCESS' ? 'INPROCESS' : s === 'COMPLETED' ? 'COMPLETED' : 'PENDING';
   const body = {
     goal: payload.goal,
-    status: String(payload.status).toUpperCase().replace('-', '_'),
+    status: statusForApi,
     date: payload.date,
     note: payload.note || '',
   };
@@ -3457,7 +3459,10 @@ export const createActionableEntry = async (payload: {
  */
 export const updateActionableEntry = async (id: string | number, payload: { status?: string; note?: string }): Promise<any> => {
   const body: Record<string, string> = {};
-  if (payload.status != null) body.status = String(payload.status).toUpperCase().replace('-', '_');
+  if (payload.status != null) {
+    const s = String(payload.status).toUpperCase().replace(/[-_\s]+/g, '');
+    body.status = s === 'INPROGRESS' || s === 'INPROCESS' ? 'INPROCESS' : s === 'COMPLETED' ? 'COMPLETED' : 'PENDING';
+  }
   if (payload.note != null) body.note = String(payload.note);
   const response = await api.patch(`/ActionableEntriesByID/${id}/`, body);
   const data = response.data;
