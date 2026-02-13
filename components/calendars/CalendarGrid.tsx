@@ -75,7 +75,11 @@ export const CalendarGrid: React.FC<CalendarGridProps> = ({
 
     switch (viewMode) {
       case ViewMode.MEETING:
-        return meetings.filter((m) => m.date === formattedDay);
+        return meetings.filter((m) => {
+          if (m.date !== formattedDay) return false;
+          const startHour = parseInt((m as Meeting).startTime?.split(':')[0] ?? '9', 10);
+          return !isNaN(startHour) && startHour >= 9 && startHour <= 18;
+        });
       case ViewMode.HOLIDAY:
         return holidays.filter((h) => h.date === formattedDay);
       case ViewMode.TOUR:

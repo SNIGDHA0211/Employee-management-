@@ -14,9 +14,14 @@ export interface PointProgress {
   notes?: string;
 }
 
+export interface ActionablePoint {
+  id: number;
+  purpose: string;
+}
+
 export interface StrategySection {
   title: string;
-  points: string[];
+  points: ActionablePoint[];
 }
 
 export interface StrategyCategory {

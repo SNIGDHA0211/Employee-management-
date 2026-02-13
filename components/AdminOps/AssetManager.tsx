@@ -11,12 +11,18 @@ interface AssetManagerProps {
 /* ----------------------------- UI STATES ----------------------------- */
 const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets, onAssetsUpdated }) => {
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({
-    type: "" as AssetType,
+  const [formData, setFormData] = useState<{
+    type: AssetType | "";
+    name: string;
+    author: string;
+    code: string;
+    status: StatusType;
+  }>({
+    type: "",
     name: "",
     author: "",
     code: "",
-    status: "Pending" as StatusType,
+    status: "Pending",
   });
   /* --------------------------- EDIT MODAL STATES ------------------------ */
 
@@ -82,7 +88,7 @@ const AssetManager: React.FC<AssetManagerProps> = ({ assets, setAssets, onAssets
 
       // reset form
       setFormData({
-        type: "" as AssetType,
+        type: "",
         name: "",
         author: "",
         code: "",

@@ -1275,7 +1275,24 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
             </div>
           ) : (
             filteredReportingTasks.map(task => {
-              const assignee = users.find(u => u.id === task.assigneeId);
+              // Resolve assignee by id, name, email, or Employee_id (Assigned_to from API)
+              const assignee = users.find(u =>
+                u.id === task.assigneeId ||
+                u.name === task.assigneeId ||
+                (typeof task.assigneeId === 'string' && u.email === task.assigneeId) ||
+                String(u.id).toLowerCase() === String(task.assigneeId).toLowerCase() ||
+                String((u as any).Employee_id) === String(task.assigneeId) ||
+                String((u as any)['Employee ID']) === String(task.assigneeId)
+              );
+              // Handle multiple assignees for display (Assigned_to array from API)
+              const allAssignees = task.assigneeIds
+                ? users.filter(u => task.assigneeIds?.some(id =>
+                    u.id === id || u.name === id || String((u as any).Employee_id) === String(id) || String((u as any)['Employee ID']) === String(id)
+                  ))
+                : (assignee ? [assignee] : []);
+              const assigneeDisplayName = allAssignees.length > 0
+                ? allAssignees.map(a => a.name).join(', ')
+                : (assignee?.name || (typeof task.assigneeId === 'string' ? String(task.assigneeId).trim() : '') || 'Unknown');
               // Find reporter - try to find by ID, name, or email
               const reporter = task.reporterId ? users.find(u => 
                 u.id === task.reporterId || 
@@ -1331,12 +1348,18 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                       <strong className="text-brand-600">{reporter.name}</strong>
                     </div>
                   )}
-                  {assignee && (
+                  {(assignee || assigneeDisplayName !== 'Unknown') && (
                     <div className="text-xs text-gray-500 mb-2">
-                      {reporter && (String(reporter.role).toUpperCase() === 'TEAM_LEADER' && ['INTERN', 'EMPLOYEE'].includes(String(assignee.role).toUpperCase()))
-                        ? 'Assigned to:'
-                        : 'Reporting to:'}{' '}
-                      <strong className="text-brand-600">{assignee.name}</strong>
+                      {(assigneeDisplayName === 'Tushar Daulatrao Patil' || assigneeDisplayName?.includes('Tushar Daulatrao Patil') || allAssignees.some((a: User) => a.name === 'Tushar Daulatrao Patil' && String((a as any).role).toUpperCase() === 'MD'))
+                        ? 'Reporting to:'
+                        : ['INTERN', 'EMPLOYEE'].includes(String(currentUser.role).toUpperCase())
+                          ? 'Report to:'
+                          : String(currentUser.role).toUpperCase() === 'TEAM_LEADER'
+                            ? 'Assigned to:'
+                            : (reporter && (String(reporter.role).toUpperCase() === 'TEAM_LEADER' && allAssignees.length > 0 && ['INTERN', 'EMPLOYEE'].includes(String(allAssignees[0]?.role).toUpperCase()))
+                              ? 'Assigned to:'
+                              : 'Reporting to:')}{' '}
+                      <strong className="text-brand-600">{assigneeDisplayName}</strong>
                     </div>
                   )}
 
@@ -2165,11 +2188,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
                   </div>
                 )}
                 <div className="text-xs text-gray-500 mb-2">
-                  {['INTERN', 'EMPLOYEE'].includes(String(currentUser.role).toUpperCase())
-                    ? 'Assigned to:'
-                    : (reporter && ['INTERN', 'EMPLOYEE'].includes(String(reporter.role).toUpperCase())
-                      ? 'Reporting to:'
-                      : 'Assigned to:')}{' '}
+                  {(assigneeDisplayName === 'Tushar Daulatrao Patil' || assigneeDisplayName?.includes('Tushar Daulatrao Patil') || allAssignees.some((a: User) => a.name === 'Tushar Daulatrao Patil' && String((a as any).role).toUpperCase() === 'MD'))
+                    ? 'Reporting to:'
+                    : ['INTERN', 'EMPLOYEE', 'TEAM_LEADER'].includes(String(currentUser.role).toUpperCase())
+                      ? 'Report to:'
+                      : (reporter && ['INTERN', 'EMPLOYEE'].includes(String(reporter.role).toUpperCase())
+                        ? 'Reporting to:'
+                        : 'Assigned to:')}{' '}
                   <strong className="text-brand-600">{assigneeDisplayName}</strong>
                 </div>
 

@@ -14,6 +14,7 @@ interface DayViewModalProps {
   onEditMeeting?: (meeting: Meeting) => void;
 }
 
+// Office hours: 9:00 AM - 6:00 PM
 const START_HOUR = 9;
 const END_HOUR = 18;
 const hours = Array.from(
@@ -38,17 +39,17 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
 
   const getMeetingsForHour = (hour: number) => {
     return meetings.filter((m) => {
-      const startHour = parseInt(m.startTime.split(':')[0]);
-      return startHour === hour;
+      const startHour = parseInt(m.startTime?.split(':')[0] ?? '9', 10);
+      return !isNaN(startHour) && startHour >= START_HOUR && startHour <= END_HOUR && startHour === hour;
     });
   };
 
   const getAvailableHallsForHour = (hour: number) => {
     const bookedHalls = meetings
       .filter((m) => {
-        const startHour = parseInt(m.startTime.split(':')[0]);
-        const endHour = parseInt(m.endTime.split(':')[0]);
-        return hour >= startHour && hour < endHour;
+        const startHour = parseInt(m.startTime?.split(':')[0] ?? '9', 10);
+        const endHour = parseInt(m.endTime?.split(':')[0] ?? '10', 10);
+        return !isNaN(startHour) && !isNaN(endHour) && hour >= startHour && hour < endHour;
       })
       .map((m) => m.hallName);
 

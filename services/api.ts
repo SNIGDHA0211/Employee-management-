@@ -10,7 +10,7 @@ import {
 
 // Production backend URL
 const PRODUCTION_BACKEND_URL = 'https://employee-management-system-tmrl.onrender.com';
-
+//https://employee-management-system-tmrl.onrender.com
 // Use proxy in development to bypass CORS, direct URL in production
 const isDevelopment = typeof window !== 'undefined' && 
   (window.location.hostname === 'localhost' || 
@@ -3403,6 +3403,78 @@ export const getFunctionsAndActionableGoals = async (functionName: string) => {
   return response.data;
 };
 
+/**
+ * GET actionable entries
+ * @endpoint GET /ActionableEntries/?username=&month=
+ * @param username - Optional for own entries; mandatory when MD accesses another user's details
+ * @param month - Optional (1-12); if omitted, fetches current month
+ * @returns Array of entry objects { id, goal, Creator, date, time, status, note }
+ */
+export const getActionableEntries = async (params?: {
+  username?: string;
+  month?: number;
+}): Promise<any[]> => {
+  const q: Record<string, string> = {};
+  q.username = params?.username ?? '';
+  if (params?.month != null) q.month = String(params.month);
+  const response = await api.get('/ActionableEntries/', { params: q });
+  const data = response.data;
+  if (Array.isArray(data)) return data;
+  if (data?.entries && Array.isArray(data.entries)) return data.entries;
+  return [];
+};
+
+/**
+ * POST actionable entry (create)
+ * @endpoint POST /ActionableEntries/
+ * @body { goal, status, date, note }
+ * goal = actionable_id, status = PENDING|IN_PROGRESS|COMPLETED, date = YYYY-MM-DD
+ */
+export const createActionableEntry = async (payload: {
+  goal: number;
+  status: string;
+  date: string;
+  note: string;
+}): Promise<any> => {
+  const body = {
+    goal: payload.goal,
+    status: String(payload.status).toUpperCase().replace('-', '_'),
+    date: payload.date,
+    note: payload.note || '',
+  };
+  const response = await api.post('/ActionableEntries/', body);
+  const data = response.data;
+  if (Array.isArray(data) && data.length > 0) return data[0];
+  if (data?.data) return data.data;
+  if (data?.entry) return data.entry;
+  return data;
+};
+
+/**
+ * PUT/PATCH actionable entry (update)
+ * @endpoint PUT/PATCH /ActionableEntriesByID/{id}/
+ * @body { status?, note? } - only pass fields to update
+ */
+export const updateActionableEntry = async (id: string | number, payload: { status?: string; note?: string }): Promise<any> => {
+  const body: Record<string, string> = {};
+  if (payload.status != null) body.status = String(payload.status).toUpperCase().replace('-', '_');
+  if (payload.note != null) body.note = String(payload.note);
+  const response = await api.patch(`/ActionableEntriesByID/${id}/`, body);
+  const data = response.data;
+  if (Array.isArray(data) && data.length > 0) return data[0];
+  if (data?.data) return data.data;
+  if (data?.entry) return data.entry;
+  return data;
+};
+
+/**
+ * DELETE actionable entry
+ * @endpoint DELETE /ActionableEntriesByID/{id}/
+ */
+export const deleteActionableEntry = async (id: string | number): Promise<void> => {
+  await api.delete(`/ActionableEntriesByID/${id}/`);
+};
+
 // Export default api instance
 export default api;
 
@@ -3447,4 +3519,8 @@ export const apiFunctions = {
   getUserEntriesByFilters,
   getAssetTypes,
   getFunctionsAndActionableGoals,
+  getActionableEntries,
+  createActionableEntry,
+  updateActionableEntry,
+  deleteActionableEntry,
 };

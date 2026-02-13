@@ -36,6 +36,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   const employeesLoading = false;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [officeHoursNote, setOfficeHoursNote] = useState<string | null>(null);
 
   useEffect(() => {
     getRooms().then((list) => {
@@ -49,21 +50,54 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
       setTitle(initialMeeting.title);
       setDescription(initialMeeting.description ?? '');
       setHallName(initialMeeting.hallName);
-      setStartTime(initialMeeting.startTime);
-      setEndTime(initialMeeting.endTime);
+      const start = initialMeeting.startTime || '09:00';
+      const end = initialMeeting.endTime || '10:00';
+      setStartTime(start < '09:00' ? '09:00' : start > '17:30' ? '17:30' : start);
+      setEndTime(end < '09:00' ? '10:00' : end > '18:00' ? '18:00' : end);
       setType(initialMeeting.type);
       setSelectedUsers(initialMeeting.attendees ?? []);
     }
   }, [initialMeeting]);
 
-
   const toTimeSec = (t: string) => (t && t.length >= 8 ? t.substring(0, 8) : `${t || '09:00'}:00`);
+
+  const OFFICE_START = '09:00';
+  const OFFICE_END = '18:00';
+
+  const OFFICE_START_MAX = '17:30'; // Latest start so meeting can end by 18:00
+
+  const clampToOfficeHours = (t: string, min?: string, max?: string) => {
+    if (!t || t.length < 5) return OFFICE_START;
+    const val = t.substring(0, 5);
+    if (min && val < min) return min;
+    if (max && val > max) return max;
+    return val;
+  };
+
+  const isOutsideOfficeHours = (t: string, min: string, max: string) => {
+    if (!t || t.length < 5) return true;
+    const val = t.substring(0, 5);
+    return val < min || val > max;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setOfficeHoursNote(null);
     const members = type === MeetingType.INDIVIDUAL ? [displayUser.id] : selectedUsers;
     if (members.length === 0) {
       setError('Please select at least one participant for group meetings.');
+      return;
+    }
+    if (startTime < OFFICE_START || startTime > OFFICE_START_MAX) {
+      setError('Start time must be between 09:00 and 17:30 (office hours).');
+      return;
+    }
+    if (endTime <= startTime) {
+      setError('End time must be after start time.');
+      return;
+    }
+    if (endTime > OFFICE_END) {
+      setError('End time must be by 18:00 (office hours end at 6:00 PM).');
       return;
     }
     setError(null);
@@ -178,6 +212,14 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                 placeholder="e.g. Quarterly Review"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
               />
+              {officeHoursNote && (
+                <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center gap-2">
+                  <svg className="w-5 h-5 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {officeHoursNote}
+                </div>
+              )}
             </div>
 
             <div>
@@ -186,8 +228,35 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
               </label>
               <input
                 type="time"
+                min="09:00"
+                max="17:30"
+                step="1800"
                 value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
+                onChange={(e) => {
+                  const raw = e.target.value?.substring(0, 5) || '';
+                  if (isOutsideOfficeHours(raw, OFFICE_START, OFFICE_START_MAX)) {
+                    setOfficeHoursNote('Please choose a meeting time during office hours.');
+                    return;
+                  }
+                  setOfficeHoursNote(null);
+                  setStartTime(raw);
+                  if (endTime <= raw) {
+                    const [h, m] = raw.split(':').map(Number);
+                    const nextH = h + 1;
+                    setEndTime(nextH < 18 ? `${String(nextH).padStart(2, '0')}:${String(m).padStart(2, '0')}` : OFFICE_END);
+                  }
+                }}
+                onBlur={(e) => {
+                  const raw = e.target.value?.substring(0, 5) || '';
+                  if (isOutsideOfficeHours(raw, OFFICE_START, OFFICE_START_MAX)) {
+                    setOfficeHoursNote('Please choose a meeting time during office hours.');
+                    setStartTime(startTime); // Keep previous valid value
+                    return;
+                  }
+                  setOfficeHoursNote(null);
+                  const val = clampToOfficeHours(raw, OFFICE_START, OFFICE_START_MAX);
+                  if (val !== startTime) setStartTime(val);
+                }}
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
             </div>
@@ -198,8 +267,35 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
               </label>
               <input
                 type="time"
+                min={startTime || '09:00'}
+                max="18:00"
+                step="1800"
                 value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
+                onChange={(e) => {
+                  const raw = e.target.value?.substring(0, 5) || '';
+                  const minEnd = startTime || OFFICE_START;
+                  if (raw < minEnd || raw > OFFICE_END) {
+                    setOfficeHoursNote('Please choose a meeting time during office hours.');
+                    return;
+                  }
+                  setOfficeHoursNote(null);
+                  setEndTime(raw);
+                }}
+                onBlur={(e) => {
+                  const raw = e.target.value?.substring(0, 5) || '';
+                  const minEnd = startTime || OFFICE_START;
+                  if (raw < minEnd || raw > OFFICE_END) {
+                    setOfficeHoursNote('Please choose a meeting time during office hours.');
+                    return;
+                  }
+                  setOfficeHoursNote(null);
+                  let val = clampToOfficeHours(raw, minEnd, OFFICE_END);
+                  if (val <= minEnd) {
+                    const [h, m] = minEnd.split(':').map(Number);
+                    val = h < 18 ? `${String(h + 1).padStart(2, '0')}:${String(m).padStart(2, '0')}` : OFFICE_END;
+                  }
+                  if (val !== endTime) setEndTime(val);
+                }}
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
             </div>

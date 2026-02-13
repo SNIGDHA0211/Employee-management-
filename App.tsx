@@ -1903,19 +1903,19 @@ export default function App() {
         );
 
       case 'nmrhi-npd':
-        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-npd" allowedCategoryIds={allowedNMRHICategories} />;
+        return <NMRHIPage currentUserName={currentUser.name} currentUserId={currentUser.id} isMD={currentUser.role === UserRole.MD} users={users} categoryId="nmrhi-npd" allowedCategoryIds={allowedNMRHICategories} />;
       
       case 'nmrhi-mmr':
-        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-mmr" allowedCategoryIds={allowedNMRHICategories} />;
+        return <NMRHIPage currentUserName={currentUser.name} currentUserId={currentUser.id} isMD={currentUser.role === UserRole.MD} users={users} categoryId="nmrhi-mmr" allowedCategoryIds={allowedNMRHICategories} />;
       
       case 'nmrhi-rg':
-        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-rg" allowedCategoryIds={allowedNMRHICategories} />;
+        return <NMRHIPage currentUserName={currentUser.name} currentUserId={currentUser.id} isMD={currentUser.role === UserRole.MD} users={users} categoryId="nmrhi-rg" allowedCategoryIds={allowedNMRHICategories} />;
       
       case 'nmrhi-hc':
-        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-hc" allowedCategoryIds={allowedNMRHICategories} />;
+        return <NMRHIPage currentUserName={currentUser.name} currentUserId={currentUser.id} isMD={currentUser.role === UserRole.MD} users={users} categoryId="nmrhi-hc" allowedCategoryIds={allowedNMRHICategories} />;
       
       case 'nmrhi-ip':
-        return <NMRHIPage currentUserName={currentUser.name} categoryId="nmrhi-ip" allowedCategoryIds={allowedNMRHICategories} />;
+        return <NMRHIPage currentUserName={currentUser.name} currentUserId={currentUser.id} isMD={currentUser.role === UserRole.MD} users={users} categoryId="nmrhi-ip" allowedCategoryIds={allowedNMRHICategories} />;
 
       case 'projects':
         // Commented out - Projects page temporarily disabled

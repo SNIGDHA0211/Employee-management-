@@ -44,7 +44,7 @@ export function convertApiTasksToTasks(
     let assigneeArray: any[] | undefined;
     const at = apiTask.Assigned_to ?? apiTask.assigned_to ?? apiTask['assigned_to'];
     if (Array.isArray(at)) {
-      assigneeArray = at;
+      assigneeArray = at.filter((x: any) => x != null && (typeof x !== 'string' || x.trim() !== ''));
     } else if (Array.isArray(apiTask.assignees)) {
       assigneeArray = apiTask.assignees;
     } else if (Array.isArray(apiTask.Report_to)) {
