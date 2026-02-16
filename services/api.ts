@@ -7,10 +7,9 @@ import {
   setRefreshToken,
   clearAuthData,
 } from "./utils/auth";
-import { toApiDateFormat } from "./dateUtils";
 
 // Production backend URL
-const PRODUCTION_BACKEND_URL = 'http://192.168.41.97:8000';
+const PRODUCTION_BACKEND_URL = 'https://employee-management-system-tmrl.onrender.com';
 //https://employee-management-system-tmrl.onrender.com
 // Use proxy in development to bypass CORS, direct URL in production
 const isDevelopment = typeof window !== 'undefined' && 
@@ -677,8 +676,8 @@ export const createEmployee = async (employeeData: {
   formData.append("Role", normalizeRoleForApi(employeeData.role));
   formData.append("Email_id", employeeData.emailAddress);
   formData.append("Designation", employeeData.designation);
-  formData.append("Date_of_join", toApiDateFormat(employeeData.joiningDate));
-  formData.append("Date_of_birth", toApiDateFormat(employeeData.dateOfBirth));
+  formData.append("Date_of_join", employeeData.joiningDate);
+  formData.append("Date_of_birth", employeeData.dateOfBirth);
   formData.append("Branch", employeeData.branch);
   formData.append("Department", employeeData.department);
   if (employeeData.function) {
@@ -906,8 +905,8 @@ export const updateProfile = async (employeeData: {
   formData.append("Email_id", employeeData.emailAddress);
   formData.append("Email", employeeData.emailAddress); // Backend update may expect Email
   formData.append("Designation", employeeData.designation ?? '');
-  formData.append("Date_of_join", toApiDateFormat(employeeData.joiningDate));
-  formData.append("Date_of_birth", toApiDateFormat(employeeData.dateOfBirth));
+  formData.append("Date_of_join", employeeData.joiningDate);
+  formData.append("Date_of_birth", employeeData.dateOfBirth);
   formData.append("Branch", employeeData.branch ?? '');
   formData.append("Department", employeeData.department ?? '');
   if (employeeData.function != null && employeeData.function !== '') {

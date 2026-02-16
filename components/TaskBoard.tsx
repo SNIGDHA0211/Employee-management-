@@ -17,7 +17,6 @@ import api, {
   getTaskMessages as apiGetTaskMessages,
   changeTaskStatus as apiChangeTaskStatus
 } from '../services/api';
-import { fromApiDateFormat } from '../services/dateUtils';
 import { convertApiTasksToTasks } from '@/utils/taskConversion';
 
 interface TaskBoardProps {
@@ -307,8 +306,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
           const role = emp['Role'] || emp.role || 'EMPLOYEE';
           const designation = emp['Designation'] || emp.designation || 'Employee';
           const branch = emp['Branch'] || emp.branch || 'TECH';
-          const joinDate = fromApiDateFormat(emp['Joining Date'] || emp['Date_of_join'] || emp.joinDate || '') || new Date().toISOString().split('T')[0];
-          const birthDate = fromApiDateFormat(emp['Date of Birth'] || emp['Date_of_birth'] || emp.birthDate || '') || new Date().toISOString().split('T')[0];
+          const joinDate = emp['Joining Date'] || emp['Date_of_join'] || emp.joinDate || new Date().toISOString().split('T')[0];
+          const birthDate = emp['Date of Birth'] || emp['Date_of_birth'] || emp.birthDate || new Date().toISOString().split('T')[0];
           const photoLink = emp['Profile Picture'] || emp['Photo_link'] || emp.avatar || emp.profilePicture || '';
           
           // Map role string to UserRole enum
@@ -369,8 +368,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
             const role = emp['Role'] || emp.role || 'EMPLOYEE';
             const designation = emp['Designation'] || emp.designation || 'Employee';
             const branch = emp['Branch'] || emp.branch || 'TECH';
-            const joinDate = fromApiDateFormat(emp['Joining Date'] || emp['Date_of_join'] || emp.joinDate || '') || new Date().toISOString().split('T')[0];
-            const birthDate = fromApiDateFormat(emp['Date of Birth'] || emp['Date_of_birth'] || emp.birthDate || '') || new Date().toISOString().split('T')[0];
+            const joinDate = emp['Joining Date'] || emp['Date_of_join'] || emp.joinDate || new Date().toISOString().split('T')[0];
+            const birthDate = emp['Date of Birth'] || emp['Date_of_birth'] || emp.birthDate || new Date().toISOString().split('T')[0];
             const photoLink = emp['Profile Picture'] || emp['Photo_link'] || emp.avatar || emp.profilePicture || '';
             
             let userRole: UserRole = UserRole.EMPLOYEE;
