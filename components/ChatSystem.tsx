@@ -344,7 +344,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       // Use employee ID (user.id should be the employee ID)
       const employeeId = userToAdd.id;
 
-      await apiAddUserToGroup(activeGroup.groupId, employeeId);
+      await apiAddUserToGroup(Number(activeGroup.groupId), employeeId);
 
       // Show success message
       alert('User added successfully!');
@@ -354,8 +354,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       setShowAddUserModal(false);
 
       // Refresh group members and employees
-      if (activeGroup.groupId) {
-        const members = await apiShowGroupMembers(activeGroup.groupId);
+      if (activeGroup.groupId != null) {
+        const members = await apiShowGroupMembers(Number(activeGroup.groupId));
         setCurrentGroupMembers(members);
       }
     } catch (error: any) {
@@ -385,7 +385,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     }
 
     try {
-      const response = await apiDeleteUserFromGroup(activeGroup.groupId, userId);
+      const response = await apiDeleteUserFromGroup(Number(activeGroup.groupId), userId);
 
       // Check response message
       if (response.Message) {
@@ -394,7 +394,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           
           // Refresh group members and employees
           if (activeGroup.groupId) {
-            const members = await apiShowGroupMembers(activeGroup.groupId);
+            const members = await apiShowGroupMembers(Number(activeGroup.groupId));
             setCurrentGroupMembers(members);
           }
         } else {
@@ -430,7 +430,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     }
 
     try {
-      const response = await apiDeleteGroup(activeGroup.groupId);
+      const response = await apiDeleteGroup(Number(activeGroup.groupId));
 
       // Check response message
       if (response.message && response.message.includes("deleted successfully")) {

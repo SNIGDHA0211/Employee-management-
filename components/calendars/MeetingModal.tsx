@@ -230,7 +230,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                 type="time"
                 min="09:00"
                 max="17:30"
-                step="1800"
+                step="60"
                 value={startTime}
                 onChange={(e) => {
                   const raw = e.target.value?.substring(0, 5) || '';
@@ -269,7 +269,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                 type="time"
                 min={startTime || '09:00'}
                 max="18:00"
-                step="1800"
+                step="60"
                 value={endTime}
                 onChange={(e) => {
                   const raw = e.target.value?.substring(0, 5) || '';
