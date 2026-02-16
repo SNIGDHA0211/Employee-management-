@@ -18,6 +18,7 @@ import api, {
 } from './services/api';
 import { getNMRHIAllowedCategories } from './components/NMRHI/constants';
 import { convertApiTasksToTasks } from './utils/taskConversion';
+import { fromApiDateFormat, toApiDateFormat } from './services/dateUtils';
 import { clearAuthData } from './services/utils/auth';
 import { Sidebar, Header } from './components/Layout';
 import { MeetCard } from './components/MeetCard';
@@ -313,8 +314,8 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
               role: mappedRole,
               designation: employeeDashboard?.['Designation'] || employeeDashboard?.designation || userProfile.designation,
               branch: (employeeDashboard?.['Branch'] || employeeDashboard?.branch || userProfile.branch) as any,
-              joinDate: employeeDashboard?.['Date_of_join'] || employeeDashboard?.['Joining Date'] || employeeDashboard?.joinDate || userProfile.joinDate,
-              birthDate: employeeDashboard?.['Date_of_birth'] || employeeDashboard?.['Date of Birth'] || employeeDashboard?.birthDate || userProfile.birthDate,
+              joinDate: fromApiDateFormat(employeeDashboard?.['Date_of_join'] || employeeDashboard?.['Joining Date'] || employeeDashboard?.joinDate || userProfile.joinDate || '') || userProfile.joinDate,
+              birthDate: fromApiDateFormat(employeeDashboard?.['Date_of_birth'] || employeeDashboard?.['Date of Birth'] || employeeDashboard?.birthDate || userProfile.birthDate || '') || userProfile.birthDate,
               avatar: (() => {
                 // Prioritize Photo_link from dashboard API (same field name used in createEmployee)
                 const photoLink = employeeDashboard?.['Photo_link'] || employeeDashboard?.['Profile Picture'] || employeeDashboard?.avatar || employeeDashboard?.profilePicture || userProfile.avatar;
@@ -361,8 +362,8 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
           const email = employeeDashboard?.['Email_id'] || employeeDashboard?.['Email Address'] || employeeDashboard?.email || (username.includes('@') ? username : `${username}@planeteye.com`);
           const designation = employeeDashboard?.['Designation'] || employeeDashboard?.designation || '';
           const branch = employeeDashboard?.['Branch'] || employeeDashboard?.branch || '';
-          const joinDate = employeeDashboard?.['Date_of_join'] || employeeDashboard?.['Joining Date'] || employeeDashboard?.joinDate || new Date().toISOString().split('T')[0];
-          const birthDate = employeeDashboard?.['Date_of_birth'] || employeeDashboard?.['Date of Birth'] || employeeDashboard?.birthDate || '1995-01-01';
+          const joinDate = fromApiDateFormat(employeeDashboard?.['Date_of_join'] || employeeDashboard?.['Joining Date'] || employeeDashboard?.joinDate || '') || new Date().toISOString().split('T')[0];
+          const birthDate = fromApiDateFormat(employeeDashboard?.['Date_of_birth'] || employeeDashboard?.['Date of Birth'] || employeeDashboard?.birthDate || '') || '1995-01-01';
           const avatar = (() => {
             // Prioritize Photo_link from dashboard API (same field name used in createEmployee)
             const photoLink = employeeDashboard?.['Photo_link'] || employeeDashboard?.['Profile Picture'] || employeeDashboard?.avatar || employeeDashboard?.profilePicture || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`;
@@ -1060,8 +1061,8 @@ export default function App() {
           const department = emp['Department'] || emp.department || '';
           const functionVal = emp['Function'] || emp.function || emp.Function || '';
           const teamLead = emp['Team_Lead'] || emp['Teamleader'] || emp.teamLead || emp['Team Lead'] || emp['TeamLead'] || '';
-          const joinDate = emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0];
-          const birthDate = emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01';
+          const joinDate = fromApiDateFormat(emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || '') || new Date().toISOString().split('T')[0];
+          const birthDate = fromApiDateFormat(emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '') || '1995-01-01';
           const photoLink = emp['Photo_link'] || emp['Profile Picture'] || emp.avatar || emp.profilePicture || '';
           // New backend field: human-readable label like "1 years 27 days"
           const numberOfDaysFromJoining = emp['Number_of_days_from_joining'] !== undefined && emp['Number_of_days_from_joining'] !== null
@@ -1451,8 +1452,8 @@ export default function App() {
                       leaveBalance: 0,
                       score: 0,
                       branch: branch as any,
-                      joinDate: emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0],
-                      birthDate: emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01',
+                      joinDate: fromApiDateFormat(emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || '') || new Date().toISOString().split('T')[0],
+                      birthDate: fromApiDateFormat(emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '') || '1995-01-01',
                     };
                   });
                   
@@ -1527,8 +1528,8 @@ export default function App() {
                       leaveBalance: 0,
                       score: 0,
                       branch: branch as any,
-                      joinDate: emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0],
-                      birthDate: emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01',
+                      joinDate: fromApiDateFormat(emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || '') || new Date().toISOString().split('T')[0],
+                      birthDate: fromApiDateFormat(emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '') || '1995-01-01',
                     };
                   });
                   
@@ -1721,8 +1722,8 @@ export default function App() {
                          leaveBalance: 0,
                          score: 0,
                          branch: branch as any,
-                         joinDate: emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0],
-                         birthDate: emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01',
+                         joinDate: fromApiDateFormat(emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || '') || new Date().toISOString().split('T')[0],
+                         birthDate: fromApiDateFormat(emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '') || '1995-01-01',
                        };
                      });
                      
@@ -1789,8 +1790,8 @@ export default function App() {
                          leaveBalance: 0,
                          score: 0,
                          branch: branch as any,
-                         joinDate: emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0],
-                         birthDate: emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01',
+                         joinDate: fromApiDateFormat(emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || '') || new Date().toISOString().split('T')[0],
+                         birthDate: fromApiDateFormat(emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '') || '1995-01-01',
                        };
                      });
                      
@@ -2186,13 +2187,7 @@ export default function App() {
                   <div className="flex-1">
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Joining Date</p>
                     <p className="text-lg font-semibold text-gray-800 mt-1">
-                      {currentUser.joinDate 
-                        ? new Date(currentUser.joinDate).toLocaleDateString('en-US', { 
-                            year: 'numeric', 
-                            month: 'long', 
-                            day: 'numeric' 
-                          })
-                        : 'N/A'}
+                      {toApiDateFormat(currentUser.joinDate) || 'N/A'}
                     </p>
                   </div>
                 </div>
@@ -2218,13 +2213,7 @@ export default function App() {
                   <div className="flex-1">
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Birthdate</p>
                     <p className="text-lg font-semibold text-gray-800 mt-1">
-                      {currentUser.birthDate 
-                        ? new Date(currentUser.birthDate).toLocaleDateString('en-US', { 
-                            year: 'numeric', 
-                            month: 'long', 
-                            day: 'numeric' 
-                          })
-                        : 'N/A'}
+                      {toApiDateFormat(currentUser.birthDate) || 'N/A'}
                     </p>
                   </div>
                 </div>

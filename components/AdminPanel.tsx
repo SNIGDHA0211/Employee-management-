@@ -12,6 +12,7 @@ import api, {
   changePhoto as apiChangePhoto,
   deleteEmployee as apiDeleteEmployee
 } from '../services/api';
+import { fromApiDateFormat, toApiDateFormat } from '../services/dateUtils';
 
 interface AdminPanelProps {
   users: User[];
@@ -303,8 +304,10 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         const department = emp['Department'] || emp.department || '';
         const functionValue = emp['Function'] || emp.function || emp.Function || '';
         const teamLead = emp['Teamlead'] || emp['Team_Lead'] || emp.teamLead || emp['Team Lead'] || emp['TeamLead'] || '';
-        const joinDate = emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0];
-        const birthDate = emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01';
+        const rawJoin = emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0];
+        const rawBirth = emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01';
+        const joinDate = fromApiDateFormat(rawJoin) || new Date().toISOString().split('T')[0];
+        const birthDate = fromApiDateFormat(rawBirth) || '1995-01-01';
         // Get avatar URL - handle both full URLs and relative paths
         let avatar = emp['Photo_link'] || emp['Profile Picture'] || emp.avatar || emp.profilePicture || '';
         
@@ -917,11 +920,11 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                       </span>
                     </td>
                     <td className="py-3">
-                      <p className="text-xs text-gray-600">{user.birthDate || 'N/A'}</p>
+                      <p className="text-xs text-gray-600">{toApiDateFormat(user.birthDate) || 'N/A'}</p>
                     </td>
                     <td className="py-3">
                       <div className="flex flex-col">
-                        <p className="text-xs text-gray-600">{user.joinDate || 'N/A'}</p>
+                        <p className="text-xs text-gray-600">{toApiDateFormat(user.joinDate) || 'N/A'}</p>
                         {user.numberOfDaysFromJoining && (
                           <p className="text-[10px] text-gray-400">{user.numberOfDaysFromJoining}</p>
                         )}
@@ -1594,13 +1597,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                     />
                   ) : (
                     <p className="text-lg font-semibold text-gray-800 mt-1">
-                      {selectedUser.joinDate
-                        ? new Date(selectedUser.joinDate).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                          })
-                        : 'N/A'}
+                      {toApiDateFormat(selectedUser.joinDate) || 'N/A'}
                     </p>
                   )}
                 </div>
@@ -1632,13 +1629,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                     />
                   ) : (
                     <p className="text-lg font-semibold text-gray-800 mt-1">
-                      {selectedUser.birthDate
-                        ? new Date(selectedUser.birthDate).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                          })
-                        : 'N/A'}
+                      {toApiDateFormat(selectedUser.birthDate) || 'N/A'}
                     </p>
                   )}
                 </div>
