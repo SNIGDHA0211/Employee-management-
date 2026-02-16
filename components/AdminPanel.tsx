@@ -160,6 +160,21 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     }
   };
 
+  const isTeamleadUser = (u: User) => {
+    if (u.role === UserRole.TEAM_LEADER) return true;
+    const raw = String((u as any).rawRole || u.role || '').toUpperCase().replace(/[_\s]/g, '');
+    return raw === 'TEAMLEAD' || raw === 'TEAMLEADER' || (raw.includes('TEAM') && raw.includes('LEAD'));
+  };
+
+  /** Populate teamLeads with all users who have Teamlead role (for edit employee panel) */
+  const populateAllTeamLeads = () => {
+    const tlList = users
+      .filter(u => !/^u\d+$/.test(u.id) && isTeamleadUser(u))
+      .map(u => ({ Name: u.name || 'Unknown', Employee_id: String((u as any).Employee_id || u.id || '') }))
+      .filter(tl => tl.Employee_id);
+    setTeamLeads(tlList);
+  };
+
   // Derive team leads from users (get employees) - no separate API call
   const deriveTeamLeadsFromUsers = (role: string) => {
     const normalizedRole = String(role).trim().toUpperCase();
@@ -168,13 +183,8 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       setFormData(prev => ({ ...prev, teamLead: '' }));
       return;
     }
-    const isTeamLead = (u: User) => {
-      if (u.role === UserRole.TEAM_LEADER) return true;
-      const raw = String((u as any).rawRole || u.role || '').toUpperCase().replace(/[_\s]/g, '');
-      return raw === 'TEAMLEAD' || raw === 'TEAMLEADER' || (raw.includes('TEAM') && raw.includes('LEAD'));
-    };
     const tlList = users
-      .filter(u => !/^u\d+$/.test(u.id) && isTeamLead(u))
+      .filter(u => !/^u\d+$/.test(u.id) && isTeamleadUser(u))
       .map(u => ({ Name: u.name || 'Unknown', Employee_id: String((u as any).Employee_id || u.id || '') }))
       .filter(tl => tl.Employee_id);
     setTeamLeads(tlList);
@@ -278,7 +288,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         const branch = emp['Branch'] || emp.branch || '';
         const department = emp['Department'] || emp.department || '';
         const functionValue = emp['Function'] || emp.function || emp.Function || '';
-        const teamLead = emp['Team_Lead'] || emp.teamLead || emp['Team Lead'] || emp['TeamLead'] || '';
+        const teamLead = emp['Teamlead'] || emp['Team_Lead'] || emp.teamLead || emp['Team Lead'] || emp['TeamLead'] || '';
         const joinDate = emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0];
         const birthDate = emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01';
         // Get avatar URL - handle both full URLs and relative paths
@@ -554,13 +564,14 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       branch: user.branch || '',
       department: (user as any).department || '',
       function: (user as any).function || '',
-      teamLead: (user as any).teamLead || (user as any).Team_Lead || '',
+      teamLead: (user as any).teamLead || (user as any).Team_Lead || (user as any).Teamlead || '',
       joinDate: user.joinDate ? new Date(user.joinDate).toISOString().split('T')[0] : '',
       birthDate: user.birthDate ? new Date(user.birthDate).toISOString().split('T')[0] : '',
       password: '',
     });
     setUpdateSidebarAvatarPreview(user.avatar || null);
     setUpdateSidebarAvatarFile(null);
+    populateAllTeamLeads(); // Always show all team leads in edit employee panel
     if (roleUpper !== 'MD' && roleUpper !== 'ADMIN') {
       fetchDepartmentsAndFunctionsForRole(rawRole);
     }
@@ -1336,16 +1347,14 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                       {updateSidebarFormData.function && !functions.includes(updateSidebarFormData.function) && <option value={updateSidebarFormData.function}>{updateSidebarFormData.function}</option>}
                     </select>
                   </div>
-                  {(String(updateSidebarFormData.role).toUpperCase().trim() === 'EMPLOYEE' || String(updateSidebarFormData.role).toUpperCase().trim() === 'INTERN') && (
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-gray-700">Team Lead</label>
-                      <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" value={updateSidebarFormData.teamLead} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, teamLead: e.target.value }))}>
-                        <option value="">Select Team Lead</option>
-                        {teamLeads.map((tl) => <option key={tl.Employee_id} value={tl.Employee_id}>{tl.Name}</option>)}
-                        {updateSidebarFormData.teamLead && !teamLeads.some(t => t.Employee_id === updateSidebarFormData.teamLead) && <option value={updateSidebarFormData.teamLead}>Current: {updateSidebarFormData.teamLead}</option>}
-                      </select>
-                    </div>
-                  )}
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700">Team Lead</label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" value={updateSidebarFormData.teamLead} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, teamLead: e.target.value }))}>
+                      <option value="">Select Team Lead</option>
+                      {teamLeads.map((tl) => <option key={tl.Employee_id} value={tl.Employee_id}>{tl.Name}</option>)}
+                      {updateSidebarFormData.teamLead && !teamLeads.some(t => t.Employee_id === updateSidebarFormData.teamLead) && <option value={updateSidebarFormData.teamLead}>Current: {updateSidebarFormData.teamLead}</option>}
+                    </select>
+                  </div>
                 </>
               )}
               <div className="space-y-2">

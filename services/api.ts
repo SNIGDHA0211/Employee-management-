@@ -633,6 +633,19 @@ export const getEmployeeDashboard = async (): Promise<Employee> => {
   }
 };
 
+/** Normalize role for API: backend expects HR, MD, TeamLead, Intern, Employee (exact spellings) */
+const normalizeRoleForApi = (role: string): string => {
+  const r = String(role || '').trim();
+  const upper = r.toUpperCase().replace(/[_\s]/g, '');
+  if (upper === 'HR') return 'HR';
+  if (upper === 'MD') return 'MD';
+  if (upper === 'TEAMLEAD' || upper === 'TEAMLEADER' || upper === 'TEAM_LEADER') return 'TeamLead';
+  if (upper === 'INTERN') return 'Intern';
+  if (upper === 'EMPLOYEE') return 'Employee';
+  if (upper === 'ADMIN') return 'Admin'; // Admin if used
+  return r || 'Employee';
+};
+
 /**
  * Create employee - POST method (Admin and MD access only)
  * Creates a new employee with login credentials
@@ -660,7 +673,7 @@ export const createEmployee = async (employeeData: {
   formData.append("Employee_id", employeeData.employeeId);
   formData.append("password", employeeData.password);
   formData.append("Name", employeeData.fullName);
-  formData.append("Role", employeeData.role);
+  formData.append("Role", normalizeRoleForApi(employeeData.role));
   formData.append("Email_id", employeeData.emailAddress);
   formData.append("Designation", employeeData.designation);
   formData.append("Date_of_join", employeeData.joiningDate);
@@ -671,7 +684,7 @@ export const createEmployee = async (employeeData: {
     formData.append("Function", employeeData.function);
   }
   if (employeeData.teamLead) {
-    formData.append("Team_Lead", employeeData.teamLead);
+    formData.append("Teamleader", employeeData.teamLead);
   }
 
   // Add image file if it's a File object
@@ -888,7 +901,7 @@ export const updateProfile = async (employeeData: {
   // Add all text fields - using backend's expected field names (matching createEmployee)
   formData.append("Employee_id", employeeData.employeeId);
   formData.append("Name", employeeData.fullName);
-  formData.append("Role", employeeData.role);
+  formData.append("Role", normalizeRoleForApi(employeeData.role));
   formData.append("Email_id", employeeData.emailAddress);
   formData.append("Email", employeeData.emailAddress); // Backend update may expect Email
   formData.append("Designation", employeeData.designation ?? '');
@@ -900,7 +913,7 @@ export const updateProfile = async (employeeData: {
     formData.append("Function", employeeData.function);
   }
   if (employeeData.teamLead != null && employeeData.teamLead !== '') {
-    formData.append("Team_Lead", employeeData.teamLead);
+    formData.append("Teamleader", employeeData.teamLead);
   }
 
   // Add password if provided
