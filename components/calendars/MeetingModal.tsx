@@ -83,7 +83,9 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setOfficeHoursNote(null);
-    const members = type === MeetingType.INDIVIDUAL ? [displayUser.id] : selectedUsers;
+    const members = type === MeetingType.INDIVIDUAL
+      ? [String((displayUser as any).Employee_id ?? displayUser.id)]
+      : selectedUsers;
     if (members.length === 0) {
       setError('Please select at least one participant for group meetings.');
       return;

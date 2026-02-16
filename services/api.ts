@@ -684,7 +684,7 @@ export const createEmployee = async (employeeData: {
     formData.append("Function", employeeData.function);
   }
   if (employeeData.teamLead) {
-    formData.append("Teamleader", employeeData.teamLead);
+    formData.append("Teamlead", employeeData.teamLead);
   }
 
   // Add image file if it's a File object
@@ -913,7 +913,7 @@ export const updateProfile = async (employeeData: {
     formData.append("Function", employeeData.function);
   }
   if (employeeData.teamLead != null && employeeData.teamLead !== '') {
-    formData.append("Teamleader", employeeData.teamLead);
+    formData.append("Teamlead", employeeData.teamLead);
   }
 
   // Add password if provided

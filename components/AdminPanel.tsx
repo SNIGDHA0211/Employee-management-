@@ -166,6 +166,20 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     return raw === 'TEAMLEAD' || raw === 'TEAMLEADER' || (raw.includes('TEAM') && raw.includes('LEAD'));
   };
 
+  /** Resolve team lead (name or Employee_id) to Employee_id for API payload */
+  const resolveTeamLeadToEmployeeId = (value: string): string | undefined => {
+    if (!value || !value.trim()) return undefined;
+    const byId = teamLeads.find(t => String(t.Employee_id).trim() === value.trim());
+    if (byId) return byId.Employee_id;
+    const byName = teamLeads.find(t => String(t.Name || '').trim() === value.trim());
+    if (byName) return byName.Employee_id;
+    const byIdInUsers = users.find(u => String((u as any).Employee_id ?? u.id) === value.trim());
+    if (byIdInUsers) return String((byIdInUsers as any).Employee_id ?? byIdInUsers.id);
+    const byNameInUsers = users.find(u => String(u.name || '').trim() === value.trim());
+    if (byNameInUsers) return String((byNameInUsers as any).Employee_id ?? byNameInUsers.id);
+    return value; // Already an ID or unknown - send as-is
+  };
+
   /** Populate teamLeads with all users who have Teamlead role (for edit employee panel) */
   const populateAllTeamLeads = () => {
     const tlList = users
@@ -436,7 +450,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         branch: formData.branch,
         department: formData.department,
         function: formData.function,
-        teamLead: formData.teamLead || undefined, // Include teamLead if selected
+        teamLead: resolveTeamLeadToEmployeeId(formData.teamLead) || undefined,
         joiningDate: formData.joinDate,
         dateOfBirth: formData.birthDate,
         profilePicture: avatarFile, // Pass the actual File object, not base64
@@ -555,6 +569,16 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
   const handleOpenEditSidebar = (user: User) => {
     const rawRole = (user as any).rawRole || String(user.role);
     const roleUpper = rawRole.toUpperCase().trim();
+    const rawTeamLead = (user as any).teamLead || (user as any).Team_Lead || (user as any).Teamlead || '';
+    let resolvedTeamLead = rawTeamLead;
+    if (rawTeamLead) {
+      const byId = users.find(u => String((u as any).Employee_id ?? u.id) === rawTeamLead);
+      if (byId) resolvedTeamLead = String((byId as any).Employee_id ?? byId.id);
+      else {
+        const byName = users.find(u => String(u.name || '').trim() === String(rawTeamLead).trim());
+        if (byName) resolvedTeamLead = String((byName as any).Employee_id ?? byName.id);
+      }
+    }
     setEditingUser(user);
     setUpdateSidebarFormData({
       name: user.name,
@@ -564,7 +588,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       branch: user.branch || '',
       department: (user as any).department || '',
       function: (user as any).function || '',
-      teamLead: (user as any).teamLead || (user as any).Team_Lead || (user as any).Teamlead || '',
+      teamLead: resolvedTeamLead,
       joinDate: user.joinDate ? new Date(user.joinDate).toISOString().split('T')[0] : '',
       birthDate: user.birthDate ? new Date(user.birthDate).toISOString().split('T')[0] : '',
       password: '',
@@ -615,7 +639,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         branch: updateSidebarFormData.branch || undefined,
         department: updateSidebarFormData.department || undefined,
         function: updateSidebarFormData.function || undefined,
-        teamLead: updateSidebarFormData.teamLead || undefined,
+        teamLead: resolveTeamLeadToEmployeeId(updateSidebarFormData.teamLead) || undefined,
         joiningDate: updateSidebarFormData.joinDate,
         dateOfBirth: updateSidebarFormData.birthDate,
         profilePicture: null,
