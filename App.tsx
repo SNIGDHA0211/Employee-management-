@@ -1202,10 +1202,13 @@ export default function App() {
     }
   }, [currentUser?.id, currentUser?.email, currentUser?.name, currentUser?.role, users]);
 
-  // Derive meetEmployees from shared users (avoid duplicate fetch)
+  // Derive meetEmployees from shared users - use Employee_id for API (not name)
   useEffect(() => {
     if (users.length > 0) {
-      setMeetEmployees(users.map((u) => ({ id: u.id, name: u.name })));
+      setMeetEmployees(users.map((u) => ({
+        id: String((u as any).Employee_id ?? u.id),
+        name: u.name,
+      })));
     }
   }, [users]);
 
