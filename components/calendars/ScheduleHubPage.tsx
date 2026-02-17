@@ -300,6 +300,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
         <DayViewModal
           date={selectedDate}
           meetings={meetings.filter((m) => m.date === format(selectedDate, 'yyyy-MM-dd'))}
+          currentUser={currentUser}
           onClose={() => setShowDayView(false)}
           onNewBooking={handleNewBooking}
           onMeetingStatusUpdate={handleMeetingStatusUpdate}

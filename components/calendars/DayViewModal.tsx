@@ -2,10 +2,12 @@ import React from 'react';
 import { format } from 'date-fns';
 import { Meeting, MeetingStatus } from './types';
 import { ALL_USERS, HALLS } from './constants';
+import type { User } from '../../types';
 
 interface DayViewModalProps {
   date: Date;
   meetings: Meeting[];
+  currentUser?: User | null;
   onClose: () => void;
   onNewBooking: () => void;
   onMeetingStatusUpdate: (id: string, status: MeetingStatus) => void;
@@ -22,9 +24,17 @@ const hours = Array.from(
   (_, i) => i + START_HOUR
 );
 
+const isCreator = (m: Meeting, currentUser: User | null | undefined): boolean => {
+  if (!currentUser?.name || !m.createdByName) return false;
+  const a = String(currentUser.name).trim().toLowerCase();
+  const b = String(m.createdByName).trim().toLowerCase();
+  return a === b;
+};
+
 export const DayViewModal: React.FC<DayViewModalProps> = ({
   date,
   meetings,
+  currentUser,
   onClose,
   onNewBooking,
   onMeetingStatusUpdate,
@@ -164,7 +174,7 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
                           </h4>
 
                           <div className="flex flex-wrap gap-2 mb-6">
-                            {!isDone && (
+                            {isCreator(m, currentUser) && !isDone && (
                               <>
                                 <button
                                   onClick={() =>
@@ -174,29 +184,21 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
                                 >
                                   Done
                                 </button>
-                                {/* <button
-                                  onClick={() => onExceedMeeting(m.id)}
-                                  className="px-6 py-2.5 bg-[#6366f1] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
+                                {onEditMeeting && (
+                                  <button
+                                    onClick={() => onEditMeeting(m)}
+                                    className="px-6 py-2.5 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
+                                  >
+                                    Edit
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => onCancelMeeting(m.id)}
+                                  className="px-6 py-2.5 bg-[#ef4444] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
                                 >
-                                  Exceed
-                                </button> */}
+                                  Cancel
+                                </button>
                               </>
-                            )}
-                            {onEditMeeting && !isDone && (
-                              <button
-                                onClick={() => onEditMeeting(m)}
-                                className="px-6 py-2.5 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
-                              >
-                                Edit
-                              </button>
-                            )}
-                            {!isDone && (
-                              <button
-                                onClick={() => onCancelMeeting(m.id)}
-                                className="px-6 py-2.5 bg-[#ef4444] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
-                              >
-                                Cancel
-                              </button>
                             )}
                           </div>
 

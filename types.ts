@@ -103,6 +103,7 @@ export enum TaskStatus {
 
 export interface User {
   id: string;
+  Employee_id?: string; // Backend employee ID (may differ from id, preserves leading zeros)
   name: string;
   avatar: string;
   role: UserRole;

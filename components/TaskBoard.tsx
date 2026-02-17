@@ -811,8 +811,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
     }
   };
 
-  // Only MD role can assign/create tasks
-  const canAssignTask = currentUser.role === UserRole.MD;
+  // MD sees Role/Designation/User (+ button) on both pages; Admin and HR see it only on Reporting Task page
+  const canAssignTask = currentUser.role === UserRole.MD || ((currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.HR) && viewMode === 'reporting');
   const isIntern = currentUser.role === UserRole.INTERN;
 
   // Use only API users for dropdown (no dummy users)
@@ -832,6 +832,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
       const roleMap: Record<UserRole, string> = {
         [UserRole.MD]: 'MD',
         [UserRole.ADMIN]: 'ADMIN',
+        [UserRole.HR]: 'HR',
         [UserRole.TEAM_LEADER]: 'TEAM_LEADER',
         [UserRole.EMPLOYEE]: 'EMPLOYEE',
         [UserRole.INTERN]: 'INTERN',
@@ -961,8 +962,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
               </button>
             </div>
             <div className="flex items-center gap-2">
-              {/* Reporting Task page: show Create Task only for non-MD (user roles). MD does not see button here. */}
-              {currentUser.role !== UserRole.MD && currentUser.role !== UserRole.ADMIN && (
+              {/* Reporting Task page: show Create Task for Admin, HR, Team Leader, Employee, Intern. MD does not see button here. */}
+              {currentUser.role !== UserRole.MD && (
                 <button
                   onClick={() => setShowAddModal(true)}
                   className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
@@ -1308,10 +1309,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                     </div>
                  </div>
 
-                 {/* Assignee / Reporting section - role based: MD/TL = Assigned To, Employee/Intern = Reporting By */}
+                 {/* Assignee / Reporting section - role based: MD/Admin/TL = Assigned To (Role/Designation/User), Employee/Intern = Reporting By */}
                  <div className="space-y-3">
-                   {/* MD and TL: show Assigned To */}
-                   {(currentUser.role === UserRole.MD || currentUser.role === UserRole.TEAM_LEADER) && (
+                   {/* MD, Admin (on Reporting Task), TL: show Role/Designation/User with + button */}
+                   {(canAssignTask || currentUser.role === UserRole.TEAM_LEADER) && (
                     <>{newTaskType === TaskType.GROUP ? (
                         <>
                             <div className="max-h-40 overflow-y-auto space-y-2 border rounded-lg p-2 bg-white">
@@ -1774,12 +1775,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                 <span>Assign Task</span>
               </button>
             )}
-            {/* On Assigned Task page, hide Create Task button for Employee, Intern, and Team Leader. */}
-            {currentUser.role !== UserRole.MD &&
-             currentUser.role !== UserRole.ADMIN &&
-             currentUser.role !== UserRole.EMPLOYEE &&
-             currentUser.role !== UserRole.INTERN &&
-             currentUser.role !== UserRole.TEAM_LEADER && (
+            {/* On Assigned Task page: MD sees Assign Task; Admin sees Create Task. HR, Employee, Intern, Team Leader see neither. */}
+            {currentUser.role === UserRole.ADMIN && (
               <button
                 onClick={() => setShowAddModal(true)}
                 className="flex items-center space-x-2 px-4 py-2 rounded-lg text-white shadow-sm transition-transform hover:scale-105 bg-brand-600 hover:bg-brand-700"
