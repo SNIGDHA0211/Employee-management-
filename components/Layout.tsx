@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { User, UserRole, formatRoleForDisplay } from '../types';
 import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart } from 'lucide-react';
 import { getMotivationalQuote } from '../services/gemini';
-import { getMeetingPush } from '../services/api';
 
 const formatBookingTime = (val: string): string => {
   if (!val) return '';
@@ -242,22 +241,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
   );
 };
 
-export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number; notificationMeetings?: any[] }> = ({ user, users = [], toggleSidebar, onMeetClick, meetingRefreshTrigger, notificationMeetings = [] }) => {
+export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number; notificationMeetings?: any[] }> = ({ user, users = [], toggleSidebar, onMeetClick, notificationMeetings = [] }) => {
   const [quote, setQuote] = useState("Loading thought...");
   const [showMeetingDropdown, setShowMeetingDropdown] = useState(false);
-  const [localMeetings, setLocalMeetings] = useState<any[]>([]);
-  const meetings = notificationMeetings?.length > 0 ? notificationMeetings : localMeetings;
+  const meetings = notificationMeetings ?? [];
 
-  const fetchMeetings = () => {
-    getMeetingPush()
-      .then((list) => setLocalMeetings(Array.isArray(list) ? list : []))
-      .catch(() => setLocalMeetings([]));
-  };
-
-  const toggleMeetingDropdown = () => {
-    if (!showMeetingDropdown) fetchMeetings();
-    setShowMeetingDropdown((prev) => !prev);
-  };
+  const toggleMeetingDropdown = () => setShowMeetingDropdown((prev) => !prev);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -277,14 +266,6 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
     }, 3600000); 
     return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    if (user?.id) fetchMeetings();
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (meetingRefreshTrigger && meetingRefreshTrigger > 0 && user?.id) fetchMeetings();
-  }, [meetingRefreshTrigger]);
 
   const meetingCount = meetings.length;
   const sortedMeetings = [...meetings].sort((a: any, b: any) => (Number(b?.id) || 0) - (Number(a?.id) || 0));

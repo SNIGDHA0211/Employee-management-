@@ -16,7 +16,7 @@ export const NMRHI_STATIC_DATA: Record<string, { function: string; functional_go
         { actionable_id: 7, purpose: 'When not to use / Minimal psi effect', grp_id: 'D3' },
       ]},
       { functional_id: 3, main_goal: 'Attractive', actionable_goals: [
-        { actionable_id: 9, purpose: 'Appearance, and texture, Peking', grp_id: 'D1' },
+        { actionable_id: 9, purpose: 'Appearance, and texture, Packing', grp_id: 'D1' },
         { actionable_id: 10, purpose: 'homogeneity, color scheme, design', grp_id: 'D2' },
         { actionable_id: 11, purpose: 'attractive, aesthetics, user feeling', grp_id: 'D3' },
       ]},

@@ -1,12 +1,11 @@
-
 import React, { useState, useEffect, useRef } from 'react';
+import { useRolesQuery } from '../hooks/useRoles';
+import { useBranchesQuery } from '../hooks/useBranches';
 import { User, UserRole, formatRoleForDisplay } from '../types';
 import { UserPlus, Trash2, Shield, Calendar, Mail, User as UserIcon, Upload, Hash, Camera, Lock, Key, Building2, X, Briefcase, Users as UsersIcon, Pencil, Clock, Plus, Search } from 'lucide-react';
 import api, { 
   getDesignations as apiGetDesignations,
-  getBranch as apiGetBranch,
   getDepartmentsandFunctions as apiGetDepartmentsandFunctions,
-  getRoles as apiGetRoles,
   createEmployee as apiCreateEmployee,
   updateProfile as apiUpdateProfile,
   changePhoto as apiChangePhoto,
@@ -116,49 +115,24 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
   const optionsLoadedRef = useRef(false);
   const hasLoadedOnceRef = useRef(false);
 
-  // Fetch designations, branches, and roles function (departments fetched separately based on role)
-  const fetchDesignationsAndBranches = async () => {
-    setIsLoadingOptions(true);
-    try {
-      const [designationsData, branchesData, rolesData] = await Promise.all([
-        apiGetDesignations().catch((err) => { console.error('❌ Designations fetch error:', err); return []; }),
-        apiGetBranch().catch((err) => { console.error('❌ Branch fetch error:', err); return []; }),
-        apiGetRoles().catch((err) => { console.error('❌ Roles fetch error:', err); return []; })
-      ]);
-      
-      // Filter and sanitize designations - only keep valid strings
-      const validDesignations = Array.isArray(designationsData) 
-        ? designationsData.filter(d => d != null && typeof d === 'string' && d.trim() !== '')
-        : [];
-      
-      // Filter and sanitize branches - only keep valid strings
-      const validBranches = Array.isArray(branchesData)
-        ? branchesData.filter(b => b != null && typeof b === 'string' && b.trim() !== '')
-        : [];
-      
-      // Filter and sanitize roles - ensure TeamLead is included (API may omit it)
-      let validRoles = Array.isArray(rolesData)
-        ? rolesData.filter(r => r != null && typeof r === 'string' && r.trim() !== '')
-        : [];
+  // Roles and branches - cached via React Query (shared with TaskBoard)
+  const { data: rolesData } = useRolesQuery(true);
+  const { data: branchesData } = useBranchesQuery(true);
+  useEffect(() => {
+    if (rolesData) {
+      let validRoles = Array.isArray(rolesData) ? rolesData.filter((r: any) => r != null && typeof r === 'string' && String(r).trim() !== '') : [];
       const hasTeamLead = validRoles.some((r: string) => {
         const u = String(r).toUpperCase().replace(/[_\s]/g, '');
         return u === 'TEAMLEAD' || u === 'TEAMLEADER' || (u.includes('TEAM') && u.includes('LEAD'));
       });
       if (!hasTeamLead) validRoles = [...validRoles, 'TeamLead'];
-
-      setDesignations(validDesignations);
-      setBranches(validBranches);
       setRoles(validRoles);
-      optionsLoadedRef.current = true;
-    } catch (err: any) {
-      console.error('❌ [ADMIN PANEL] Error fetching options:', err);
-      setDesignations([]);
-      setBranches([]);
-      setRoles([]);
-    } finally {
-      setIsLoadingOptions(false);
-    }
-  };
+    } else setRoles([]);
+  }, [rolesData]);
+  useEffect(() => {
+    if (branchesData) setBranches(Array.isArray(branchesData) ? branchesData.filter((b: any) => b != null && typeof b === 'string' && String(b).trim() !== '') : []);
+    else setBranches([]);
+  }, [branchesData]);
 
   const isTeamleadUser = (u: User) => {
     if (u.role === UserRole.TEAM_LEADER) return true;
@@ -372,23 +346,17 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     };
   };
 
-  // Fetch options only on mount (employees come from shared users via props)
+  // Fetch designations and departments on mount (roles/branches from React Query)
   const fetchListData = async () => {
     setIsLoadingOptions(true);
     setError(null);
     try {
-      const [designationsData, branchesData, rolesData, deptFuncData] = await Promise.all([
+      const [designationsData, deptFuncData] = await Promise.all([
         apiGetDesignations().catch((e) => { console.error('❌ Designations fetch:', e); return []; }),
-        apiGetBranch().catch((e) => { console.error('❌ Branch fetch:', e); return []; }),
-        apiGetRoles().catch((e) => { console.error('❌ Roles fetch:', e); return []; }),
         apiGetDepartmentsandFunctions('Employee').catch((e) => { console.error('❌ Depts/functions fetch:', e); return null; }),
       ]);
       const validDesignations = Array.isArray(designationsData) ? designationsData.filter((d: any) => d != null && typeof d === 'string' && String(d).trim() !== '') : [];
-      const validBranches = Array.isArray(branchesData) ? branchesData.filter((b: any) => b != null && typeof b === 'string' && String(b).trim() !== '') : [];
-      const validRoles = Array.isArray(rolesData) ? rolesData.filter((r: any) => r != null && typeof r === 'string' && String(r).trim() !== '') : [];
       setDesignations(validDesignations);
-      setBranches(validBranches);
-      setRoles(validRoles);
       if (deptFuncData && typeof deptFuncData === 'object') {
         const validDepts = Array.isArray(deptFuncData.departments) ? deptFuncData.departments.filter((d: any) => d != null && typeof d === 'string' && String(d).trim() !== '') : [];
         const validFuncs = Array.isArray(deptFuncData.functions) ? deptFuncData.functions.filter((f: any) => f != null && typeof f === 'string' && String(f).trim() !== '') : [];

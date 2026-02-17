@@ -3,18 +3,14 @@ import { UserRole, User, Task, Project, Message, ChatGroup, AttendanceRecord, To
 import api, { 
   login as apiLogin, 
   getEmployeeDashboard,
-  getEmployees as apiGetEmployees,
-  getBranch as apiGetBranch,
   logout as apiLogout,
   getRooms,
   getHolidays,
   getEvents,
   getTours,
   getBookSlots,
-  getMeetingPush,
   viewTasks as apiViewTasks,
   viewAssignedTasks as apiViewAssignedTasks,
-  getEmployeesFromAccounts,
 } from './services/api';
 import { getNMRHIAllowedCategories } from './components/NMRHI/constants';
 import { convertApiTasksToTasks } from './utils/taskConversion';
@@ -43,6 +39,10 @@ import { Asset, Bill, Expense, Vendor } from './types';
 import { getBills } from './services/bill.service';
 import { getExpenses } from './services/expense.service';
 import { getVendors } from './services/vendor.service';
+import { useEmployeesQuery, useEmployeesInvalidate } from './hooks/useEmployees';
+import { useBranchesQuery } from './hooks/useBranches';
+import { useMeetingPushQuery, useMeetingPushInvalidate } from './hooks/useMeetingPush';
+import { useTasksQuery, usePrefetchTasks } from './hooks/useTasks';
 
 // Helper function to convert Photo_link to absolute URL with /media/ prefix for Django
 const convertPhotoLinkToUrl = (photoLink: string | null | undefined): string => {
@@ -608,7 +608,13 @@ export default function App() {
   );
   const [groups, setGroups] = useState<ChatGroup[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const isMD = currentUser?.role === UserRole.MD;
+  const tasksAssignQuery = useTasksQuery('assign', currentUser, isMD && activeTab === 'dashboard');
+  const tasksForDashboard = React.useMemo(() => {
+    const raw = tasksAssignQuery.data;
+    if (!raw || !currentUser) return [];
+    return convertApiTasksToTasks(raw, users, currentUser);
+  }, [tasksAssignQuery.data, users, currentUser]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
@@ -644,7 +650,6 @@ export default function App() {
   const [meetRooms, setMeetRooms] = useState<Array<{ id: number; name: string }>>([]);
   const [meetEmployees, setMeetEmployees] = useState<Array<{ id: string; name: string }>>([]);
   const [branches, setBranches] = useState<string[]>([]);
-  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
 
   
   // Keep sidebar state in sync with viewport: closed on mobile, open on desktop
@@ -758,33 +763,24 @@ export default function App() {
       .catch(() => setMeetRooms([]));
   }, [currentUser?.id]);
 
-  // Fetch notification meetings (GET eventsapi/meetingpush/) when user is logged in
+  // Meeting push - single source via React Query (no duplicate fetch from Layout)
+  const { data: meetingPushData } = useMeetingPushQuery(!!currentUser?.id);
+  const invalidateMeetingPush = useMeetingPushInvalidate();
   useEffect(() => {
-    if (!currentUser?.id) return;
-    getMeetingPush()
-      .then((list) => setNotificationMeetings(Array.isArray(list) ? list : []))
-      .catch(() => setNotificationMeetings([]));
-  }, [currentUser?.id, meetingRefreshTrigger]);
+    if (meetingPushData) setNotificationMeetings(Array.isArray(meetingPushData) ? meetingPushData : []);
+  }, [meetingPushData]);
+  useEffect(() => {
+    if (meetingRefreshTrigger > 0 && currentUser?.id) invalidateMeetingPush();
+  }, [meetingRefreshTrigger, currentUser?.id, invalidateMeetingPush]);
 
-  // Fetch branches from API when dashboard is active
+  // Branches - cached via React Query, only when dashboard active
+  const { data: branchesData, isLoading: isLoadingBranches } = useBranchesQuery(
+    activeTab === 'dashboard' && !!currentUser
+  );
   useEffect(() => {
-    const fetchBranches = async () => {
-      if (activeTab === 'dashboard' && currentUser) {
-        setIsLoadingBranches(true);
-        try {
-          const fetchedBranches = await apiGetBranch();
-          setBranches(fetchedBranches);
-        } catch (err: any) {
-          console.error('Error fetching branches:', err);
-          // Don't set fallback - only use API data
-          setBranches([]);
-        } finally {
-          setIsLoadingBranches(false);
-        }
-      }
-    };
-    fetchBranches();
-  }, [activeTab, currentUser]);
+    if (branchesData) setBranches(Array.isArray(branchesData) ? branchesData : []);
+    else if (!isLoadingBranches && activeTab !== 'dashboard') setBranches([]);
+  }, [branchesData, isLoadingBranches, activeTab]);
 
   // Fetch bills when Admin or MD opens Admin Dashboard
   useEffect(() => {
@@ -995,168 +991,38 @@ export default function App() {
     setScheduleRefreshTrigger((t) => t + 1);
   }, []);
 
-  // Fetch employees once when user logs in (shared across the app)
-  // Uses currentUserRef to avoid re-running when avatar/numberOfDaysFromJoining updates
-  const fetchEmployees = useCallback(async () => {
+  // Fetch employees via React Query - cached, single call, no Strict Mode duplicates
+  const { data: employeesData } = useEmployeesQuery(!!currentUser?.id);
+  const invalidateEmployees = useEmployeesInvalidate();
+
+  useEffect(() => {
+    if (!employeesData || !currentUser?.id) return;
     const cu = currentUserRef.current;
     if (!cu) return;
-      
-      try {
-        const employees = await apiGetEmployees();
-        
-        // Helper function to extract and map role (reuse the same logic from login)
-        const extractRoleFromApiResponse = (apiRole: any): string => {
-          if (typeof apiRole === 'string') return apiRole;
-          if (Array.isArray(apiRole) && apiRole.length > 0) {
-            const firstItem = apiRole[0];
-            if (firstItem && typeof firstItem === 'object' && firstItem.Role) {
-              return firstItem.Role;
-            }
-            if (typeof firstItem === 'string') return firstItem;
-          }
-          if (apiRole && typeof apiRole === 'object') {
-            if (apiRole.Role) return apiRole.Role;
-            if (apiRole.role) return apiRole.role;
-            if (apiRole.ROLE) return apiRole.ROLE;
-          }
-          const apiRoleString = String(apiRole);
-          const querySetMatch = apiRoleString.match(/\{'Role':\s*'([^']+)'\}/) || 
-                                apiRoleString.match(/\{"Role":\s*"([^"]+)"\}/) ||
-                                apiRoleString.match(/Role['":\s]+['"]([^'"]+)['"]/i);
-          if (querySetMatch && querySetMatch[1]) return querySetMatch[1];
-          return apiRoleString;
-        };
-
-        const mapApiRoleToUserRole = (apiRole: any): UserRole => {
-          const extractedRole = extractRoleFromApiResponse(apiRole);
-          const normalizedRole = extractedRole.toUpperCase().trim().replace(/\s+/g, '_');
-          const normalizedCompact = normalizedRole.replace(/_/g, '');
-          if (normalizedRole === 'MD') return UserRole.MD;
-          if (normalizedRole === 'ADMIN') return UserRole.ADMIN;
-          if (normalizedRole === 'TEAM_LEADER' || normalizedRole === 'TEAM_LEAD' || normalizedCompact === 'TEAMLEAD' || normalizedCompact === 'TEAMLEADER') return UserRole.TEAM_LEADER;
-          if (normalizedRole === 'EMPLOYEE') return UserRole.EMPLOYEE;
-          if (normalizedRole === 'INTERN') return UserRole.INTERN;
-          if (Object.values(UserRole).includes(normalizedRole as UserRole)) {
-            return normalizedRole as UserRole;
-          }
-          return UserRole.EMPLOYEE;
-        };
-
-        // Convert API employees to User format and merge with existing users
-        const apiUsersList: User[] = employees.map((emp: any) => {
-          // Use field names matching createEmployee: Employee_id, Name, Email_id, etc.
-          // CRITICAL: Preserve Employee_id as STRING to keep leading zeros (e.g., "00011" not 11)
-          // The API might return it as number, so we MUST convert to string immediately
-          const rawEmployeeId = emp['Employee_id'] || emp['Employee ID'] || emp.id;
-          const employeeId = rawEmployeeId !== undefined && rawEmployeeId !== null 
-            ? String(rawEmployeeId).trim() 
-            : '';
-          
-          const fullName = emp['Name'] || emp['Full Name'] || emp.name || 'Unknown';
-          const email = emp['Email_id'] || emp['Email Address'] || emp.email || '';
-          const designation = emp['Designation'] || emp.designation || 'Employee';
-          const role = emp['Role'] || emp.role || 'EMPLOYEE';
-          const branch = emp['Branch'] || emp.branch || 'TECH';
-          const department = emp['Department'] || emp.department || '';
-          const functionVal = emp['Function'] || emp.function || emp.Function || '';
-          const teamLead = emp['Team_Lead'] || emp['Teamleader'] || emp.teamLead || emp['Team Lead'] || emp['TeamLead'] || '';
-          const joinDate = emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0];
-          const birthDate = emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01';
-          const photoLink = emp['Photo_link'] || emp['Profile Picture'] || emp.avatar || emp.profilePicture || '';
-          // New backend field: human-readable label like "1 years 27 days"
-          const numberOfDaysFromJoining = emp['Number_of_days_from_joining'] !== undefined && emp['Number_of_days_from_joining'] !== null
-            ? String(emp['Number_of_days_from_joining']).trim()
-            : undefined;
-          
-          const mappedRole = role ? mapApiRoleToUserRole(role) : UserRole.EMPLOYEE;
-          return {
-            id: employeeId,
-            name: fullName,
-            email: email,
-            role: mappedRole,
-            designation: designation,
-            birthDate: birthDate,
-            joinDate: joinDate,
-            avatar: convertPhotoLinkToUrl(photoLink) || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
-            status: 'PRESENT' as const,
-            leaveBalance: 12,
-            score: 0,
-            branch: branch as any,
-            password: emp['Initial Password'] || emp.password,
-            numberOfDaysFromJoining: numberOfDaysFromJoining,
-            ...(emp['Employee_id'] !== undefined && { Employee_id: String(emp['Employee_id']).trim() }),
-            department,
-            function: functionVal,
-            teamLead,
-          };
-        });
-        
-        // Use ONLY API users (no mock data, no merging)
-        // IMPORTANT: If currentUser is in the list, make sure their role is preserved
-        const finalUsers = apiUsersList.map(u => {
-          if (cu && (u.id === cu.id || u.email === cu.email || u.name.toLowerCase() === cu.name.toLowerCase())) {
-            return { ...u, role: cu.role };
-          }
-          return u;
-        });
-
-        // If we have a logged-in user, also update their numberOfDaysFromJoining and name from the API data
-        if (cu) {
-          const match = finalUsers.find(u =>
-            u.id === cu.id ||
-            (u.Employee_id && (cu as any).Employee_id && String(u.Employee_id) === String((cu as any).Employee_id)) ||
-            u.email === cu.email ||
-            (cu.name && u.name && u.name.toLowerCase() === cu.name.toLowerCase())
-          );
-
-          if (match) {
-            const needsNameEnrichment = !cu.name || /^\d+$/.test(String(cu.name).trim()) || String(cu.name).trim() === String((cu as any).Employee_id || cu.id).trim();
-            const hasValidName = match.name && match.name.trim() && match.name !== 'Unknown' && !/^\d+$/.test(String(match.name).trim());
-            setCurrentUser(prev => {
-              if (!prev) return prev;
-              const updates: Partial<User> = {};
-              if (match.numberOfDaysFromJoining !== undefined && match.numberOfDaysFromJoining !== null) {
-                updates.numberOfDaysFromJoining = match.numberOfDaysFromJoining;
-              }
-              if (needsNameEnrichment && hasValidName) {
-                updates.name = match.name;
-              }
-              return Object.keys(updates).length ? { ...prev, ...updates } : prev;
-            });
-          }
-        }
-        
-        // Set users to API data only (replace all mock data)
-        setUsers(finalUsers);
-      } catch (err: any) {
-        // Keep existing users on error
-      }
-  }, []);
-
-  // Only fetch employees when user logs in (currentUser?.id set), not when avatar/numberOfDaysFromJoining updates
-  useEffect(() => {
-    if (currentUser?.id) fetchEmployees();
-  }, [currentUser?.id, fetchEmployees]);
-
-  // When users is empty (e.g. fetchEmployees failed for non-admin), try getEmployeesFromAccounts to enrich currentUser name
-  useEffect(() => {
-    if (!currentUser?.id || users.length > 0) return;
-    getEmployeesFromAccounts()
-      .then((employees) => {
-        const acc = employees.find((e: any) =>
-          String(e.Employee_id) === String((currentUser as any).Employee_id || currentUser.id) ||
-          e.Email_id === currentUser.email
-        );
-        if (acc) {
-          const empName = acc['Name'] || acc['Full Name'] || acc.name || acc['full_name'] || '';
-          const needsEnrichment = !currentUser.name || /^\d+$/.test(String(currentUser.name).trim()) || String(currentUser.name).trim() === String((currentUser as any).Employee_id || currentUser.id).trim();
-          if (needsEnrichment && empName && typeof empName === 'string' && empName.trim() && !/^\d+$/.test(empName.trim())) {
-            setCurrentUser(prev => prev ? { ...prev, name: empName.trim() } : prev);
-          }
-        }
-      })
-      .catch(() => {});
-  }, [currentUser?.id, currentUser?.name, users.length]);
+    const finalUsers = employeesData.map(u =>
+      (u.id === cu.id || u.email === cu.email || (u.name && cu.name && u.name.toLowerCase() === cu.name.toLowerCase()))
+        ? { ...u, role: cu.role }
+        : u
+    );
+    const match = finalUsers.find(u =>
+      u.id === cu.id ||
+      (u.Employee_id && (cu as any).Employee_id && String(u.Employee_id) === String((cu as any).Employee_id)) ||
+      u.email === cu.email ||
+      (cu.name && u.name && u.name.toLowerCase() === cu.name.toLowerCase())
+    );
+    if (match) {
+      const needsNameEnrichment = !cu.name || /^\d+$/.test(String(cu.name).trim()) || String(cu.name).trim() === String((cu as any).Employee_id || cu.id).trim();
+      const hasValidName = match.name && match.name.trim() && match.name !== 'Unknown' && !/^\d+$/.test(String(match.name).trim());
+      setCurrentUser(prev => {
+        if (!prev) return prev;
+        const updates: Partial<User> = {};
+        if (match.numberOfDaysFromJoining != null) updates.numberOfDaysFromJoining = match.numberOfDaysFromJoining;
+        if (needsNameEnrichment && hasValidName) updates.name = match.name;
+        return Object.keys(updates).length ? { ...prev, ...updates } : prev;
+      });
+    }
+    setUsers(finalUsers);
+  }, [employeesData, currentUser?.id, currentUser?.role]);
 
   // NMRHI allowed categories: MD sees all; Employees see only pages matching their function (from users list)
   useEffect(() => {
@@ -1165,7 +1031,6 @@ export default function App() {
       setAllowedNMRHICategories(['nmrhi-npd', 'nmrhi-mmr', 'nmrhi-rg', 'nmrhi-hc', 'nmrhi-ip']);
       return;
     }
-    // Use users from fetchEmployees (already has department/function from API)
     const emp = users.find((u: any) =>
       u.id === currentUser.id ||
       (u.Employee_id && (currentUser as any).Employee_id && String(u.Employee_id) === String((currentUser as any).Employee_id)) ||
@@ -1173,30 +1038,7 @@ export default function App() {
       (u.name && currentUser.name && u.name.trim().toLowerCase() === currentUser.name.trim().toLowerCase())
     );
     if (emp) {
-      const allowed = getNMRHIAllowedCategories(emp);
-      setAllowedNMRHICategories(allowed);
-      return;
-    }
-    // Fallback: when users is empty or no match, try accounts API (also enriches currentUser name for non-admin users)
-    if (users.length === 0) {
-      getEmployeesFromAccounts()
-        .then((employees) => {
-          const acc = employees.find((e: any) =>
-            e.Email_id === currentUser.email ||
-            (e.Name && e.Name.trim().toLowerCase() === currentUser.name?.trim().toLowerCase()) ||
-            String(e.Employee_id) === String((currentUser as any).Employee_id || currentUser.id)
-          );
-          setAllowedNMRHICategories(getNMRHIAllowedCategories(acc));
-          // Enrich currentUser name when dashboard didn't return it
-          if (acc) {
-            const empName = acc['Name'] || acc['Full Name'] || acc.name || acc['full_name'] || '';
-            const needsEnrichment = !currentUser.name || /^\d+$/.test(String(currentUser.name).trim()) || String(currentUser.name).trim() === String((currentUser as any).Employee_id || currentUser.id).trim();
-            if (needsEnrichment && empName && typeof empName === 'string' && empName.trim() && !/^\d+$/.test(empName.trim())) {
-              setCurrentUser(prev => prev ? { ...prev, name: empName.trim() } : prev);
-            }
-          }
-        })
-        .catch(() => setAllowedNMRHICategories([]));
+      setAllowedNMRHICategories(getNMRHIAllowedCategories(emp));
     } else {
       setAllowedNMRHICategories([]);
     }
@@ -1214,25 +1056,22 @@ export default function App() {
 
   const handleAddUser = useCallback((newUser: User) => {
     setUsers((prev) => [...prev, newUser]);
-  }, []);
+    invalidateEmployees(); // Refetch to sync with server
+  }, [invalidateEmployees]);
 
   const handleDeleteUser = useCallback((userId: string) => {
     setUsers((prev) => prev.filter((u) => u.id !== userId));
-  }, []);
+    invalidateEmployees(); // Refetch to sync with server
+  }, [invalidateEmployees]);
 
-  // Prefetch tasks when user hovers over Tasks in sidebar (reduces perceived load time)
-  const prefetchTasks = useCallback(async () => {
+  // Prefetch tasks on hover - uses React Query cache, TaskBoard will use same cache
+  const prefetchTasksFn = usePrefetchTasks();
+  const prefetchTasks = useCallback(() => {
     if (!currentUser?.id || activeTab === 'assignTask' || activeTab === 'reportingTask') return;
-    try {
-      const isMD = currentUser.role === UserRole.MD;
-      const apiTasks = isMD ? await apiViewTasks() : await apiViewAssignedTasks();
-      const arr = Array.isArray(apiTasks) ? apiTasks : (apiTasks && typeof apiTasks === 'object' ? [apiTasks] : []);
-      const converted = convertApiTasksToTasks(arr, users, currentUser);
-      setTasks(converted);
-    } catch {
-      // Silent fail - TaskBoard will fetch on mount
-    }
-  }, [currentUser?.id, currentUser?.role, users, activeTab]);
+    const isMD = currentUser.role === UserRole.MD;
+    prefetchTasksFn('assign', isMD);
+    prefetchTasksFn('reporting', isMD);
+  }, [currentUser?.id, currentUser?.role, activeTab, prefetchTasksFn]);
 
   const handleAddTour = (newTour: Tour) => {
      setTours([...tours, newTour]);
@@ -1404,66 +1243,19 @@ export default function App() {
             <DistributionChart 
               title="Workforce by Branch" 
               data={adminDashboardBranchData}
-              onBarClick={async (branchName) => {
-                try {
-                  const employees = await apiGetEmployees();
-                  
-                  // Find the original branch name from branchData
-                  const branchInfo = adminDashboardBranchData.find(b => b.name === branchName);
-                  const originalBranchName = branchInfo?.originalName || branchName;
-                  
-                  // Normalize for comparison
-                  const normalizedBranchName = normalizeBranchName(originalBranchName);
-                  
-                  const filtered = employees.filter((emp: any) => {
-                    const empBranch = emp['Branch'] || emp.branch || '';
-                    const normalizedEmpBranch = normalizeBranchName(empBranch);
-                    // Match by normalized name or exact match
-                    return normalizedEmpBranch === normalizedBranchName || 
-                           empBranch === originalBranchName || 
-                           empBranch === branchName ||
-                           normalizedEmpBranch === normalizeBranchName(branchName);
-                  }).map((emp: any) => {
-                    const employeeId = emp['Employee_id'] || emp['Employee ID'] || emp.id || '';
-                    const fullName = emp['Name'] || emp['Full Name'] || emp.name || '';
-                    const email = emp['Email_id'] || emp['Email Address'] || emp.email || '';
-                    const role = emp['Role'] || emp.role || 'EMPLOYEE';
-                    const designation = emp['Designation'] || emp.designation || '';
-                    const photoLink = emp['Photo_link'] || emp['Profile Picture'] || emp.avatar || emp.profilePicture || '';
-                    const branch = emp['Branch'] || emp.branch || 'TECH';
-                    
-                    let userRole: UserRole = UserRole.EMPLOYEE;
-                    const roleUpper = String(role).toUpperCase();
-                    if (roleUpper === 'MD') userRole = UserRole.MD;
-                    else if (roleUpper === 'ADMIN') userRole = UserRole.ADMIN;
-                    else if (roleUpper === 'TEAM_LEADER' || roleUpper === 'TEAM LEADER') userRole = UserRole.TEAM_LEADER;
-                    else if (roleUpper === 'EMPLOYEE') userRole = UserRole.EMPLOYEE;
-                    else if (roleUpper === 'INTERN') userRole = UserRole.INTERN;
-                    
-                    return {
-                      id: employeeId,
-                      name: fullName,
-                      email: email,
-                      role: userRole,
-                      designation: designation,
-                      avatar: convertPhotoLinkToUrl(photoLink) || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
-                      status: 'PRESENT' as const,
-                      leaveBalance: 0,
-                      score: 0,
-                      branch: branch as any,
-                      joinDate: emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0],
-                      birthDate: emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01',
-                    };
-                  });
-                  
-                  setFilteredUsers(filtered);
-                  setFilterType('branch');
-                  setFilterValue(branchName);
-                  setShowFilteredUsersModal(true);
-                } catch (err: any) {
-                  console.error('Error fetching employees by branch:', err);
-                  alert('Failed to load employees. Please try again.');
-                }
+              onBarClick={(branchName) => {
+                const branchInfo = adminDashboardBranchData.find(b => b.name === branchName);
+                const originalBranchName = branchInfo?.originalName || branchName;
+                const normalizedBranchName = normalizeBranchName(originalBranchName);
+                const filtered = users.filter((u) => {
+                  const empBranch = u.branch || '';
+                  const normalizedEmpBranch = normalizeBranchName(empBranch);
+                  return normalizedEmpBranch === normalizedBranchName || empBranch === originalBranchName || empBranch === branchName || normalizedEmpBranch === normalizeBranchName(branchName);
+                });
+                setFilteredUsers(filtered);
+                setFilterType('branch');
+                setFilterValue(branchName);
+                setShowFilteredUsersModal(true);
               }}
             />
 
@@ -1474,72 +1266,14 @@ export default function App() {
                 { name: 'Employee', value: adminEmployeeCount, color: '#06b6d4' },
                 { name: 'Intern', value: adminInternCount, color: '#ec4899' }
               ]}
-              onBarClick={async (roleName) => {
-                try {
-                  const employees = await apiGetEmployees();
-                  
-                  // Map role display names to UserRole enum
-                  const roleMap: Record<string, UserRole> = {
-                    'Leader': UserRole.TEAM_LEADER,
-                    'Employee': UserRole.EMPLOYEE,
-                    'Intern': UserRole.INTERN,
-                  };
-                  
-                  const targetRole = roleMap[roleName];
-                  
-                  const filtered = employees.filter((emp: any) => {
-                    const role = emp['Role'] || emp.role || 'EMPLOYEE';
-                    const roleUpper = String(role).toUpperCase();
-                    
-                    if (targetRole === UserRole.TEAM_LEADER) {
-                      return roleUpper === 'TEAM_LEADER' || roleUpper === 'TEAM LEADER';
-                    } else if (targetRole === UserRole.EMPLOYEE) {
-                      return roleUpper === 'EMPLOYEE';
-                    } else if (targetRole === UserRole.INTERN) {
-                      return roleUpper === 'INTERN';
-                    }
-                    return false;
-                  }).map((emp: any) => {
-                    const employeeId = emp['Employee_id'] || emp['Employee ID'] || emp.id || '';
-                    const fullName = emp['Name'] || emp['Full Name'] || emp.name || '';
-                    const email = emp['Email_id'] || emp['Email Address'] || emp.email || '';
-                    const role = emp['Role'] || emp.role || 'EMPLOYEE';
-                    const designation = emp['Designation'] || emp.designation || '';
-                    const photoLink = emp['Photo_link'] || emp['Profile Picture'] || emp.avatar || emp.profilePicture || '';
-                    const branch = emp['Branch'] || emp.branch || 'TECH';
-                    
-                    let userRole: UserRole = UserRole.EMPLOYEE;
-                    const roleUpper = String(role).toUpperCase();
-                    if (roleUpper === 'MD') userRole = UserRole.MD;
-                    else if (roleUpper === 'ADMIN') userRole = UserRole.ADMIN;
-                    else if (roleUpper === 'TEAM_LEADER' || roleUpper === 'TEAM LEADER') userRole = UserRole.TEAM_LEADER;
-                    else if (roleUpper === 'EMPLOYEE') userRole = UserRole.EMPLOYEE;
-                    else if (roleUpper === 'INTERN') userRole = UserRole.INTERN;
-                    
-                    return {
-                      id: employeeId,
-                      name: fullName,
-                      email: email,
-                      role: userRole,
-                      designation: designation,
-                      avatar: convertPhotoLinkToUrl(photoLink) || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
-                      status: 'PRESENT' as const,
-                      leaveBalance: 0,
-                      score: 0,
-                      branch: branch as any,
-                      joinDate: emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0],
-                      birthDate: emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01',
-                    };
-                  });
-                  
-                  setFilteredUsers(filtered);
-                  setFilterType('role');
-                  setFilterValue(roleName);
-                  setShowFilteredUsersModal(true);
-                } catch (err: any) {
-                  console.error('Error fetching employees by role:', err);
-                  alert('Failed to load employees. Please try again.');
-                }
+              onBarClick={(roleName) => {
+                const roleMap: Record<string, UserRole> = { 'Leader': UserRole.TEAM_LEADER, 'Employee': UserRole.EMPLOYEE, 'Intern': UserRole.INTERN };
+                const targetRole = roleMap[roleName];
+                const filtered = users.filter((u) => u.role === targetRole);
+                setFilteredUsers(filtered);
+                setFilterType('role');
+                setFilterValue(roleName);
+                setShowFilteredUsersModal(true);
               }}
             />
           </div>
@@ -1603,7 +1337,7 @@ export default function App() {
     
     if (checkIsMD) {
        const usersWithCalculatedScores = users.map(user => {
-           const completedTasks = tasks.filter(t => 
+           const completedTasks = tasksForDashboard.filter(t => 
              (t.assigneeId === user.id || t.assigneeIds?.includes(user.id)) && 
              t.status === 'COMPLETED'
            );
@@ -1674,66 +1408,19 @@ export default function App() {
                <DistributionChart 
                  title="Workforce by Branch" 
                  data={branchData}
-                 onBarClick={async (branchName) => {
-                   try {
-                     const employees = await apiGetEmployees();
-                     
-                     // Find the original branch name from branchData
-                     const branchInfo = branchData.find(b => b.name === branchName);
-                     const originalBranchName = branchInfo?.originalName || branchName;
-                     
-                     // Normalize for comparison
-                     const normalizedBranchName = normalizeBranchName(originalBranchName);
-                     
-                     const filtered = employees.filter((emp: any) => {
-                       const empBranch = emp['Branch'] || emp.branch || '';
-                       const normalizedEmpBranch = normalizeBranchName(empBranch);
-                       // Match by normalized name or exact match
-                       return normalizedEmpBranch === normalizedBranchName || 
-                              empBranch === originalBranchName || 
-                              empBranch === branchName ||
-                              normalizedEmpBranch === normalizeBranchName(branchName);
-                     }).map((emp: any) => {
-                       const employeeId = emp['Employee_id'] || emp['Employee ID'] || emp.id || '';
-                       const fullName = emp['Name'] || emp['Full Name'] || emp.name || '';
-                       const email = emp['Email_id'] || emp['Email Address'] || emp.email || '';
-                       const role = emp['Role'] || emp.role || 'EMPLOYEE';
-                       const designation = emp['Designation'] || emp.designation || '';
-                       const photoLink = emp['Photo_link'] || emp['Profile Picture'] || emp.avatar || emp.profilePicture || '';
-                       const branch = emp['Branch'] || emp.branch || 'TECH';
-                       
-                       let userRole: UserRole = UserRole.EMPLOYEE;
-                       const roleUpper = String(role).toUpperCase();
-                       if (roleUpper === 'MD') userRole = UserRole.MD;
-                       else if (roleUpper === 'ADMIN') userRole = UserRole.ADMIN;
-                       else if (roleUpper === 'TEAM_LEADER' || roleUpper === 'TEAM LEADER') userRole = UserRole.TEAM_LEADER;
-                       else if (roleUpper === 'EMPLOYEE') userRole = UserRole.EMPLOYEE;
-                       else if (roleUpper === 'INTERN') userRole = UserRole.INTERN;
-                       
-                       return {
-                         id: employeeId,
-                         name: fullName,
-                         email: email,
-                         role: userRole,
-                         designation: designation,
-                         avatar: convertPhotoLinkToUrl(photoLink) || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
-                         status: 'PRESENT' as const,
-                         leaveBalance: 0,
-                         score: 0,
-                         branch: branch as any,
-                         joinDate: emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0],
-                         birthDate: emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01',
-                       };
-                     });
-                     
-                     setFilteredUsers(filtered);
-                     setFilterType('branch');
-                     setFilterValue(branchName);
-                     setShowFilteredUsersModal(true);
-                   } catch (err: any) {
-                     console.error('Error fetching employees by branch:', err);
-                     alert('Failed to load employees. Please try again.');
-                   }
+                 onBarClick={(branchName) => {
+                   const branchInfo = branchData.find(b => b.name === branchName);
+                   const originalBranchName = branchInfo?.originalName || branchName;
+                   const normalizedBranchName = normalizeBranchName(originalBranchName);
+                   const filtered = users.filter((u) => {
+                     const empBranch = u.branch || '';
+                     const normalizedEmpBranch = normalizeBranchName(empBranch);
+                     return normalizedEmpBranch === normalizedBranchName || empBranch === originalBranchName || empBranch === branchName || normalizedEmpBranch === normalizeBranchName(branchName);
+                   });
+                   setFilteredUsers(filtered);
+                   setFilterType('branch');
+                   setFilterValue(branchName);
+                   setShowFilteredUsersModal(true);
                  }}
                />
 
@@ -1744,64 +1431,14 @@ export default function App() {
                     { name: 'Employee', value: employeeCount, color: '#06b6d4' },
                     { name: 'Intern', value: internCount, color: '#ec4899' }
                  ]}
-                 onBarClick={async (roleName) => {
-                   try {
-                     const employees = await apiGetEmployees();
-                     // Map role names to match API values
-                     const roleMap: Record<string, string> = {
-                       'Leader': 'TEAM_LEADER',
-                       'Employee': 'EMPLOYEE',
-                       'Intern': 'INTERN'
-                     };
-                     
-                     const targetRole = roleMap[roleName] || roleName.toUpperCase();
-                     
-                     const filtered = employees.filter((emp: any) => {
-                       const role = emp['Role'] || emp.role || '';
-                       const roleUpper = String(role).toUpperCase();
-                       return roleUpper === targetRole || 
-                              (targetRole === 'TEAM_LEADER' && (roleUpper === 'TEAM LEADER' || roleUpper === 'TEAM_LEADER'));
-                     }).map((emp: any) => {
-                       const employeeId = emp['Employee_id'] || emp['Employee ID'] || emp.id || '';
-                       const fullName = emp['Name'] || emp['Full Name'] || emp.name || '';
-                       const email = emp['Email_id'] || emp['Email Address'] || emp.email || '';
-                       const role = emp['Role'] || emp.role || 'EMPLOYEE';
-                       const designation = emp['Designation'] || emp.designation || '';
-                       const photoLink = emp['Photo_link'] || emp['Profile Picture'] || emp.avatar || emp.profilePicture || '';
-                       const branch = emp['Branch'] || emp.branch || 'TECH';
-                       
-                       let userRole: UserRole = UserRole.EMPLOYEE;
-                       const roleUpper = String(role).toUpperCase();
-                       if (roleUpper === 'MD') userRole = UserRole.MD;
-                       else if (roleUpper === 'ADMIN') userRole = UserRole.ADMIN;
-                       else if (roleUpper === 'TEAM_LEADER' || roleUpper === 'TEAM LEADER') userRole = UserRole.TEAM_LEADER;
-                       else if (roleUpper === 'EMPLOYEE') userRole = UserRole.EMPLOYEE;
-                       else if (roleUpper === 'INTERN') userRole = UserRole.INTERN;
-                       
-                       return {
-                         id: employeeId,
-                         name: fullName,
-                         email: email,
-                         role: userRole,
-                         designation: designation,
-                         avatar: convertPhotoLinkToUrl(photoLink) || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
-                         status: 'PRESENT' as const,
-                         leaveBalance: 0,
-                         score: 0,
-                         branch: branch as any,
-                         joinDate: emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0],
-                         birthDate: emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01',
-                       };
-                     });
-                     
-                     setFilteredUsers(filtered);
-                     setFilterType('role');
-                     setFilterValue(roleName);
-                     setShowFilteredUsersModal(true);
-                   } catch (err: any) {
-                     console.error('Error fetching employees by role:', err);
-                     alert('Failed to load employees. Please try again.');
-                   }
+                 onBarClick={(roleName) => {
+                   const roleMap: Record<string, UserRole> = { 'Leader': UserRole.TEAM_LEADER, 'Employee': UserRole.EMPLOYEE, 'Intern': UserRole.INTERN };
+                   const targetRole = roleMap[roleName];
+                   const filtered = users.filter((u) => u.role === targetRole);
+                   setFilteredUsers(filtered);
+                   setFilterType('role');
+                   setFilterValue(roleName);
+                   setShowFilteredUsersModal(true);
                  }}
                />
             </div>
@@ -1848,13 +1485,13 @@ export default function App() {
       case 'assignTask':
         // Assign Task Page → /tasks/viewAssignedTasks/ (for MD and all users)
         // Shows tasks assigned to the current user
-        return <TaskBoard currentUser={currentUser} tasks={tasks} users={users} projects={projects} setTasks={setTasks} viewMode="assign" setActiveTab={setActiveTab} />;
+        return <TaskBoard currentUser={currentUser} users={users} projects={projects} viewMode="assign" setActiveTab={setActiveTab} />;
       
       case 'reportingTask':
         // Reporting Page → /tasks/viewTasks/ (for MD and all users)
         // MD: Shows tasks created by users (filters out tasks created by MD)
         // Users: Shows tasks created by them (tasks they created)
-        return <TaskBoard currentUser={currentUser} tasks={tasks} users={users} projects={projects} setTasks={setTasks} viewMode="reporting" setActiveTab={setActiveTab} />;
+        return <TaskBoard currentUser={currentUser} users={users} projects={projects} viewMode="reporting" setActiveTab={setActiveTab} />;
       
       case 'messages':
         return <ChatSystem currentUser={currentUser} groups={groups} messages={messages} users={users} setMessages={setMessages} setGroups={setGroups} />;
@@ -1866,7 +1503,7 @@ export default function App() {
             users={users}
             onAddUser={handleAddUser}
             onDeleteUser={handleDeleteUser}
-            onRefreshEmployees={fetchEmployees}
+            onRefreshEmployees={invalidateEmployees}
           />
         );
       
@@ -1946,7 +1583,7 @@ export default function App() {
 
          return (
             <div className="space-y-6">
-              <AdminPanel users={users} onAddUser={handleAddUser} onDeleteUser={handleDeleteUser} onRefreshEmployees={fetchEmployees} />
+              <AdminPanel users={users} onAddUser={handleAddUser} onDeleteUser={handleDeleteUser} onRefreshEmployees={invalidateEmployees} />
             </div>
          );
 

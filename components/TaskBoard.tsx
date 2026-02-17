@@ -1,16 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Task, TaskType, TaskStatus, User, UserRole, Project } from '../types';
 import { AlertCircle, Calendar, CheckCircle2, Clock, MoreVertical, Plus, Search, Send, Upload, Sparkles, User as UserIcon, Users as UsersIcon, Filter, Info, ChevronDown } from 'lucide-react';
 import { getTaskAssistance } from '../services/gemini';
 import api, { 
-  getRoles as apiGetRoles,
   getDesignations as apiGetDesignations,
-  getBranch as apiGetBranch,
-  getEmployees as apiGetEmployees,
   createTask as apiCreateTask,
-  viewTasks as apiViewTasks,
-  viewAssignedTasks as apiViewAssignedTasks,
   getTaskTypes as apiGetTaskTypes,
   getNamesFromRoleAndDesignation as apiGetNamesFromRoleAndDesignation,
   sendTaskMessage as apiSendTaskMessage,
@@ -18,25 +13,42 @@ import api, {
   changeTaskStatus as apiChangeTaskStatus
 } from '../services/api';
 import { convertApiTasksToTasks } from '@/utils/taskConversion';
+import { fromApiDateFormat } from '@/services/dateUtils';
+import { useEmployeesQuery } from '../hooks/useEmployees';
+import { useRolesQuery } from '../hooks/useRoles';
+import { useBranchesQuery } from '../hooks/useBranches';
+import { useTasksQuery, useTasksInvalidate } from '../hooks/useTasks';
 
 interface TaskBoardProps {
   currentUser: User;
-  tasks: Task[];
+  tasks?: Task[]; // Optional - when not provided, uses useTasksQuery
   users: User[];
   projects: Project[];
-  setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
-  viewMode?: 'assign' | 'reporting'; // New prop to control view mode
-  setActiveTab?: (tab: string) => void; // Optional: switch between Reporting Task / Assigned Task from header
+  setTasks?: React.Dispatch<React.SetStateAction<Task[]>>; // Optional - when not provided, uses invalidate
+  viewMode?: 'assign' | 'reporting';
+  setActiveTab?: (tab: string) => void;
 }
 
-export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users, projects, setTasks, viewMode = 'assign', setActiveTab }) => {
+export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksProp, users, projects, setTasks: setTasksProp, viewMode = 'assign', setActiveTab }) => {
+  const invalidateTasks = useTasksInvalidate();
+  const tasksQuery = useTasksQuery(viewMode, currentUser, true);
+  const tasksFromQuery = useMemo(() => {
+    const raw = tasksQuery.data;
+    if (!raw || !currentUser) return [];
+    return convertApiTasksToTasks(raw, users, currentUser);
+  }, [tasksQuery.data, users, currentUser]);
+  const tasks = tasksProp ?? tasksFromQuery;
+  const setTasks = setTasksProp ?? ((_updater: React.SetStateAction<Task[]>) => invalidateTasks());
+  const isLoadingTasks = tasksQuery.isLoading;
+
   const [filterType, setFilterType] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('ALL'); // ALL | COMPLETED | IN_PROGRESS | PENDING
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
+  const queryError = tasksQuery.error ? (tasksQuery.error as Error).message : null;
+  const displayTaskError = taskError ?? queryError;
   const [changingStatusTaskId, setChangingStatusTaskId] = useState<string | null>(null);
   const [openStatusDropdown, setOpenStatusDropdown] = useState<string | null>(null); // Track which task's dropdown is open
   const [availableUsers, setAvailableUsers] = useState<User[]>([]); // Users fetched from API for dropdown
@@ -80,7 +92,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
   const [selectedDesignation, setSelectedDesignation] = useState<string>('');
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
   const [availableDesignations, setAvailableDesignations] = useState<string[]>([]);
-  const [isLoadingRoles, setIsLoadingRoles] = useState(false);
   const [isLoadingDesignations, setIsLoadingDesignations] = useState(false);
   const [designationFilter, setDesignationFilter] = useState('All');
   
@@ -105,42 +116,18 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
   const [isLoadingTaskTypes, setIsLoadingTaskTypes] = useState(false);
   // Branches for filter
   const [availableBranches, setAvailableBranches] = useState<string[]>([]);
-  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
 
-  // Fetch roles on component mount (for main view filters)
+  // Roles and branches - cached via React Query (shared with AdminPanel)
+  const { data: rolesData } = useRolesQuery(true);
+  const { data: branchesData } = useBranchesQuery(true);
   useEffect(() => {
-    const fetchRoles = async () => {
-      setIsLoadingRoles(true);
-      try {
-        const roles = await apiGetRoles();
-        setAvailableRoles(roles);
-      } catch (roleErr: any) {
-        console.error('❌ [TASK BOARD] Error fetching roles:', roleErr);
-        setAvailableRoles([]);
-      } finally {
-        setIsLoadingRoles(false);
-      }
-    };
-    
-    fetchRoles();
-  }, []);
-
-  // Fetch branches on component mount (for branch filter)
+    if (rolesData) setAvailableRoles(Array.isArray(rolesData) ? rolesData : []);
+    else setAvailableRoles([]);
+  }, [rolesData]);
   useEffect(() => {
-    const fetchBranches = async () => {
-      setIsLoadingBranches(true);
-      try {
-        const branches = await apiGetBranch();
-        setAvailableBranches(Array.isArray(branches) ? branches.filter((b: any) => b != null && String(b).trim() !== '') : []);
-      } catch (err: any) {
-        console.error('❌ [TASK BOARD] Error fetching branches:', err);
-        setAvailableBranches([]);
-      } finally {
-        setIsLoadingBranches(false);
-      }
-    };
-    fetchBranches();
-  }, []);
+    if (branchesData) setAvailableBranches(Array.isArray(branchesData) ? branchesData.filter((b: any) => b != null && String(b).trim() !== '') : []);
+    else setAvailableBranches([]);
+  }, [branchesData]);
 
   // Fetch task types when modal opens
   useEffect(() => {
@@ -284,178 +271,19 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
     }
   }, [showAddModal, currentUser.id]);
 
-  // Fetch users from API for the assign dropdown
+  // Use users from App when available; otherwise use React Query cache (no duplicate API calls)
+  const { data: employeesFromQuery, isLoading: isLoadingEmployees } = useEmployeesQuery(users.length === 0 && showAddModal);
   useEffect(() => {
-    const fetchUsersForDropdown = async () => {
-      setIsLoadingUsers(true);
-      
-      try {
-        const employees = await apiGetEmployees();
-        
-        if (!employees || employees.length === 0) {
-          setAvailableUsers([]);
-          setIsLoadingUsers(false);
-          return;
-        }
-        
-        // Convert Employee format to User format for dropdown
-        const convertedUsers: User[] = employees.map((emp: any) => {
-          const employeeId = emp['Employee ID'] || emp['Employee_id'] || emp.id || emp.Employee_id || '';
-          const fullName = emp['Full Name'] || emp['Name'] || emp.name || emp.fullName || 'Unknown';
-          const email = emp['Email Address'] || emp['Email_id'] || emp.email || emp.emailAddress || '';
-          const role = emp['Role'] || emp.role || 'EMPLOYEE';
-          const designation = emp['Designation'] || emp.designation || 'Employee';
-          const branch = emp['Branch'] || emp.branch || 'TECH';
-          const joinDate = emp['Joining Date'] || emp['Date_of_join'] || emp.joinDate || new Date().toISOString().split('T')[0];
-          const birthDate = emp['Date of Birth'] || emp['Date_of_birth'] || emp.birthDate || new Date().toISOString().split('T')[0];
-          const photoLink = emp['Profile Picture'] || emp['Photo_link'] || emp.avatar || emp.profilePicture || '';
-          
-          // Map role string to UserRole enum
-          let userRole: UserRole = UserRole.EMPLOYEE;
-          const roleUpper = String(role).toUpperCase();
-          if (roleUpper === 'MD') userRole = UserRole.MD;
-          else if (roleUpper === 'ADMIN') userRole = UserRole.ADMIN;
-          else if (roleUpper === 'TEAM_LEADER' || roleUpper === 'TEAM LEADER') userRole = UserRole.TEAM_LEADER;
-          else if (roleUpper === 'EMPLOYEE') userRole = UserRole.EMPLOYEE;
-          else if (roleUpper === 'INTERN') userRole = UserRole.INTERN;
-          
-          const user: User = {
-            id: employeeId,
-            name: fullName,
-            avatar: photoLink || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
-            role: userRole,
-            designation: designation,
-            joinDate: joinDate,
-            birthDate: birthDate,
-            email: email,
-            status: 'PRESENT',
-            leaveBalance: 0,
-            score: 0,
-            branch: branch as any,
-          };
-          
-          return user;
-        });
-        
-        // Always use API users, don't merge with dummy users
-        setAvailableUsers(convertedUsers);
-      } catch (err: any) {
-        // Error handling - no console logs
-        
-        // Don't fallback to dummy users - keep empty array or show error
-        setAvailableUsers([]);
-      } finally {
-        setIsLoadingUsers(false);
-      }
-    };
-
-    // Always fetch users when component mounts and when modal opens
-    fetchUsersForDropdown();
-  }, []); // Fetch on mount and re-fetch when modal opens to get latest users
-  
-  // Also re-fetch when modal opens to ensure we have the latest users
-  useEffect(() => {
-    if (showAddModal) {
-      const fetchUsersForDropdown = async () => {
-        setIsLoadingUsers(true);
-        try {
-          const employees = await apiGetEmployees();
-          
-          const convertedUsers: User[] = employees.map((emp: any) => {
-            const employeeId = emp['Employee ID'] || emp['Employee_id'] || emp.id || emp.Employee_id || '';
-            const fullName = emp['Full Name'] || emp['Name'] || emp.name || emp.fullName || 'Unknown';
-            const email = emp['Email Address'] || emp['Email_id'] || emp.email || emp.emailAddress || '';
-            const role = emp['Role'] || emp.role || 'EMPLOYEE';
-            const designation = emp['Designation'] || emp.designation || 'Employee';
-            const branch = emp['Branch'] || emp.branch || 'TECH';
-            const joinDate = emp['Joining Date'] || emp['Date_of_join'] || emp.joinDate || new Date().toISOString().split('T')[0];
-            const birthDate = emp['Date of Birth'] || emp['Date_of_birth'] || emp.birthDate || new Date().toISOString().split('T')[0];
-            const photoLink = emp['Profile Picture'] || emp['Photo_link'] || emp.avatar || emp.profilePicture || '';
-            
-            let userRole: UserRole = UserRole.EMPLOYEE;
-            const roleUpper = String(role).toUpperCase();
-            if (roleUpper === 'MD') userRole = UserRole.MD;
-            else if (roleUpper === 'ADMIN') userRole = UserRole.ADMIN;
-            else if (roleUpper === 'TEAM_LEADER' || roleUpper === 'TEAM LEADER') userRole = UserRole.TEAM_LEADER;
-            else if (roleUpper === 'EMPLOYEE') userRole = UserRole.EMPLOYEE;
-            else if (roleUpper === 'INTERN') userRole = UserRole.INTERN;
-            
-            return {
-              id: employeeId,
-              name: fullName,
-              avatar: photoLink || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
-              role: userRole,
-              designation: designation,
-              joinDate: joinDate,
-              birthDate: birthDate,
-              email: email,
-              status: 'PRESENT' as const,
-              leaveBalance: 0,
-              score: 0,
-              branch: branch as any,
-            };
-          });
-          
-          setAvailableUsers(convertedUsers);
-        } catch (err: any) {
-          // Error handling - no console logs
-        } finally {
-          setIsLoadingUsers(false);
-        }
-      };
-      
-      fetchUsersForDropdown();
+    if (users.length > 0) {
+      setAvailableUsers(users);
+      setIsLoadingUsers(false);
+      return;
     }
-  }, [showAddModal]);
-
-  // Fetch tasks from API when component mounts
-  useEffect(() => {
-    let cancelled = false; // Ignore stale results when switching tabs (prevents reporting tasks from disappearing)
-
-    const fetchTasks = async () => {
-      setIsLoadingTasks(true);
-      setTaskError(null);
-      
-      try {
-        let apiTasks: any[];
-        // MD Reporting: viewAssignedTasks. MD Assigned: viewTasks. Others: viewTasks on Reporting, viewAssignedTasks on Assigned.
-        const isMD = currentUser.role === UserRole.MD;
-        if (viewMode === 'reporting') {
-          apiTasks = isMD ? await apiViewAssignedTasks() : await apiViewTasks();
-        } else {
-          apiTasks = isMD ? await apiViewTasks() : await apiViewAssignedTasks();
-        }
-        apiTasks = Array.isArray(apiTasks) ? apiTasks : (apiTasks && typeof apiTasks === 'object' ? [apiTasks] : []);
-
-        // Convert API tasks to frontend Task format (handles Task_id, Title, Assigned_to, etc.)
-        let convertedTasks: Task[];
-        try {
-          convertedTasks = convertApiTasksToTasks(apiTasks, users, currentUser);
-        } catch (convertErr: any) {
-          throw new Error(convertErr?.message || 'Invalid task data received from server.');
-        }
-        const uniqueTasks = convertedTasks.filter((task, index, self) =>
-          index === self.findIndex(t => t.id === task.id)
-        );
-        if (!cancelled) setTasks(uniqueTasks);
-      } catch (err: any) {
-        if (!cancelled) {
-          const status = err?.response?.status;
-          const msg = status === 404
-            ? 'Tasks endpoint not found. Please check if the backend server is running and the API is configured correctly.'
-            : status === 500
-            ? 'Server error while loading tasks. The backend may be temporarily unavailable. Please try again later.'
-            : (err.message || 'Failed to fetch tasks from server');
-          setTaskError(msg);
-        }
-      } finally {
-        if (!cancelled) setIsLoadingTasks(false);
-      }
-    };
-
-    fetchTasks();
-    return () => { cancelled = true; };
-  }, [currentUser, setTasks, viewMode, users]);
+    if (showAddModal && employeesFromQuery) {
+      setAvailableUsers(employeesFromQuery);
+    }
+    setIsLoadingUsers(users.length === 0 && showAddModal && isLoadingEmployees);
+  }, [users, showAddModal, employeesFromQuery, isLoadingEmployees]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -761,30 +589,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
       setReportingByDesignationsByIndex({});
       setIsLoadingReportingByByIndex({});
       
-      // Refresh tasks from API to get the actual task with server-generated ID
-      // Use same conversion as initial fetch to avoid undefined/mismatched fields
-      const refreshAfterCreate = async () => {
-        try {
-          let apiTasks: any[];
-          const isMD = currentUser.role === UserRole.MD;
-          if (viewMode === 'reporting') {
-            apiTasks = isMD ? await apiViewAssignedTasks() : await apiViewTasks();
-          } else {
-            apiTasks = isMD ? await apiViewTasks() : await apiViewAssignedTasks();
-          }
-          apiTasks = Array.isArray(apiTasks) ? apiTasks : (apiTasks && typeof apiTasks === 'object' ? [apiTasks] : []);
-          const convertedTasks = convertApiTasksToTasks(apiTasks, users, currentUser);
-          const uniqueTasks = convertedTasks.filter((task, index, self) =>
-            index === self.findIndex(t => t.id === task.id)
-          );
-          setTasks(uniqueTasks);
-        } catch (err) {
-          // On refresh failure, keep existing tasks - don't clear
-          console.error('❌ [CREATE TASK] Refresh after create failed:', err);
-        }
-      };
-      // Brief delay so backend has the new task indexed
-      setTimeout(refreshAfterCreate, 300);
+      // Brief delay so backend has the new task indexed, then invalidate to refetch
+      setTimeout(() => invalidateTasks(), 300);
       
     } catch (err: any) {
       setTaskError(err.message || 'Failed to create task. Please try again.');
@@ -794,32 +600,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
     }
   };
 
-  // Function to refresh tasks from API
-  const refreshTasks = async () => {
-    try {
-      setIsLoadingTasks(true);
-      setTaskError(null);
-      let apiTasks: any[];
-      const isMD = currentUser.role === UserRole.MD;
-      if (viewMode === 'reporting') {
-        apiTasks = isMD ? await apiViewAssignedTasks() : await apiViewTasks();
-      } else {
-        apiTasks = isMD ? await apiViewTasks() : await apiViewAssignedTasks();
-      }
-      apiTasks = Array.isArray(apiTasks) ? apiTasks : (apiTasks && typeof apiTasks === 'object' ? [apiTasks] : []);
-
-      // Convert API tasks to frontend Task format (handles Task_id, Title, Assigned_to, etc.)
-      const convertedTasks = convertApiTasksToTasks(apiTasks, users, currentUser);
-      const uniqueTasks = convertedTasks.filter((task, index, self) => 
-        index === self.findIndex(t => t.id === task.id)
-      );
-      setTasks(uniqueTasks);
-    } catch (err: any) {
-      console.error('❌ [REFRESH TASKS ERROR]', err);
-      setTaskError(err.message || 'Failed to refresh tasks');
-    } finally {
-      setIsLoadingTasks(false);
-    }
+  const refreshTasks = () => {
+    setTaskError(null);
+    invalidateTasks();
   };
 
   const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
@@ -2083,10 +1866,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks, users,
             <Clock size={48} className="mx-auto mb-4 opacity-50 animate-spin" />
             <p>Loading tasks...</p>
           </div>
-        ) : taskError ? (
+        ) : displayTaskError ? (
           <div className="col-span-full text-center py-20">
             <AlertCircle size={48} className="mx-auto mb-4 text-red-400" />
-            <p className="text-red-500 mb-2">Error loading tasks: {taskError}</p>
+            <p className="text-red-500 mb-2">Error loading tasks: {displayTaskError}</p>
             <button 
               onClick={() => window.location.reload()} 
               className="text-sm text-brand-600 hover:underline"
