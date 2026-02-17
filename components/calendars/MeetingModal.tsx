@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import { Meeting, MeetingType, MeetingStatus } from './types';
 import { CURRENT_USER } from './constants';
@@ -32,7 +32,13 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   const [endTime, setEndTime] = useState(initialMeeting?.endTime ?? '10:00');
   const [type, setType] = useState<MeetingType>(initialMeeting?.type ?? MeetingType.INDIVIDUAL);
   const [selectedUsers, setSelectedUsers] = useState<string[]>(initialMeeting?.attendees ?? []);
+  const [memberSearch, setMemberSearch] = useState('');
   const employees = employeesProp;
+  const filteredEmployees = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter((emp) => emp.name.toLowerCase().includes(q));
+  }, [employees, memberSearch]);
   const employeesLoading = false;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -166,11 +172,11 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
-        <div className="bg-indigo-600 p-6 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="bg-indigo-600 px-4 py-3 flex justify-between items-center">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
             <svg
-              className="w-6 h-6"
+              className="w-5 h-5"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -184,9 +190,9 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
             </svg>
             {isEdit ? 'Edit' : 'Book'} Meeting Slot
           </h2>
-          <button onClick={onClose} className="text-white/80 hover:text-white">
+          <button onClick={onClose} className="text-white/80 hover:text-white p-0.5">
             <svg
-              className="w-6 h-6"
+              className="w-5 h-5"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -201,10 +207,10 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-8 space-y-5">
-          <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 mb-1">
                 Meeting Title
               </label>
               <input
@@ -212,11 +218,11 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Quarterly Review"
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
               />
               {officeHoursNote && (
-                <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center gap-2">
-                  <svg className="w-5 h-5 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="mt-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-center gap-2">
+                  <svg className="w-4 h-4 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   {officeHoursNote}
@@ -225,7 +231,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 mb-1">
                 Start Time
               </label>
               <input
@@ -259,12 +265,12 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                   const val = clampToOfficeHours(raw, OFFICE_START, OFFICE_START_MAX);
                   if (val !== startTime) setStartTime(val);
                 }}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 mb-1">
                 End Time
               </label>
               <input
@@ -298,18 +304,18 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                   }
                   if (val !== endTime) setEndTime(val);
                 }}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
             </div>
 
             <div className="col-span-2">
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 mb-1">
                 Select Hall
               </label>
               <select
                 value={hallName}
                 onChange={(e) => setHallName(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               >
                 {rooms.length === 0 && (
                   <option value="">Loading rooms…</option>
@@ -323,7 +329,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
             </div>
 
             <div className="col-span-2">
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 mb-1">
                 Description
               </label>
               <textarea
@@ -331,66 +337,81 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Details of the discussion..."
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none"
               />
             </div>
 
             <div className="col-span-2">
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 mb-1">
                 Meeting Type
               </label>
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
+              <div className="flex gap-3">
+                <label className="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="radio"
                     checked={type === MeetingType.INDIVIDUAL}
                     onChange={() => setType(MeetingType.INDIVIDUAL)}
-                    className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                    className="w-3.5 h-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
                   />
-                  <span className="text-sm font-medium">Individual</span>
+                  <span className="text-xs font-medium">Individual</span>
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="radio"
                     checked={type === MeetingType.GROUP}
                     onChange={() => setType(MeetingType.GROUP)}
-                    className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                    className="w-3.5 h-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
                   />
-                  <span className="text-sm font-medium">Group Meeting</span>
+                  <span className="text-xs font-medium">Group Meeting</span>
                 </label>
               </div>
             </div>
 
             {type === MeetingType.GROUP ? (
               <div className="col-span-2">
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 mb-1">
                   Select Participants
                 </label>
-                <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-2 border rounded-xl bg-slate-50">
+                <div className="relative mb-1.5">
+                  <svg className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <input
+                    type="text"
+                    placeholder="Search by name..."
+                    value={memberSearch}
+                    onChange={(e) => setMemberSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 max-h-24 overflow-y-auto p-2 border rounded-lg bg-slate-50">
                   {employeesLoading ? (
-                    <span className="col-span-2 text-sm text-slate-500 p-2">Loading employees…</span>
+                    <span className="col-span-2 text-xs text-slate-500 p-1.5">Loading employees…</span>
+                  ) : filteredEmployees.length === 0 ? (
+                    <span className="col-span-2 text-xs text-slate-500 p-1.5">No matching participants</span>
                   ) : (
-                  employees.map((user) => (
+                    filteredEmployees.map((user) => (
                     <label
                       key={user.id}
-                      className="flex items-center gap-2 p-1 hover:bg-white rounded cursor-pointer"
+                      className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-white rounded cursor-pointer"
                     >
                       <input
                         type="checkbox"
                         checked={selectedUsers.includes(user.id)}
                         onChange={() => toggleUser(user.id)}
-                        className="rounded border-slate-300 text-indigo-600"
+                        className="rounded border-slate-300 text-indigo-600 w-3 h-3"
                       />
-                      <span className="text-xs">{user.name}</span>
+                      <span className="text-xs truncate">{user.name}</span>
                     </label>
-                  )))}
+                    ))
+                  )}
                 </div>
               </div>
             ) : (
-              <div className="col-span-2 p-4 bg-indigo-50 rounded-xl">
-                <p className="text-sm font-semibold text-indigo-800 flex items-center gap-2">
+              <div className="col-span-2 p-3 bg-indigo-50 rounded-lg">
+                <p className="text-xs font-semibold text-indigo-800 flex items-center gap-1.5">
                   <svg
-                    className="w-5 h-5"
+                    className="w-4 h-4"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -407,29 +428,29 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
               </div>
             )}
             {error && (
-              <div className="col-span-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+              <div className="col-span-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
                 {error}
               </div>
             )}
             {isCreateDisabled && (
-              <div className="col-span-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+              <div className="col-span-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
                 Cannot create a meeting for a past date.
               </div>
             )}
           </div>
 
-          <div className="pt-4 flex gap-3">
+          <div className="pt-3 flex gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-3 text-sm font-bold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors"
+              className="flex-1 px-3 py-2 text-xs font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading || isCreateDisabled}
-              className="flex-[2] px-4 py-3 text-sm font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              className="flex-[2] px-3 py-2 text-xs font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {loading ? (isEdit ? 'Saving...' : 'Booking...') : (isEdit ? 'Save' : 'Book Slot')}
             </button>

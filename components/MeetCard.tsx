@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Video, Users, MapPin, Clock } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Video, Users, MapPin, Clock, Search } from 'lucide-react';
 import { meetingPush } from '../services/api';
 import type { User } from '../types';
 
@@ -24,8 +24,15 @@ export const MeetCard: React.FC<MeetCardProps> = ({ onClose, onMeetingCreated, c
   const [selectedRoom, setSelectedRoom] = useState('');
   const [callInMinutes, setCallInMinutes] = useState(10);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [memberSearch, setMemberSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const filteredEmployees = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter((emp) => emp.name.toLowerCase().includes(q));
+  }, [employees, memberSearch]);
 
   useEffect(() => {
     if (rooms.length > 0 && !selectedRoom) setSelectedRoom(rooms[0].name);
@@ -136,11 +143,23 @@ export const MeetCard: React.FC<MeetCardProps> = ({ onClose, onMeetingCreated, c
               <Users size={14} className="inline mr-1" />
               Select Members
             </label>
+            <div className="relative mb-2">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by name..."
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 text-sm"
+              />
+            </div>
             <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-xl p-3 bg-gray-50 space-y-1.5">
               {employees.length === 0 ? (
                 <p className="text-sm text-gray-500 py-2">Loading members...</p>
+              ) : filteredEmployees.length === 0 ? (
+                <p className="text-sm text-gray-500 py-2">No matching members</p>
               ) : (
-                employees.map((emp) => (
+                filteredEmployees.map((emp) => (
                   <label
                     key={emp.id}
                     className="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-white cursor-pointer"
