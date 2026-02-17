@@ -1151,15 +1151,28 @@ export default function App() {
     }
   };
 
-  const handleLogout = async () => {
-    await apiLogout();
-    setCurrentUser(null);
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('current_user');
-      window.localStorage.removeItem('active_tab');
+  const isLoggingOutRef = useRef(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogout = useCallback(async () => {
+    if (isLoggingOutRef.current) return;
+    isLoggingOutRef.current = true;
+    setIsLoggingOut(true);
+    try {
+      await apiLogout();
+    } catch {
+      // Already logged out or network error - still clear local state
+    } finally {
+      setCurrentUser(null);
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('current_user');
+        window.localStorage.removeItem('active_tab');
+      }
+      clearAuthData();
+      isLoggingOutRef.current = false;
+      setIsLoggingOut(false);
     }
-    clearAuthData();
-  };
+  }, []);
 
   // Redirect away from Team page (removed for all roles)
   useEffect(() => {
@@ -1623,6 +1636,7 @@ export default function App() {
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
         onLogout={handleLogout}
+        isLoggingOut={isLoggingOut}
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
         onUserProfileClick={() => setShowUserProfileSidebar(true)}

@@ -22,6 +22,7 @@ interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onLogout: () => void;
+  isLoggingOut?: boolean;
   isOpen: boolean;
   setIsOpen: (val: boolean) => void;
   onUserProfileClick?: () => void;
@@ -39,7 +40,7 @@ const NMRHI_ITEMS = [
   { id: 'nmrhi-ip', label: 'IP', letter: 'I', color: 'bg-rose-600' },
 ] as const;
 
-export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab, onLogout, isOpen, setIsOpen, onUserProfileClick, onTasksHover, allowedNMRHICategories }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab, onLogout, isLoggingOut = false, isOpen, setIsOpen, onUserProfileClick, onTasksHover, allowedNMRHICategories }) => {
   const visibleNMRHI = allowedNMRHICategories && allowedNMRHICategories.length > 0
     ? NMRHI_ITEMS.filter((item) => allowedNMRHICategories.includes(item.id))
     : NMRHI_ITEMS;
@@ -231,9 +232,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
         </div>
 
         <div className="flex-shrink-0 w-full p-4 border-t border-slate-800 bg-slate-900">
-          <button onClick={onLogout} className="flex items-center space-x-3 text-gray-400 hover:text-red-400 w-full px-4 py-3 min-h-[44px] rounded-lg transition-colors hover:bg-slate-800">
+          <button
+            type="button"
+            onClick={onLogout}
+            disabled={isLoggingOut}
+            className="flex items-center space-x-3 text-gray-400 hover:text-red-400 w-full px-4 py-3 min-h-[44px] rounded-lg transition-colors hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
             <LogOut size={20} className="flex-shrink-0" />
-            <span>Sign Out</span>
+            <span>{isLoggingOut ? 'Signing out...' : 'Sign Out'}</span>
           </button>
         </div>
       </div>
