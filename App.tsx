@@ -930,12 +930,32 @@ export default function App() {
   }, [activeTab, currentUser?.id, scheduleRefreshTrigger]);
 
   const mapApiToMeeting = useCallback((item: any): Meeting => {
-    const memberDetails = item.member_details || [];
-    const attendees = memberDetails.map((m: any) => String(m.username ?? m.id ?? ''));
+    let memberDetails = item.member_details;
+    if (!Array.isArray(memberDetails)) {
+      memberDetails = memberDetails?.results ?? memberDetails?.data ?? memberDetails?.members ?? [];
+    }
+    if (!Array.isArray(memberDetails)) memberDetails = [];
+    const rawMembers = Array.isArray(item.members) ? item.members : [];
     const attendeeNames: Record<string, string> = {};
-    memberDetails.forEach((m: any) => {
-      attendeeNames[String(m.username ?? m.id ?? '')] = m.full_name ?? m.name ?? 'Unknown';
+    const attendees: string[] = [];
+    memberDetails.forEach((m: any, idx: number) => {
+      const name = m.full_name ?? m['full_name'] ?? m['Full Name'] ?? m.name ?? m.Name ?? 'Unknown';
+      const id = m.username ?? m.id ?? m.Employee_id ?? m.employee_id;
+      const key = id ? String(id) : (name || `_idx_${idx}`);
+      attendees.push(key);
+      attendeeNames[key] = name;
+      if (id) attendeeNames[String(id)] = name;
     });
+    const finalAttendees = attendees.length > 0
+      ? attendees
+      : rawMembers.map((m: any) => String(m));
+    if (finalAttendees.length > 0 && Object.keys(attendeeNames).length === 0 && memberDetails.length > 0) {
+      memberDetails.forEach((m: any, idx: number) => {
+        const name = m.full_name ?? m['full_name'] ?? m.name ?? m.Name ?? 'Unknown';
+        const aid = finalAttendees[idx];
+        if (aid) attendeeNames[aid] = name;
+      });
+    }
     const statusStr = (item.status || '').toLowerCase();
     const status =
       statusStr === 'done' ? MeetingStatus.DONE :
@@ -955,7 +975,7 @@ export default function App() {
       endTime,
       date,
       type: item.meeting_type === 'group' ? MeetingType.GROUP : MeetingType.INDIVIDUAL,
-      attendees,
+      attendees: finalAttendees,
       status,
       attendeeNames,
       createdByName: item.creater_details?.full_name,
