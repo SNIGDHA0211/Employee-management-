@@ -9,7 +9,8 @@ import api, {
   createEmployee as apiCreateEmployee,
   updateProfile as apiUpdateProfile,
   changePhoto as apiChangePhoto,
-  deleteEmployee as apiDeleteEmployee
+  deleteEmployee as apiDeleteEmployee,
+  adminChangePassword as apiAdminChangePassword
 } from '../services/api';
 
 interface AdminPanelProps {
@@ -480,33 +481,19 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       const user = displayUsers.find(u => u.id === userId);
       if (!user) return;
 
+      const employeeId = (user as any).Employee_id ?? user.id;
+
       setIsLoading(true);
       setError(null);
 
       try {
-        // Update profile with new password
-        // Pass null for profilePicture since we're only updating password
-        // Backend will keep existing photo if no file is provided
-        await apiUpdateProfile({
-          employeeId: user.id,
-          password: newPassword,
-          fullName: user.name,
-          role: String(user.role), // Convert to string
-          designation: user.designation,
-          branch: user.branch || '',
-          department: (user as any).department || '',
-          joiningDate: user.joinDate,
-          dateOfBirth: user.birthDate,
-          profilePicture: null, // Don't send URL string - backend expects File or null
-          emailAddress: user.email,
-        });
-
-          user.password = newPassword; 
+        await apiAdminChangePassword(employeeId, newPassword);
+        (user as any).password = newPassword;
         alert(`Password for ${user.name} has been updated successfully.`);
-          setResetPasswordId(null);
-          setNewPassword('');
+        setResetPasswordId(null);
+        setNewPassword('');
       } catch (err: any) {
-        setError(err.message || 'Failed to update password. Please try again.');
+        setError(err?.message || 'Failed to update password. Please try again.');
       } finally {
         setIsLoading(false);
       }

@@ -26,6 +26,7 @@ const mapApiRoleToUserRole = (apiRole: any): UserRole => {
   const compact = normalized.replace(/_/g, '');
   if (normalized === 'MD') return UserRole.MD;
   if (normalized === 'ADMIN') return UserRole.ADMIN;
+  if (normalized === 'HR') return UserRole.HR;
   if (compact === 'TEAMLEAD' || compact === 'TEAMLEADER' || (normalized.includes('TEAM') && normalized.includes('LEAD'))) return UserRole.TEAM_LEADER;
   if (normalized === 'EMPLOYEE') return UserRole.EMPLOYEE;
   if (normalized === 'INTERN') return UserRole.INTERN;

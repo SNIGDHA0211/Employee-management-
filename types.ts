@@ -2,6 +2,7 @@
 export enum UserRole {
   MD = 'MD',
   ADMIN = 'ADMIN',
+  HR = 'HR',
   TEAM_LEADER = 'TEAM_LEADER',
   EMPLOYEE = 'EMPLOYEE',
   INTERN = 'INTERN',

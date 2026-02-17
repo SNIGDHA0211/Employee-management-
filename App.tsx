@@ -208,7 +208,7 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
           
           // Pattern 5: Look for common role values in the string (most reliable fallback)
           // Check for quoted values first (more specific)
-          const roleValues = ['MD', 'ADMIN', 'TEAM_LEADER', 'EMPLOYEE', 'INTERN'];
+          const roleValues = ['MD', 'ADMIN', 'HR', 'TEAM_LEADER', 'EMPLOYEE', 'INTERN'];
           for (const role of roleValues) {
             // Look for 'MD' or "MD" in the string (quoted)
             if (apiRoleString.includes(`'${role}'`) || apiRoleString.includes(`"${role}"`)) {
@@ -245,6 +245,7 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
           // Direct match
           if (normalizedRole === 'MD') return UserRole.MD;
           if (normalizedRole === 'ADMIN') return UserRole.ADMIN;
+          if (normalizedRole === 'HR') return UserRole.HR;
           if (normalizedTeamLeader === 'TEAM_LEADER' || 
               normalizedTeamLeader === 'TEAMLEADER' ||
               (normalizedRole.includes('TEAM') && normalizedRole.includes('LEAD'))) {
@@ -405,6 +406,7 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
             switch (role) {
               case UserRole.MD: return 'Managing Director';
               case UserRole.ADMIN: return 'Administrator';
+              case UserRole.HR: return 'HR';
               case UserRole.TEAM_LEADER: return 'Team Leader';
               case UserRole.EMPLOYEE: return 'Employee';
               case UserRole.INTERN: return 'Intern';
@@ -682,7 +684,7 @@ export default function App() {
           setActiveTab(storedTab);
         } else {
           // Fallback: decide default tab by role if no tab stored
-          if (parsedUser.role === UserRole.ADMIN) {
+          if (parsedUser.role === UserRole.ADMIN || parsedUser.role === UserRole.HR) {
             setActiveTab('admin');
           } else if (parsedUser.role === UserRole.MD) {
             setActiveTab('dashboard');
@@ -785,7 +787,7 @@ export default function App() {
   // Fetch bills when Admin or MD opens Admin Dashboard
   useEffect(() => {
     const fetchBills = async () => {
-      if ((currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.MD) || activeTab !== 'admin-dashboard') return;
+      if ((currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.MD && currentUser?.role !== UserRole.HR) || activeTab !== 'admin-dashboard') return;
       try {
         const billsData = await getBills();
         setBills(Array.isArray(billsData) ? billsData : []);
@@ -798,7 +800,7 @@ export default function App() {
 
   // Fetch vendors in memory - only reload when updated (create/edit/delete in VendorManager)
   useEffect(() => {
-    const shouldFetch = (currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.MD) &&
+    const shouldFetch = (currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.MD || currentUser?.role === UserRole.HR) &&
       (activeTab === 'admin-dashboard' || activeTab === 'admin-vendors') &&
       vendorsLastFetchedRef.current !== vendorsRefreshTrigger;
     if (!shouldFetch) return;
@@ -816,7 +818,7 @@ export default function App() {
 
   // Fetch expenses in memory - only reload when updated (create/edit/delete in ExpenseManager)
   useEffect(() => {
-    const shouldFetch = (currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.MD) &&
+    const shouldFetch = (currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.MD || currentUser?.role === UserRole.HR) &&
       (activeTab === 'admin-dashboard' || activeTab === 'admin-expenses') &&
       expensesLastFetchedRef.current !== expensesRefreshTrigger;
     if (!shouldFetch) return;
@@ -834,7 +836,7 @@ export default function App() {
 
   // Fetch assets once in memory - only reload when updated (create/edit/delete in AssetManager)
   useEffect(() => {
-    const shouldFetch = (currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.MD) &&
+    const shouldFetch = (currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.MD || currentUser?.role === UserRole.HR) &&
       (activeTab === 'admin-dashboard' || activeTab === 'admin-assets') &&
       assetsLastFetchedRef.current !== assetsRefreshTrigger;
     if (!shouldFetch) return;
@@ -1112,6 +1114,8 @@ export default function App() {
       fixedRole = UserRole.MD;
     } else if (roleUpper === 'ADMIN') {
       fixedRole = UserRole.ADMIN;
+    } else if (roleUpper === 'HR') {
+      fixedRole = UserRole.HR;
     } else if (normalizedTeamLeader === 'TEAM_LEADER' || 
                normalizedTeamLeader === 'TEAMLEADER' ||
                (roleUpper.includes('TEAM') && roleUpper.includes('LEAD'))) {
@@ -1132,7 +1136,7 @@ export default function App() {
 
     // Decide starting tab based on role and persist it
     let nextTab = 'assignTask';
-    if (finalUser.role === UserRole.ADMIN) {
+    if (finalUser.role === UserRole.ADMIN || finalUser.role === UserRole.HR) {
       nextTab = 'admin';
     } else if (finalUser.role === UserRole.MD) {
       nextTab = 'dashboard';
@@ -1483,23 +1487,23 @@ export default function App() {
         return renderDashboard();
 
       case 'admin-dashboard':
-        if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.MD) return <div>Access Denied</div>;
+        if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.MD && currentUser.role !== UserRole.HR) return <div>Access Denied</div>;
         return <AdminDashboard assets={assets} bills={bills} expenses={expenses} vendors={vendors} />;
 
       case 'admin-assets':
-        if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
+        if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.HR) return <div>Access Denied</div>;
         return <AssetManager assets={assets} setAssets={setAssets} onAssetsUpdated={() => setAssetsRefreshTrigger((t) => t + 1)} />;
 
       case 'admin-vendors':
-        if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
+        if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.HR) return <div>Access Denied</div>;
         return <VendorManager vendors={vendors} setVendors={setVendors} onVendorsUpdated={() => setVendorsRefreshTrigger((t) => t + 1)} />;
 
       case 'admin-expenses':
-        if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
+        if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.HR) return <div>Access Denied</div>;
         return <ExpenseManager expenses={expenses} setExpenses={setExpenses} onExpensesUpdated={() => setExpensesRefreshTrigger((t) => t + 1)} />;
 
       case 'admin-bills':
-        if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
+        if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.HR) return <div>Access Denied</div>;
         return <BillsManager bills={bills} setBills={setBills} />;
       
       case 'assignTask':
@@ -1599,7 +1603,7 @@ export default function App() {
         // );
 
       case 'admin':
-         if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
+         if (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.HR) return <div>Access Denied</div>;
 
          return (
             <div className="space-y-6">

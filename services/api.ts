@@ -958,6 +958,24 @@ export const changePhoto = async (username: string, photoFile: File): Promise<{ 
 };
 
 /**
+ * Admin change password
+ * @endpoint PATCH /accounts/admin/changePassword/{Employee_id}/
+ * @body { new_password: string }
+ * @response { messege: string }
+ */
+export const adminChangePassword = async (
+  employeeId: string,
+  newPassword: string
+): Promise<{ messege?: string; message?: string }> => {
+  const response = await api.patch(
+    `/accounts/admin/changePassword/${encodeURIComponent(employeeId)}/`,
+    { new_password: newPassword },
+    { headers: { "Content-Type": "application/json" } }
+  );
+  return response.data;
+};
+
+/**
  * Delete employee
  * @endpoint DELETE /accounts/admin/deleteEmployee/{Employee_id}/
  * @response { message: "user deleted successfully" }
