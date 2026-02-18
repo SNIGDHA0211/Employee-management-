@@ -50,21 +50,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
     // Non-admin dashboard (existing)
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.MD, UserRole.HR, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
 
-    // Admin Dashboard (MD, Admin, HR); Assets/Vendors/Expenses/Bills for Admin and HR
-    { id: 'admin-dashboard', label: 'Admin Dashboard', icon: LayoutDashboard, roles: [UserRole.MD, UserRole.ADMIN, UserRole.HR] },
-    { id: 'admin-assets', label: 'Assets', icon: Package, roles: [UserRole.ADMIN, UserRole.HR] },
-    { id: 'admin-vendors', label: 'Vendors', icon: Building2, roles: [UserRole.ADMIN, UserRole.HR] },
-    { id: 'admin-expenses', label: 'Expenses', icon: Wallet, roles: [UserRole.ADMIN, UserRole.HR] },
-    { id: 'admin-bills', label: 'Bills', icon: Receipt, roles: [UserRole.ADMIN, UserRole.HR] },
+    // Admin Dashboard (MD, Admin); Assets/Vendors/Expenses/Bills for Admin only
+    { id: 'admin-dashboard', label: 'Admin Dashboard', icon: LayoutDashboard, roles: [UserRole.MD, UserRole.ADMIN] },
+    { id: 'admin-assets', label: 'Assets', icon: Package, roles: [UserRole.ADMIN] },
+    { id: 'admin-vendors', label: 'Vendors', icon: Building2, roles: [UserRole.ADMIN] },
+    { id: 'admin-expenses', label: 'Expenses', icon: Wallet, roles: [UserRole.ADMIN] },
+    { id: 'admin-bills', label: 'Bills', icon: Receipt, roles: [UserRole.ADMIN] },
 
     { id: 'schedule-hub', label: 'Schedule Hub', icon: Calendar, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN, UserRole.ADMIN, UserRole.HR] },
     // Attendance & Tours - commented out for all roles
     // { id: 'attendance', label: 'Attendance & Tours', icon: CalendarDays, roles: [UserRole.MD, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN, UserRole.ADMIN] },
     { id: 'tasks', label: 'Tasks', icon: FolderKanban, roles: [UserRole.MD, UserRole.ADMIN, UserRole.HR, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
-    { id: 'reports', label: 'Reports', icon: FileText, roles: [UserRole.MD, UserRole.ADMIN, UserRole.HR, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
+    { id: 'reports', label: 'Reports', icon: FileText, roles: [UserRole.MD, UserRole.ADMIN, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
     { id: 'projects', label: 'Projects', icon: Briefcase, roles: [UserRole.MD, UserRole.TEAM_LEADER] },
     { id: 'messages', label: 'Messages', icon: MessageSquare, roles: [UserRole.MD, UserRole.ADMIN, UserRole.HR, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
-    { id: 'admin', label: 'Admin Panel', icon: Users, roles: [UserRole.ADMIN, UserRole.HR] },
+    { id: 'admin', label: 'Admin Panel', icon: Users, roles: [UserRole.ADMIN] },
   ];
 
   const filteredItems = menuItems.filter(item => item.roles.includes(user.role));

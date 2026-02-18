@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { Holiday } from './types';
 import { createHoliday, updateHoliday, createEvent, updateEvent } from '../../services/api';
+import { useRequestLock } from '../../hooks/useRequestLock';
 
 interface HolidayModalProps {
   date: Date;
@@ -29,8 +30,8 @@ export const HolidayModal: React.FC<HolidayModalProps> = ({
   const [selectedDate, setSelectedDate] = useState(
     initialHoliday?.date ?? format(date, 'yyyy-MM-dd')
   );
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { withLock, isPending } = useRequestLock();
 
   useEffect(() => {
     if (initialHoliday) {
@@ -57,9 +58,9 @@ export const HolidayModal: React.FC<HolidayModalProps> = ({
         return;
       }
     }
-    setLoading(true);
-    try {
-      if (type === 'holiday') {
+    await withLock(async () => {
+      try {
+        if (type === 'holiday') {
         // Holidays use eventsapi/holidays/ (date, name only - no fixed/unfixed)
         const payload = { date: selectedDate, name };
         if (isEdit && initialHoliday) {
@@ -114,12 +115,12 @@ export const HolidayModal: React.FC<HolidayModalProps> = ({
         }
       }
       onClose();
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.response?.data?.detail || err?.message || (isEdit ? 'Failed to update' : 'Failed to create');
-      setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
-    } finally {
-      setLoading(false);
-    }
+      } catch (err: any) {
+        const msg = err?.response?.data?.message || err?.response?.data?.detail || err?.message || (isEdit ? 'Failed to update' : 'Failed to create');
+        setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        throw err;
+      }
+    });
   };
 
   return (
@@ -253,14 +254,14 @@ export const HolidayModal: React.FC<HolidayModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={isPending}
               className={`flex-[2] px-4 py-3 text-sm font-bold text-white rounded-xl shadow-lg disabled:opacity-60 ${
                 type === 'holiday'
                   ? 'bg-red-600 hover:bg-red-700'
                   : 'bg-indigo-600 hover:bg-indigo-700'
               }`}
             >
-              {loading ? 'Saving...' : (isEdit ? 'Save' : `Create ${type === 'holiday' ? 'Holiday' : 'Event'}`)}
+              {isPending ? 'Saving...' : (isEdit ? 'Save' : `Create ${type === 'holiday' ? 'Holiday' : 'Event'}`)}
             </button>
           </div>
         </form>
