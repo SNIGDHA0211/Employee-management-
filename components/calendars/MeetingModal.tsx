@@ -61,7 +61,8 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
       setStartTime(start < '09:00' ? '09:00' : start > '17:30' ? '17:30' : start);
       setEndTime(end < '09:00' ? '10:00' : end > '18:00' ? '18:00' : end);
       setType(initialMeeting.type);
-      setSelectedUsers(initialMeeting.attendees ?? []);
+      const attendees = (initialMeeting.attendees ?? []).filter((a) => a != null && String(a).trim() !== '');
+      setSelectedUsers(attendees);
     }
   }, [initialMeeting]);
 
@@ -89,11 +90,22 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setOfficeHoursNote(null);
-    const members = type === MeetingType.INDIVIDUAL
+    let members = type === MeetingType.INDIVIDUAL
       ? [String((displayUser as any).Employee_id ?? displayUser.id)]
       : selectedUsers;
+    // Filter out empty strings
+    members = members.filter((m) => m != null && String(m).trim() !== '');
     if (members.length === 0) {
       setError('Please select at least one participant for group meetings.');
+      return;
+    }
+    // When editing, exclude the creator (current user) from members
+    if (isEdit && type === MeetingType.GROUP) {
+      const creatorId = String((displayUser as any).Employee_id ?? displayUser.id);
+      members = members.filter((m) => String(m).trim() !== creatorId);
+    }
+    if (members.length === 0) {
+      setError('Please select at least one other participant besides yourself for group meetings.');
       return;
     }
     if (startTime < OFFICE_START || startTime > OFFICE_START_MAX) {

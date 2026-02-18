@@ -168,10 +168,15 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
                           </div>
 
                           <h4
-                            className={`text-xl font-black text-slate-800 leading-tight mb-6 ${isDone ? 'opacity-30' : ''}`}
+                            className={`text-xl font-black text-slate-800 leading-tight ${m.description ? 'mb-2' : 'mb-6'} ${isDone ? 'opacity-30' : ''}`}
                           >
                             {m.title}
                           </h4>
+                          {m.description && (
+                            <p className={`text-sm text-slate-600 leading-relaxed mb-6 ${isDone ? 'opacity-30' : ''}`}>
+                              {m.description}
+                            </p>
+                          )}
 
                           <div className="flex flex-wrap gap-2 mb-6">
                             {isCreator(m, currentUser) && !isDone && (

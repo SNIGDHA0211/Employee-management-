@@ -955,9 +955,10 @@ export default function App() {
       attendeeNames[key] = name;
       if (id) attendeeNames[String(id)] = name;
     });
-    const finalAttendees = attendees.length > 0
+    let finalAttendees = attendees.length > 0
       ? attendees
       : rawMembers.map((m: any) => String(m));
+    finalAttendees = finalAttendees.filter((a) => a != null && String(a).trim() !== '');
     if (finalAttendees.length > 0 && Object.keys(attendeeNames).length === 0 && memberDetails.length > 0) {
       memberDetails.forEach((m: any, idx: number) => {
         const name = m.full_name ?? m['full_name'] ?? m.name ?? m.Name ?? 'Unknown';

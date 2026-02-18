@@ -2191,6 +2191,12 @@ export const meetingPush = async (payload: {
   return response.data;
 };
 
+const sanitizeMembers = (members: string[] | undefined): string[] | undefined => {
+  if (!members) return undefined;
+  const filtered = members.filter((m) => m != null && String(m).trim() !== '');
+  return filtered.length > 0 ? filtered : undefined;
+};
+
 /**
  * Create a book slot. POST /eventsapi/bookslots/
  * Required: meeting_title, date, room, status, members
@@ -2206,7 +2212,8 @@ export const createBookSlot = async (payload: {
   status: string;
   members: string[];
 }): Promise<any> => {
-  const response = await api.post("/eventsapi/bookslots/", payload);
+  const sanitized = { ...payload, members: sanitizeMembers(payload.members) ?? [] };
+  const response = await api.post("/eventsapi/bookslots/", sanitized);
   return response.data;
 };
 
@@ -2227,7 +2234,11 @@ export const updateBookSlot = async (
     members: string[];
   }>
 ): Promise<any> => {
-  const response = await api.patch(`/eventsapi/bookslots/${id}/`, payload);
+  const sanitized = { ...payload };
+  if (payload.members) {
+    sanitized.members = sanitizeMembers(payload.members) ?? [];
+  }
+  const response = await api.patch(`/eventsapi/bookslots/${id}/`, sanitized);
   return response.data;
 };
 
