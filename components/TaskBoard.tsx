@@ -18,6 +18,7 @@ import { useEmployeesQuery } from '../hooks/useEmployees';
 import { useRolesQuery } from '../hooks/useRoles';
 import { useBranchesQuery } from '../hooks/useBranches';
 import { useTasksQuery, useTasksInvalidate } from '../hooks/useTasks';
+import { useRequestLock } from '../hooks/useRequestLock';
 
 interface TaskBoardProps {
   currentUser: User;
@@ -45,8 +46,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
   const [filterStatus, setFilterStatus] = useState<string>('ALL'); // ALL | COMPLETED | IN_PROGRESS | PENDING
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
+  const { withLock, isPending: isCreatingTask } = useRequestLock();
   const queryError = tasksQuery.error ? (tasksQuery.error as Error).message : null;
   const displayTaskError = taskError ?? queryError;
   const [changingStatusTaskId, setChangingStatusTaskId] = useState<string | null>(null);
@@ -451,6 +452,11 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
       alert("Please enter a task title.");
       return;
     }
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (newTaskDate < todayStr) {
+      alert("Due date cannot be before today.");
+      return;
+    }
     
     // If group task, ensure at least one person is selected
     if (newTaskType === TaskType.GROUP && newTaskAssigneeIds.length === 0) {
@@ -458,9 +464,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
         return;
     }
 
-    setIsCreatingTask(true);
     setTaskError(null);
 
+    await withLock(async () => {
     try {
       // Map frontend TaskType enum or API string to backend type format
       // Handle both enum values (TaskType.ONE_DAY) and API string values ("1 Day")
@@ -506,7 +512,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
         } else {
           if (rowsWithUser.length === 0 && isIntern) {
             alert("Please select the person you report to (Role, Designation, User).");
-            setIsCreatingTask(false);
             return;
           }
           for (const row of rowsWithUser) {
@@ -536,7 +541,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
         
         if (allAssignees.length === 0) {
           alert("Please select at least one assignee.");
-          setIsCreatingTask(false);
           return;
         }
         
@@ -554,7 +558,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
       
       if (employeeIds.length === 0) {
         alert("Please select at least one assignee with a valid Employee ID.");
-        setIsCreatingTask(false);
         return;
       }
       
@@ -595,9 +598,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
     } catch (err: any) {
       setTaskError(err.message || 'Failed to create task. Please try again.');
       alert(`Failed to create task: ${err.message || 'Unknown error'}`);
-    } finally {
-      setIsCreatingTask(false);
+      throw err;
     }
+    });
   };
 
   const refreshTasks = () => {
@@ -1302,6 +1305,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                        <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
                        <input 
                           type="date"
+                          min={new Date().toISOString().split('T')[0]}
                           className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
                           value={newTaskDate}
                           onChange={e => setNewTaskDate(e.target.value)}
@@ -2098,6 +2102,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                      <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
                      <input 
                         type="date"
+                        min={new Date().toISOString().split('T')[0]}
                         className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
                         value={newTaskDate}
                         onChange={e => setNewTaskDate(e.target.value)}

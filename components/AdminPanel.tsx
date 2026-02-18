@@ -408,10 +408,17 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     setIsLoading(true);
     setError(null);
 
+    const employeeId = formData.employeeId?.trim() || '';
+    if (!/^\d+$/.test(employeeId)) {
+      setError('Employee ID must contain only numbers, no spaces.');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       // Call the API to create employee
       await apiCreateEmployee({
-        employeeId: formData.employeeId || `u${Date.now()}`,
+        employeeId: employeeId || `u${Date.now()}`,
         password: formData.password || '12345',
         fullName: formData.name,
         role: String(formData.role), // Use role value as-is from API
@@ -428,7 +435,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
 
       // If API call succeeds, add user to local state
     const newUser: User = {
-      id: formData.employeeId || `u${Date.now()}`,
+      id: employeeId || `u${Date.now()}`,
       name: formData.name,
       email: formData.email,
       role: formData.role as UserRole,
@@ -974,8 +981,28 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 <label className="text-sm font-bold text-gray-700">Employee ID</label>
                 <div className="relative">
                   <Hash className="absolute left-3 top-3 text-gray-400" size={18} />
-                  <input required type="text" className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" placeholder="EMP-001" value={formData.employeeId} onChange={e => setFormData({...formData, employeeId: e.target.value})} />
+                  <input
+                    required
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoComplete="off"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                    placeholder="e.g. 12345"
+                    value={formData.employeeId}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const digitsOnly = raw.replace(/\D/g, '');
+                      setFormData({ ...formData, employeeId: digitsOnly });
+                    }}
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      const pasted = (e.clipboardData?.getData('text') || '').replace(/\D/g, '');
+                      setFormData({ ...formData, employeeId: pasted });
+                    }}
+                  />
                 </div>
+                <p className="text-xs text-gray-500">Numbers only, no spaces</p>
               </div>
 
               <div className="space-y-2">

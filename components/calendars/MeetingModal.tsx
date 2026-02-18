@@ -4,6 +4,7 @@ import { Meeting, MeetingType, MeetingStatus } from './types';
 import { CURRENT_USER } from './constants';
 import { getRooms, createBookSlot, updateBookSlot, type Room } from '../../services/api';
 import type { User } from '../../types';
+import { useRequestLock } from '../../hooks/useRequestLock';
 
 interface MeetingModalProps {
   date: Date;
@@ -40,8 +41,8 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     return employees.filter((emp) => emp.name.toLowerCase().includes(q));
   }, [employees, memberSearch]);
   const employeesLoading = false;
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { withLock, isPending } = useRequestLock();
   const [officeHoursNote, setOfficeHoursNote] = useState<string | null>(null);
 
   useEffect(() => {
@@ -121,56 +122,56 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
       return;
     }
     setError(null);
-    setLoading(true);
-    try {
-      const payload = {
-        meeting_title: title,
-        date: isEdit && initialMeeting ? initialMeeting.date : format(date, 'yyyy-MM-dd'),
-        start_time: toTimeSec(startTime),
-        end_time: toTimeSec(endTime),
-        room: hallName,
-        description: description || null,
-        meeting_type: type === MeetingType.INDIVIDUAL ? 'individual' : 'group',
-        status: isEdit ? (initialMeeting?.status === MeetingStatus.DONE ? 'Done' : initialMeeting?.status === MeetingStatus.EXCEEDED ? 'Exceeded' : initialMeeting?.status === MeetingStatus.CANCELLED ? 'Cancelled' : 'Pending') : 'Pending',
-        members,
-      };
-      const res = isEdit && initialMeeting
-        ? await updateBookSlot(initialMeeting.id, payload)
-        : await createBookSlot(payload as any);
-      const memberDetails = res.member_details || [];
-      const attendees = memberDetails.map((m: any) => String(m.username ?? m.id ?? ''));
-      const attendeeNames: Record<string, string> = {};
-      memberDetails.forEach((m: any) => {
-        attendeeNames[String(m.username ?? m.id ?? '')] = m.full_name ?? m.name ?? 'Unknown';
-      });
-      const statusStr = (res.status || '').toLowerCase();
-      const status =
-        statusStr === 'done' ? MeetingStatus.DONE :
-        statusStr === 'cancelled' ? MeetingStatus.CANCELLED :
-        statusStr === 'exceeded' ? MeetingStatus.EXCEEDED :
-        MeetingStatus.PENDING;
-      const meeting: Meeting = {
-        id: String(res.id),
-        title: res.meeting_title || title,
-        description: res.description ?? undefined,
-        hallName: res.room || hallName,
-        startTime: res.start_time ? String(res.start_time).substring(0, 5) : startTime,
-        endTime: res.end_time ? String(res.end_time).substring(0, 5) : endTime,
-        date: res.date || format(date, 'yyyy-MM-dd'),
-        type: res.meeting_type === 'group' ? MeetingType.GROUP : MeetingType.INDIVIDUAL,
-        attendees,
-        status,
-        attendeeNames,
-        createdByName: res.creater_details?.full_name,
-      };
-      onSave(meeting);
-      onClose();
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.response?.data?.detail || err?.message || (isEdit ? 'Failed to update book slot' : 'Failed to create book slot');
-      setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
-    } finally {
-      setLoading(false);
-    }
+    await withLock(async () => {
+      try {
+        const payload = {
+          meeting_title: title,
+          date: isEdit && initialMeeting ? initialMeeting.date : format(date, 'yyyy-MM-dd'),
+          start_time: toTimeSec(startTime),
+          end_time: toTimeSec(endTime),
+          room: hallName,
+          description: description || null,
+          meeting_type: type === MeetingType.INDIVIDUAL ? 'individual' : 'group',
+          status: isEdit ? (initialMeeting?.status === MeetingStatus.DONE ? 'Done' : initialMeeting?.status === MeetingStatus.EXCEEDED ? 'Exceeded' : initialMeeting?.status === MeetingStatus.CANCELLED ? 'Cancelled' : 'Pending') : 'Pending',
+          members,
+        };
+        const res = isEdit && initialMeeting
+          ? await updateBookSlot(initialMeeting.id, payload)
+          : await createBookSlot(payload as any);
+        const memberDetails = res.member_details || [];
+        const attendees = memberDetails.map((m: any) => String(m.username ?? m.id ?? ''));
+        const attendeeNames: Record<string, string> = {};
+        memberDetails.forEach((m: any) => {
+          attendeeNames[String(m.username ?? m.id ?? '')] = m.full_name ?? m.name ?? 'Unknown';
+        });
+        const statusStr = (res.status || '').toLowerCase();
+        const status =
+          statusStr === 'done' ? MeetingStatus.DONE :
+          statusStr === 'cancelled' ? MeetingStatus.CANCELLED :
+          statusStr === 'exceeded' ? MeetingStatus.EXCEEDED :
+          MeetingStatus.PENDING;
+        const meeting: Meeting = {
+          id: String(res.id),
+          title: res.meeting_title || title,
+          description: res.description ?? undefined,
+          hallName: res.room || hallName,
+          startTime: res.start_time ? String(res.start_time).substring(0, 5) : startTime,
+          endTime: res.end_time ? String(res.end_time).substring(0, 5) : endTime,
+          date: res.date || format(date, 'yyyy-MM-dd'),
+          type: res.meeting_type === 'group' ? MeetingType.GROUP : MeetingType.INDIVIDUAL,
+          attendees,
+          status,
+          attendeeNames,
+          createdByName: res.creater_details?.full_name,
+        };
+        onSave(meeting);
+        onClose();
+      } catch (err: any) {
+        const msg = err?.response?.data?.message || err?.response?.data?.detail || err?.message || (isEdit ? 'Failed to update book slot' : 'Failed to create book slot');
+        setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        throw err;
+      }
+    });
   };
 
   const toggleUser = (id: string) => {
@@ -461,10 +462,10 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={loading || isCreateDisabled}
+              disabled={isPending || isCreateDisabled}
               className="flex-[2] px-3 py-2 text-xs font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {loading ? (isEdit ? 'Saving...' : 'Booking...') : (isEdit ? 'Save' : 'Book Slot')}
+              {isPending ? (isEdit ? 'Saving...' : 'Booking...') : (isEdit ? 'Save' : 'Book Slot')}
             </button>
           </div>
         </form>

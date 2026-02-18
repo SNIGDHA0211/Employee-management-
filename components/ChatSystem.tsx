@@ -54,7 +54,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   const [isStartingChat, setIsStartingChat] = useState(false);
 
   // Permission: Can create group?
-  const canCreateGroup = [UserRole.MD, UserRole.ADMIN, UserRole.TEAM_LEADER].includes(currentUser.role);
+  const canCreateGroup = [UserRole.MD, UserRole.ADMIN, UserRole.HR, UserRole.TEAM_LEADER].includes(currentUser.role);
 
   // Helper to convert API group format to ChatGroup (defined before use)
   const convertApiGroupsToChatGroups = (apiGroups: any[], membersMap: Record<string | number, string[]>) =>
@@ -257,7 +257,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       };
       // Verify role is one of the allowed roles
       if (!canCreateGroup) {
-        throw new Error('You do not have permission to create groups. Only MD, Admin, and Team Leader can create groups.');
+        throw new Error('You do not have permission to create groups. Only MD, Admin, HR, and Team Leader can create groups.');
       }
       
       await apiCreateGroup(groupData);
@@ -420,7 +420,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
     // Check if user has permission (only group creator can delete)
     if (!canCreateGroup) {
-      alert('Only group creators (MD, Admin, Team Lead) can delete groups');
+      alert('Only group creators (MD, Admin, HR, Team Lead) can delete groups');
       return;
     }
 

@@ -4,6 +4,7 @@ import { Calendar, ChevronLeft, ChevronRight, CalendarDays, PartyPopper, MapPin 
 import { UserRole } from '../../types';
 import { ViewMode, Meeting, Holiday, Tour, MeetingStatus } from './types';
 import { deleteHoliday, deleteBookSlot, updateBookSlot, deleteEvent, deleteTour } from '../../services/api';
+import { useRequestLock } from '../../hooks/useRequestLock';
 import { CalendarGrid } from './CalendarGrid';
 import { DayViewModal } from './DayViewModal';
 import { HolidayModal } from './HolidayModal';
@@ -36,8 +37,8 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
   meetingsCacheRef,
   users = [],
 }) => {
-  const canAddHolidayOrEvent = currentUser && [UserRole.MD, UserRole.ADMIN].includes(currentUser.role);
-  const canEditDeleteHoliday = currentUser && [UserRole.MD, UserRole.ADMIN].includes(currentUser.role);
+  const canAddHolidayOrEvent = currentUser && [UserRole.MD, UserRole.ADMIN, UserRole.HR].includes(currentUser.role);
+  const canEditDeleteHoliday = currentUser && [UserRole.MD, UserRole.ADMIN, UserRole.HR].includes(currentUser.role);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.MEETING);
   const meetings = meetingsProp;
@@ -55,6 +56,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
   const [holidayToEdit, setHolidayToEdit] = useState<Holiday | null>(null);
   const [meetingToEdit, setMeetingToEdit] = useState<Meeting | null>(null);
   const [tourToEdit, setTourToEdit] = useState<Tour | null>(null);
+  const { withLock } = useRequestLock();
 
   const [meetingsLoading, setMeetingsLoading] = useState(false);
 
@@ -79,37 +81,41 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
   };
 
   const handleMeetingStatusUpdate = async (id: string, status: MeetingStatus) => {
-    const statusStr =
-      status === MeetingStatus.DONE ? 'Done' :
-      status === MeetingStatus.EXCEEDED ? 'Exceeded' :
-      status === MeetingStatus.CANCELLED ? 'Cancelled' : 'Pending';
-    try {
-      await updateBookSlot(id, { status: statusStr });
-      setMeetings((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, status } : m))
-      );
-    } catch {
-      setMeetings((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, status } : m))
-      );
-    }
+    await withLock(async () => {
+      const statusStr =
+        status === MeetingStatus.DONE ? 'Done' :
+        status === MeetingStatus.EXCEEDED ? 'Exceeded' :
+        status === MeetingStatus.CANCELLED ? 'Cancelled' : 'Pending';
+      try {
+        await updateBookSlot(id, { status: statusStr });
+        setMeetings((prev) =>
+          prev.map((m) => (m.id === id ? { ...m, status } : m))
+        );
+      } catch {
+        setMeetings((prev) =>
+          prev.map((m) => (m.id === id ? { ...m, status } : m))
+        );
+      }
+    });
   };
 
   const handleCancelMeeting = async (id: string) => {
-    const meeting = meetings.find((m) => m.id === id);
-    try {
-      await deleteBookSlot(id);
-      setMeetings((prev) => {
-        const next = prev.filter((m) => m.id !== id);
-        if (meeting?.date && meetingsCacheRef) {
-          const [y, mo] = meeting.date.split('-');
-          if (y && mo) meetingsCacheRef.current[`${y}-${mo}`] = next;
-        }
-        return next;
-      });
-    } catch {
-      setMeetings((prev) => prev.filter((m) => m.id !== id));
-    }
+    await withLock(async () => {
+      const meeting = meetings.find((m) => m.id === id);
+      try {
+        await deleteBookSlot(id);
+        setMeetings((prev) => {
+          const next = prev.filter((m) => m.id !== id);
+          if (meeting?.date && meetingsCacheRef) {
+            const [y, mo] = meeting.date.split('-');
+            if (y && mo) meetingsCacheRef.current[`${y}-${mo}`] = next;
+          }
+          return next;
+        });
+      } catch {
+        setMeetings((prev) => prev.filter((m) => m.id !== id));
+      }
+    });
   };
 
   const handleEditMeeting = (meeting: Meeting) => {

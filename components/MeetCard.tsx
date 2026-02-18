@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, Video, Users, MapPin, Clock, Search } from 'lucide-react';
 import { meetingPush } from '../services/api';
 import type { User } from '../types';
+import { useRequestLock } from '../hooks/useRequestLock';
 
 interface MeetCardProps {
   onClose: () => void;
@@ -25,8 +26,8 @@ export const MeetCard: React.FC<MeetCardProps> = ({ onClose, onMeetingCreated, c
   const [callInMinutes, setCallInMinutes] = useState(10);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [memberSearch, setMemberSearch] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { withLock, isPending } = useRequestLock();
 
   const filteredEmployees = useMemo(() => {
     const q = memberSearch.trim().toLowerCase();
@@ -57,26 +58,26 @@ export const MeetCard: React.FC<MeetCardProps> = ({ onClose, onMeetingCreated, c
       return;
     }
 
-    setLoading(true);
-    try {
-      await meetingPush({
-        users: members,
-        meeting_type: members.length > 1 ? 'group' : 'individual',
-        time: callInMinutes,
-        meeting_room: selectedRoom,
-      });
-      onMeetingCreated?.();
-      onClose();
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.response?.data?.detail ||
-        err?.message ||
-        'Failed to create meeting';
-      setError(typeof msg === 'string' ? msg : String(msg));
-    } finally {
-      setLoading(false);
-    }
+    await withLock(async () => {
+      try {
+        await meetingPush({
+          users: members,
+          meeting_type: members.length > 1 ? 'group' : 'individual',
+          time: callInMinutes,
+          meeting_room: selectedRoom,
+        });
+        onMeetingCreated?.();
+        onClose();
+      } catch (err: any) {
+        const msg =
+          err?.response?.data?.message ||
+          err?.response?.data?.detail ||
+          err?.message ||
+          'Failed to create meeting';
+        setError(typeof msg === 'string' ? msg : String(err));
+        throw err;
+      }
+    });
   };
 
   return (
@@ -193,10 +194,10 @@ export const MeetCard: React.FC<MeetCardProps> = ({ onClose, onMeetingCreated, c
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={isPending}
               className="flex-1 px-4 py-3 rounded-xl font-medium text-white bg-brand-600 hover:bg-brand-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {loading ? 'Scheduling...' : 'Schedule Meeting'}
+              {isPending ? 'Scheduling...' : 'Schedule Meeting'}
             </button>
           </div>
         </form>
