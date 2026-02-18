@@ -30,7 +30,7 @@ const API_BASE_URL = isDevelopment
     "Content-Type": "application/json",
   },
   withCredentials: true, // Include cookies for session-based auth
-  timeout: 60000, // 60 second timeout (eventsapi can be slow with large datasets)
+  timeout: 80000, // 80 second timeout (eventsapi can be slow with large datasets)
 });
 
 // Create axios instance for public endpoints (no auth required)
@@ -2152,7 +2152,7 @@ export const getBookSlots = async (month?: number, year?: number, signal?: Abort
     const params: Record<string, number> = {};
     if (month != null && month >= 1 && month <= 12) params.month = month;
     if (year != null) params.year = year;
-    const config: { params?: Record<string, number>; timeout: number; signal?: AbortSignal } = { timeout: 60000 };
+    const config: { params?: Record<string, number>; timeout: number; signal?: AbortSignal } = { timeout: 80000 };
     if (Object.keys(params).length) config.params = params;
     if (signal) config.signal = signal;
     const response = await api.get("/eventsapi/bookslots/", config);
