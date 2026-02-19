@@ -667,7 +667,7 @@ export default function App() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // WebSocket notifications - connect after login (via localhost proxy)
+  // WebSocket notifications - connect after login
   useEffect(() => {
     if (!currentUser) return;
     let closed = false;
@@ -679,9 +679,17 @@ export default function App() {
     let currentWs: WebSocket | null = null;
 
     const connect = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/ws/notifications/`;
+      const isDev = typeof window !== 'undefined' && (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.startsWith('192.168.') ||
+        window.location.hostname.startsWith('10.') ||
+        window.location.hostname.startsWith('172.')
+      );
+      const productionUrl = 'https://employee-management-system-tmrl.onrender.com';
+      const wsUrl = isDev
+        ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/notifications/`
+        : `${productionUrl.replace(/^https/, 'wss')}/ws/notifications/`;
       const ws = new WebSocket(wsUrl);
       currentWs = ws;
       ws.onopen = () => {

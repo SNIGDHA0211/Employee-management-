@@ -20,10 +20,11 @@ export default defineConfig(({ mode }) => {
               proxy.on('proxyReq', (_proxyReq, _req, _res) => {});
             },
           },
-          // Proxy WebSocket to backend (connect via localhost)
+          // Proxy WebSocket to production backend
           '/ws': {
-            target: 'ws://192.168.42.111:8000/',
+            target: 'https://employee-management-system-tmrl.onrender.com',
             ws: true,
+            changeOrigin: true,
           },
         },
       },
