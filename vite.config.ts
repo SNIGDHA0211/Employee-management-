@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
-    const apiTarget = env.VITE_API_TARGET || 'http://192.168.42.111:8000';
+    const apiTarget = env.VITE_API_TARGET || 'https://employee-management-system-tmrl.onrender.com';
     const wsTarget = env.VITE_WS_TARGET || apiTarget;
     const wsTargetIsHttps = wsTarget.startsWith('https');
     return {

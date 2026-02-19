@@ -9,7 +9,7 @@ import {
 } from "./utils/auth";
 
 // Production backend URL
-const PRODUCTION_BACKEND_URL = 'http://192.168.42.111:8000';
+const PRODUCTION_BACKEND_URL = 'https://employee-management-system-tmrl.onrender.com';
 //https://employee-management-system-tmrl.onrender.com
 //192.168.42.111:8000
 // Use proxy in development to bypass CORS, direct URL in production

@@ -84,7 +84,7 @@ function playNotificationSound(): void {
 /**
  * Show a desktop notification when:
  * - Permission is granted
- * - Tab is hidden, window minimized, or app not focused (user may not see in-app toast)
+ * - Tab is hidden (user won't see in-app message)
  *
  * On click: focuses the tab and closes the notification.
  */
@@ -92,9 +92,10 @@ export function showDesktopNotification(payload: NotificationPayload): void {
   if (!isNotificationSupported() || !('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
 
-  // Show desktop notification when tab hidden OR window doesn't have focus (e.g. minimized, another app in front)
-  const isPageVisible = typeof document !== 'undefined' && !document.hidden && document.hasFocus();
-  if (isPageVisible) return;
+  // Only show desktop notification when tab is hidden
+  if (typeof document !== 'undefined' && !document.hidden) {
+    return;
+  }
 
   const title = payload.title || 'Notification';
   const body = payload.message || '';
@@ -107,11 +108,7 @@ export function showDesktopNotification(payload: NotificationPayload): void {
       requireInteraction: false,
     });
 
-    const DISPLAY_DURATION_MS = 5000;
-    const autoCloseTimer = setTimeout(() => n.close(), DISPLAY_DURATION_MS);
-
     n.onclick = () => {
-      clearTimeout(autoCloseTimer);
       n.close();
       window.focus();
       if (typeof document !== 'undefined') {
@@ -120,7 +117,7 @@ export function showDesktopNotification(payload: NotificationPayload): void {
     };
 
     n.onclose = () => {
-      clearTimeout(autoCloseTimer);
+      // Cleanup if needed
     };
   } catch (err) {
     console.warn('[Notifications] Failed to show:', err);
@@ -130,8 +127,8 @@ export function showDesktopNotification(payload: NotificationPayload): void {
 
 /**
  * Handle incoming WebSocket notification payload.
- * - When tab visible + focused: in-app toast + sound
- * - When tab hidden, minimized, or unfocused: desktop notification + sound
+ * - When tab is hidden: show desktop notification (if permitted) + play sound
+ * - When tab is visible: play sound only (user sees in-app message)
  */
 export function handleIncomingNotification(payload: NotificationPayload): void {
   if (!payload || typeof payload !== 'object') return;
@@ -142,6 +139,8 @@ export function handleIncomingNotification(payload: NotificationPayload): void {
   // Always play sound
   playNotificationSound();
 
-  // Desktop notification when page not visible/focused (handles minimized, background tab, another app)
-  showDesktopNotification(payload);
+  // Desktop notification only when tab is hidden
+  if (typeof document !== 'undefined' && document.hidden) {
+    showDesktopNotification(payload);
+  }
 }
