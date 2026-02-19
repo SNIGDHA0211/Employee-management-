@@ -721,34 +721,36 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      <div className="border-b border-gray-200 bg-gray-50 p-4 flex flex-wrap items-center gap-3">
-        <button 
-          onClick={() => setActiveTab('list')}
-          className={`px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === 'list' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-        >
-          User Management
-        </button>
-        <button 
-          onClick={() => setActiveTab('add')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === 'add' ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
-        >
-          <UserPlus size={18} />
-          <span>Add Employee</span>
-        </button>
+      <div className="border-b border-gray-200 bg-gray-50 p-3 sm:p-4 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          <button 
+            onClick={() => setActiveTab('list')}
+            className={`whitespace-nowrap flex-1 sm:flex-none px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium transition-colors text-xs sm:text-base ${activeTab === 'list' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            User Management
+          </button>
+          <button 
+            onClick={() => setActiveTab('add')}
+            className={`whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg font-medium transition-colors text-xs sm:text-base ${activeTab === 'add' ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+          >
+            <UserPlus size={16} className="flex-shrink-0" />
+            <span>Add Employee</span>
+          </button>
+        </div>
         {activeTab === 'list' && (
-          <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-md ml-auto">
+          <div className="flex items-center gap-2 flex-1 min-w-0 sm:min-w-[200px] sm:max-w-md sm:ml-auto">
             <div className="relative flex-1">
               <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Search by employee name, email, or ID..."
+                placeholder="Search employees..."
                 value={userSearchQuery}
                 onChange={(e) => setUserSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:outline-none bg-white"
               />
             </div>
             {userSearchQuery && (
-              <span className="text-sm text-gray-500 whitespace-nowrap">
+              <span className="text-xs sm:text-sm text-gray-500 whitespace-nowrap shrink-0">
                 {filteredDisplayUsers.length} of {displayUsers.length}
               </span>
             )}
@@ -756,11 +758,11 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         )}
       </div>
 
-      <div className="p-6">
+      <div className="p-3 sm:p-6">
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
+          <div className="mb-4 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex-1 min-w-0">
                 <p className="font-semibold mb-1">⚠️ {error.includes('Permission Denied') || error.includes('403') ? 'Permission Error' : error.includes('Authentication') || error.includes('401') ? 'Authentication Error' : 'Error'}</p>
                 <p className="text-sm">{error}</p>
               </div>
@@ -771,7 +773,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                     fetchListData();
                   }
                 }}
-                className="ml-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium whitespace-nowrap flex-shrink-0"
+                className="sm:ml-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium whitespace-nowrap flex-shrink-0 w-full sm:w-auto"
               >
                 {(error.includes('load data') || error.includes('fetch')) ? 'Retry' : 'Dismiss'}
               </button>
@@ -779,23 +781,115 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
           </div>
         )}
         {activeTab === 'list' ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <>
+            {/* Mobile: Card view */}
+            <div className="block md:hidden space-y-3">
+              {filteredDisplayUsers.length === 0 ? (
+                <div className="py-8 text-center">
+                  {error ? (
+                    <div className="flex flex-col items-center space-y-2">
+                      <span className="text-red-600 font-semibold">⚠️ Error loading employees</span>
+                      <span className="text-sm text-gray-600 max-w-2xl px-4">{error}</span>
+                    </div>
+                  ) : userSearchQuery.trim() ? (
+                    <span className="text-gray-500">No employees match &quot;{userSearchQuery.trim()}&quot;</span>
+                  ) : (
+                    <span className="text-gray-500">No employees found in the system.</span>
+                  )}
+                </div>
+              ) : (
+                filteredDisplayUsers.map(user => {
+                  const avatarUrl = user.avatar && user.avatar.trim()
+                    ? (user.avatar.startsWith('http') || user.avatar.startsWith('data:')
+                        ? user.avatar
+                        : `https://employee-management-system-tmrl.onrender.com${user.avatar.startsWith('/') ? '' : '/'}${user.avatar}`)
+                    : `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`;
+                  return (
+                    <div
+                      key={user.id}
+                      onClick={() => handleOpenEditSidebar(user)}
+                      className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-gray-300 transition-all cursor-pointer"
+                    >
+                      <div className="flex items-start gap-3">
+                        <img
+                          src={avatarUrl}
+                          className="w-14 h-14 rounded-full object-cover border-2 border-gray-200 flex-shrink-0"
+                          alt={user.name}
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            if (!target.src.includes('ui-avatars.com')) {
+                              target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`;
+                            }
+                          }}
+                        />
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <p className="font-bold text-gray-800">{user.name}</p>
+                          <p className="text-xs text-gray-500 font-mono">ID: {(user as any).Employee_id || user.id}</p>
+                          <p className="text-xs text-gray-600 truncate">{user.email || 'N/A'}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700">{user.designation || 'N/A'}</span>
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-gray-100 text-gray-700">{(user as any).rawRole || formatRoleForDisplay(user.role) || 'N/A'}</span>
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                              <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                              {user.status || 'PRESENT'}
+                            </span>
+                          </div>
+                          {user.branch && <p className="text-xs text-gray-600">Branch: {user.branch}</p>}
+                          {(user as any).department && <p className="text-xs text-gray-600">Dept: {(user as any).department}</p>}
+                          {(user as any).function && <p className="text-xs text-gray-600">Function: {(user as any).function}</p>}
+                          {(user as any).teamLead && <p className="text-xs text-gray-600">Team Lead: {(user as any).teamLead}</p>}
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500 pt-1">
+                            {user.joinDate && <span>Joined: {user.joinDate}</span>}
+                            {user.birthDate && <span>DOB: {user.birthDate}</span>}
+                            {user.numberOfDaysFromJoining && <span>{user.numberOfDaysFromJoining}</span>}
+                          </div>
+                          <div className="flex items-center justify-between pt-2 border-t border-gray-100 mt-2" onClick={(e) => e.stopPropagation()}>
+                            <span className="text-xs text-gray-400">Tap to edit</span>
+                            <div className="flex items-center gap-1">
+                              <button onClick={(e) => { e.stopPropagation(); handleOpenEditSidebar(user); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit"><Pencil size={14} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setResetPasswordId(user.id); setNewPassword(''); }} className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg" title="Reset Password"><Key size={14} /></button>
+                              <button onClick={(e) => {
+                                e.stopPropagation();
+                                if (!confirm(`Delete ${user.name}?`)) return;
+                                (async () => {
+                                  try {
+                                    setIsLoading(true);
+                                    await apiDeleteEmployee(user.id);
+                                    onDeleteUser(user.id);
+                                    await onRefreshEmployees?.();
+                                    if (selectedUser?.id === user.id) { setSelectedUser(null); setIsEditMode(false); }
+                                    alert('User deleted.');
+                                  } catch (err: any) { alert(err.message || 'Failed to delete.'); }
+                                  finally { setIsLoading(false); }
+                                })();
+                              }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete"><Trash2 size={14} /></button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            {/* Desktop: Table view */}
+            <div className="hidden md:block overflow-x-auto -mx-3 sm:mx-0">
+            <table className="w-full text-left border-collapse min-w-[500px] sm:min-w-[700px]">
               <thead>
-                <tr className="text-gray-500 text-sm border-b border-gray-100">
-                  <th className="pb-3 font-medium">ID</th>
-                  <th className="pb-3 font-medium">Employee</th>
-                  <th className="pb-3 font-medium">Email</th>
-                  <th className="pb-3 font-medium">Designation</th>
-                  <th className="pb-3 font-medium">Branch</th>
-                  <th className="pb-3 font-medium">Department</th>
-                  <th className="pb-3 font-medium">Function</th>
-                  <th className="pb-3 font-medium">Team Lead</th>
-                  <th className="pb-3 font-medium">Role</th>
-                  <th className="pb-3 font-medium">Birth Date</th>
-                  <th className="pb-3 font-medium">Joined</th>
-                  <th className="pb-3 font-medium">Status</th>
-                  <th className="pb-3 font-medium text-center">Actions</th>
+                <tr className="text-gray-500 text-xs sm:text-sm border-b border-gray-100">
+                  <th className="pb-2 sm:pb-3 font-medium">ID</th>
+                  <th className="pb-2 sm:pb-3 font-medium">Employee</th>
+                  <th className="pb-2 sm:pb-3 font-medium hidden md:table-cell">Email</th>
+                  <th className="pb-2 sm:pb-3 font-medium">Designation</th>
+                  <th className="pb-2 sm:pb-3 font-medium hidden lg:table-cell">Branch</th>
+                  <th className="pb-2 sm:pb-3 font-medium hidden lg:table-cell">Department</th>
+                  <th className="pb-2 sm:pb-3 font-medium hidden xl:table-cell">Function</th>
+                  <th className="pb-2 sm:pb-3 font-medium hidden xl:table-cell">Team Lead</th>
+                  <th className="pb-2 sm:pb-3 font-medium">Role</th>
+                  <th className="pb-2 sm:pb-3 font-medium hidden lg:table-cell">Birth Date</th>
+                  <th className="pb-2 sm:pb-3 font-medium hidden md:table-cell">Joined</th>
+                  <th className="pb-2 sm:pb-3 font-medium hidden sm:table-cell">Status</th>
+                  <th className="pb-2 sm:pb-3 font-medium text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -829,8 +923,8 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                     className="group cursor-pointer hover:bg-gray-50 transition-colors"
                     onClick={() => handleOpenEditSidebar(user)}
                   >
-                    <td className="py-3 text-sm text-gray-500 font-mono">{user.id}</td>
-                    <td className="py-3 pr-4">
+                    <td className="py-2 sm:py-3 text-xs sm:text-sm text-gray-500 font-mono">{user.id}</td>
+                    <td className="py-2 sm:py-3 pr-2 sm:pr-4">
                       <div className="flex items-center space-x-3">
                             <div className="relative flex-shrink-0">
                               <img 
@@ -851,37 +945,37 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                         </div>
                       </div>
                     </td>
-                    <td className="py-3">
-                      <p className="text-xs text-gray-600">{user.email || 'N/A'}</p>
+                    <td className="py-2 sm:py-3 hidden md:table-cell">
+                      <p className="text-xs text-gray-600 truncate max-w-[120px]">{user.email || 'N/A'}</p>
                     </td>
-                    <td className="py-3">
+                    <td className="py-2 sm:py-3">
                       <span className="text-xs font-semibold px-2 py-1 rounded bg-blue-50 text-blue-700">
                         {user.designation || 'N/A'}
                       </span>
                     </td>
-                    <td className="py-3">
+                    <td className="py-2 sm:py-3 hidden lg:table-cell">
                       <p className="text-xs text-gray-600">{user.branch || 'N/A'}</p>
                     </td>
-                    <td className="py-3">
-                      <p className="text-xs text-gray-600">{(user as any).department || 'N/A'}</p>
+                    <td className="py-2 sm:py-3 hidden lg:table-cell">
+                      <p className="text-xs text-gray-600 truncate max-w-[100px]">{(user as any).department || 'N/A'}</p>
                     </td>
                     {/* Function Column */}
-                    <td className="py-3">
-                      <p className="text-xs text-gray-600">{(user as any).function || 'N/A'}</p>
+                    <td className="py-2 sm:py-3 hidden xl:table-cell">
+                      <p className="text-xs text-gray-600 truncate max-w-[100px]">{(user as any).function || 'N/A'}</p>
                     </td>
                     {/* Team Lead Column */}
-                    <td className="py-3">
-                      <p className="text-xs text-gray-600">{(user as any).teamLead || (user as any).Team_Lead || 'N/A'}</p>
+                    <td className="py-2 sm:py-3 hidden xl:table-cell">
+                      <p className="text-xs text-gray-600 truncate max-w-[80px]">{(user as any).teamLead || (user as any).Team_Lead || 'N/A'}</p>
                     </td>
-                    <td className="py-3">
+                    <td className="py-2 sm:py-3">
                       <span className="text-xs font-semibold px-2 py-1 rounded bg-gray-100 text-gray-700">
                         {(user as any).rawRole || String(user.role) || 'N/A'}
                       </span>
                     </td>
-                    <td className="py-3">
+                    <td className="py-2 sm:py-3 hidden lg:table-cell">
                       <p className="text-xs text-gray-600">{user.birthDate || 'N/A'}</p>
                     </td>
-                    <td className="py-3">
+                    <td className="py-2 sm:py-3 hidden md:table-cell">
                       <div className="flex flex-col">
                         <p className="text-xs text-gray-600">{user.joinDate || 'N/A'}</p>
                         {user.numberOfDaysFromJoining && (
@@ -889,13 +983,13 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                         )}
                       </div>
                     </td>
-                    <td className="py-3">
+                    <td className="py-2 sm:py-3 hidden sm:table-cell">
                       <span className="inline-flex items-center space-x-1">
                         <span className="w-2 h-2 rounded-full bg-green-500"></span>
                         <span className="text-xs text-gray-600">{user.status || 'PRESENT'}</span>
                       </span>
                     </td>
-                    <td className="py-3 align-top">
+                    <td className="py-2 sm:py-3 align-top">
                       <div className="flex items-start justify-center space-x-2" onClick={(e) => e.stopPropagation()}>
                         <>
                             <button
@@ -955,9 +1049,10 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 )}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         ) : (
-          <form onSubmit={handleSubmit} className="max-w-2xl mx-auto space-y-6">
+          <form onSubmit={handleSubmit} className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
             {/* Profile Image Upload */}
             <div className="flex flex-col items-center justify-center mb-6">
                <div className="relative group">
@@ -976,7 +1071,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                <p className="text-xs text-gray-500 mt-2">Upload Profile Picture</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
               <div className="space-y-2">
                 <label className="text-sm font-bold text-gray-700">Employee ID</label>
                 <div className="relative">
@@ -1002,7 +1097,6 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                     }}
                   />
                 </div>
-                <p className="text-xs text-gray-500">Numbers only, no spaces</p>
               </div>
 
               <div className="space-y-2">
@@ -1221,9 +1315,9 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
               </div>
             </div>
 
-            <div className="pt-4 flex justify-end">
-               <button type="button" onClick={() => setActiveTab('list')} disabled={isLoading} className="px-6 py-2 text-gray-600 hover:bg-gray-100 rounded-lg mr-2 disabled:opacity-50">Cancel</button>
-               <button type="submit" disabled={isLoading} className="px-6 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium shadow-sm disabled:opacity-50 flex items-center space-x-2">
+            <div className="pt-4 flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-0 sm:space-x-0">
+               <button type="button" onClick={() => setActiveTab('list')} disabled={isLoading} className="w-full sm:w-auto px-6 py-2 text-gray-600 hover:bg-gray-100 rounded-lg sm:mr-2 disabled:opacity-50">Cancel</button>
+               <button type="submit" disabled={isLoading} className="w-full sm:w-auto px-6 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium shadow-sm disabled:opacity-50 flex items-center justify-center space-x-2">
                  {isLoading ? (
                    <>
                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
@@ -1240,8 +1334,8 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
 
       {/* Reset Password Modal */}
       {resetPasswordId && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
-              <div className="bg-white rounded-xl p-6 w-96 shadow-2xl animate-float">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl p-4 sm:p-6 w-full max-w-sm shadow-2xl animate-float">
                   <h3 className="text-lg font-bold text-gray-800 mb-4">Change Password</h3>
                   <p className="text-sm text-gray-500 mb-4">Enter new password for selected user.</p>
                   
@@ -1254,9 +1348,9 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                       onChange={(e) => setNewPassword(e.target.value)}
                   />
                   
-                  <div className="flex justify-end space-x-2">
-                      <button onClick={() => { setResetPasswordId(null); setNewPassword(''); }} disabled={isLoading} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg disabled:opacity-50">Cancel</button>
-                      <button onClick={() => handlePasswordReset(resetPasswordId)} disabled={isLoading || !newPassword} className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 flex items-center space-x-2">
+                  <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:space-x-2">
+                      <button onClick={() => { setResetPasswordId(null); setNewPassword(''); }} disabled={isLoading} className="w-full sm:w-auto px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg disabled:opacity-50">Cancel</button>
+                      <button onClick={() => handlePasswordReset(resetPasswordId)} disabled={isLoading || !newPassword} className="w-full sm:w-auto px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 flex items-center justify-center space-x-2">
                         {isLoading ? (
                           <>
                             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
@@ -1278,14 +1372,14 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
             className="fixed inset-0 bg-black bg-opacity-60 z-50 backdrop-blur-sm"
             onClick={handleCloseEditSidebar}
           />
-          <div className="fixed right-0 top-0 bottom-0 w-[420px] max-w-[95vw] bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
+          <div className="fixed right-0 top-0 bottom-0 w-full sm:w-[420px] max-w-full sm:max-w-[95vw] bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
             <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
               <h2 className="text-lg font-bold text-gray-800">Update Employee</h2>
               <button onClick={handleCloseEditSidebar} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg">
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleUpdateSidebarSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
+            <form onSubmit={handleUpdateSidebarSubmit} className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4">
               {/* Avatar */}
               <div className="flex flex-col items-center">
                 <div className="relative group">
@@ -1375,9 +1469,9 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 <label className="text-sm font-bold text-gray-700">New Password (optional)</label>
                 <input type="password" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none" placeholder="Leave blank to keep current" value={updateSidebarFormData.password} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, password: e.target.value }))} />
               </div>
-              <div className="flex gap-2 pt-4">
-                <button type="button" onClick={handleCloseEditSidebar} disabled={isLoading} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
-                <button type="submit" disabled={isLoading} className="flex-1 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium disabled:opacity-50 flex items-center justify-center gap-2">
+              <div className="flex flex-col sm:flex-row gap-2 pt-4">
+                <button type="button" onClick={handleCloseEditSidebar} disabled={isLoading} className="w-full sm:flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                <button type="submit" disabled={isLoading} className="w-full sm:flex-1 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium disabled:opacity-50 flex items-center justify-center gap-2">
                   {isLoading ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /><span>Updating...</span></> : <span>Update</span>}
                 </button>
               </div>
@@ -1399,9 +1493,9 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
           />
           
           {/* Sidebar */}
-          <div className="fixed right-0 top-0 bottom-0 w-96 bg-white shadow-2xl z-50 flex flex-col transform transition-transform duration-300 ease-in-out">
+          <div className="fixed right-0 top-0 bottom-0 w-full sm:w-96 bg-white shadow-2xl z-50 flex flex-col transform transition-transform duration-300 ease-in-out">
             {/* Header - Dark Theme with avatar */}
-            <div className="p-6 bg-gradient-to-br from-slate-800 to-slate-900 border-b border-slate-700">
+            <div className="p-4 sm:p-6 bg-gradient-to-br from-slate-800 to-slate-900 border-b border-slate-700">
               <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <img
@@ -1410,7 +1504,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                     src={selectedUser.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUser.name)}&background=random`}
                   />
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-xl font-bold text-white truncate">{selectedUser.name}</h2>
+                    <h2 className="text-lg sm:text-xl font-bold text-white truncate">{selectedUser.name}</h2>
                     <p className="text-white/90 font-semibold mt-1 text-sm">
                     {(() => {
                       const rawRole = (selectedUser as any).rawRole;
@@ -1432,7 +1526,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
               <div className="space-y-3">
                 {/* Employee ID - Read Only (plain text, no card) */}
                 <div>
@@ -1661,19 +1755,19 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
             </div>
 
             {/* Footer */}
-            <div className="p-6 border-t border-gray-200 bg-gray-50">
+            <div className="p-4 sm:p-6 border-t border-gray-200 bg-gray-50">
               {isEditMode ? (
-                <div className="flex space-x-2">
+                <div className="flex flex-col sm:flex-row gap-2 sm:space-x-2 sm:gap-0">
                   <button
                     onClick={handleCancelEdit}
-                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                    className="w-full sm:flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleSaveEdit}
                     disabled={isLoading}
-                    className="flex-1 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center space-x-2"
+                    className="w-full sm:flex-1 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center space-x-2"
                   >
                     {isLoading ? (
                       <>
@@ -1686,10 +1780,10 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                   </button>
                 </div>
               ) : (
-                <div className="flex space-x-2">
+                <div className="flex flex-col sm:flex-row gap-2 sm:space-x-2 sm:gap-0">
                   <button
                     onClick={handleEditClick}
-                    className="flex-1 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors font-medium"
+                    className="w-full sm:flex-1 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors font-medium"
                   >
                     Edit
                   </button>
@@ -1698,7 +1792,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                       setSelectedUser(null);
                       setIsEditMode(false);
                     }}
-                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                    className="w-full sm:flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
                   >
                     Close
                   </button>

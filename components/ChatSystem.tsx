@@ -34,7 +34,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   const [selectedParticipants, setSelectedParticipants] = useState<Record<string, string>>({});
   const [isLoadingGroups, setIsLoadingGroups] = useState(false);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
-  const [apiGroups, setApiGroups] = useState<Array<{group_id: number; name: string; description: string; created_at: string}>>([]);
+  const [apiGroups, setApiGroups] = useState<Array<{group_id: number | string; name: string; description: string; created_at: string}>>([]);
   const [groupMembers, setGroupMembers] = useState<Record<string | number, string[]>>({});
   const [showMembersPanel, setShowMembersPanel] = useState(false);
   const [currentGroupMembers, setCurrentGroupMembers] = useState<Array<{participant_name: string}>>([]);
@@ -56,17 +56,37 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   // Permission: Can create group?
   const canCreateGroup = [UserRole.MD, UserRole.ADMIN, UserRole.HR, UserRole.TEAM_LEADER].includes(currentUser.role);
 
-  // Helper to convert API group format to ChatGroup (defined before use)
-  const convertApiGroupsToChatGroups = (apiGroups: any[], membersMap: Record<string | number, string[]>) =>
-    apiGroups.map((g: any) => ({
-      id: `g${g.group_id}`,
-      name: g.group_name || g.name || '',
-      members: membersMap[g.group_id] || [],
-      createdBy: g.created_by || '',
-      isPrivate: false,
-      groupId: g.group_id,
-      totalParticipant: typeof g.total_participant === 'number' ? g.total_participant : (g.total_participant != null ? Number(g.total_participant) : undefined),
-    }));
+  // Get group ID as backend expects it (string like "G42366" or number)
+  const getGroupId = (group: ChatGroup | null): string | number | null => {
+    if (!group) return null;
+    if (group.groupId != null && group.groupId !== '') return group.groupId;
+    if (group.id) return group.id.startsWith('g') ? group.id.slice(1) : group.id;
+    const apiGroupById = apiGroups.find(g => `g${g.group_id}` === group.id || String(g.group_id) === String(group.id?.replace(/^g/, '')));
+    if (apiGroupById?.group_id != null) return apiGroupById.group_id;
+    const apiGroupByName = apiGroups.find(g => group.name && (group.name === g.name || g.name === group.name));
+    if (apiGroupByName?.group_id != null) return apiGroupByName.group_id;
+    const matchingGroup = groups.find(g => g.id === group.id);
+    if (matchingGroup?.groupId != null) return matchingGroup.groupId;
+    return null;
+  };
+
+  // Helper to convert API group format to ChatGroup - always use group_id from API
+  const convertApiGroupsToChatGroups = (rawGroups: any[], membersMap: Record<string | number, string[]>) =>
+    rawGroups.map((g: any) => {
+      const rawId = g.group_id ?? g.chat_id ?? g.id ?? g.groupId;
+      const groupIdNum = rawId != null ? Number(rawId) : NaN;
+      const id = !isNaN(groupIdNum) ? groupIdNum : rawId;
+      const finalGroupId = !isNaN(groupIdNum) ? groupIdNum : (typeof rawId === 'string' ? parseInt(rawId, 10) : rawId);
+      return {
+        id: `g${id}`,
+        name: g.group_name || g.name || '',
+        members: membersMap[id] || membersMap[g.group_id] || [],
+        createdBy: g.created_by || '',
+        isPrivate: false,
+        groupId: (typeof finalGroupId === 'number' && !isNaN(finalGroupId)) ? finalGroupId : rawId,
+        totalParticipant: typeof g.total_participant === 'number' ? g.total_participant : (g.total_participant != null ? Number(g.total_participant) : undefined),
+      };
+    });
 
   const chatResultRef = useRef<any>(null);
 
@@ -323,7 +343,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
   // Handle adding user to group
   const handleAddUserToGroup = async () => {
-    if (!activeGroup?.groupId) {
+    const groupId = getGroupId(activeGroup);
+    if (!groupId) {
       alert('Please select a group first');
       return;
     }
@@ -344,7 +365,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       // Use employee ID (user.id should be the employee ID)
       const employeeId = userToAdd.id;
 
-      await apiAddUserToGroup(Number(activeGroup.groupId), employeeId);
+      await apiAddUserToGroup(groupId, employeeId);
 
       // Show success message
       alert('User added successfully!');
@@ -354,8 +375,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       setShowAddUserModal(false);
 
       // Refresh group members and employees
-      if (activeGroup.groupId != null) {
-        const members = await apiShowGroupMembers(Number(activeGroup.groupId));
+      if (groupId) {
+        const members = await apiShowGroupMembers(groupId);
         setCurrentGroupMembers(members);
       }
     } catch (error: any) {
@@ -368,7 +389,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
   // Handle deleting user from group
   const handleDeleteUserFromGroup = async (userId: string, userName: string) => {
-    if (!activeGroup?.groupId) {
+    const groupId = getGroupId(activeGroup);
+    if (!groupId) {
       alert('Please select a group first');
       return;
     }
@@ -385,7 +407,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     }
 
     try {
-      const response = await apiDeleteUserFromGroup(Number(activeGroup.groupId), userId);
+      const response = await apiDeleteUserFromGroup(groupId, userId);
 
       // Check response message
       if (response.Message) {
@@ -393,8 +415,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           alert('User removed successfully!');
           
           // Refresh group members and employees
-          if (activeGroup.groupId) {
-            const members = await apiShowGroupMembers(Number(activeGroup.groupId));
+          if (groupId) {
+            const members = await apiShowGroupMembers(groupId);
             setCurrentGroupMembers(members);
           }
         } else {
@@ -413,7 +435,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
   // Handle deleting group
   const handleDeleteGroup = async () => {
-    if (!activeGroup?.groupId) {
+    const groupId = getGroupId(activeGroup);
+    if (!groupId) {
       alert('Please select a group first');
       return;
     }
@@ -425,12 +448,12 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     }
 
     // Confirm deletion
-    if (!confirm(`Are you sure you want to delete the group "${activeGroup.name}"? This action cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete the group "${activeGroup?.name}"? This action cannot be undone.`)) {
       return;
     }
 
     try {
-      const response = await apiDeleteGroup(Number(activeGroup.groupId));
+      const response = await apiDeleteGroup(groupId);
 
       // Check response message
       if (response.message && response.message.includes("deleted successfully")) {
@@ -1082,12 +1105,14 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     }
   };
 
+  const hasActiveChat = !!(activeGroup || activeUser);
+
   return (
-    <div className="flex h-[calc(100vh-140px)] bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
-      {/* Sidebar List */}
-      <div className="w-1/3 border-r border-gray-200 flex flex-col bg-gray-50/50">
-        <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-white">
-          <h3 className="font-bold text-gray-800 text-lg">Messages</h3>
+    <div className="flex h-[calc(100vh-140px)] sm:h-[calc(100vh-140px)] min-h-[400px] bg-white rounded-xl sm:rounded-2xl shadow-sm overflow-hidden border border-gray-200">
+      {/* Sidebar List - full width on mobile when no chat; hidden when chat open */}
+      <div className={`${hasActiveChat ? 'hidden sm:flex' : 'flex'} w-full sm:w-1/3 border-r border-gray-200 flex-col bg-gray-50/50 shrink-0`}>
+        <div className="p-3 sm:p-4 border-b border-gray-200 flex justify-between items-center bg-white">
+          <h3 className="font-bold text-gray-800 text-base sm:text-lg">Messages</h3>
           {canCreateGroup && (
              <button onClick={() => setShowCreateModal(true)} title="New Group" className="text-white bg-brand-600 hover:bg-brand-700 p-2 rounded-lg shadow-sm transition-colors">
                <PlusCircle size={20} />
@@ -1106,14 +1131,14 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             <div 
               key={group.id} 
                   onClick={() => handleGroupClick(group)}
-                  className={`p-3 cursor-pointer rounded-xl transition-all ${activeGroup?.id === group.id ? 'bg-white shadow-md border border-gray-100' : 'hover:bg-gray-100 text-gray-600'}`}
+                  className={`p-2 sm:p-3 cursor-pointer rounded-lg sm:rounded-xl transition-all ${activeGroup?.id === group.id ? 'bg-white shadow-md border border-gray-100' : 'hover:bg-gray-100 text-gray-600'}`}
             >
               <div className="flex items-center space-x-3">
-                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shadow-sm ${group.isPrivate ? 'bg-indigo-500' : 'bg-brand-500'}`}>
-                   {group.isPrivate ? <Users size={18} /> : <Hash size={18} />}
+                 <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white font-bold shadow-sm shrink-0 ${group.isPrivate ? 'bg-indigo-500' : 'bg-brand-500'}`}>
+                   {group.isPrivate ? <Users size={16} className="sm:w-[18px] sm:h-[18px]" /> : <Hash size={16} className="sm:w-[18px] sm:h-[18px]" />}
                  </div>
-                 <div>
-                       <p className={`font-semibold text-sm ${activeGroup?.id === group.id ? 'text-gray-900' : 'text-gray-700'}`}>{group.name}</p>
+                 <div className="min-w-0 flex-1">
+                       <p className={`font-semibold text-xs sm:text-sm truncate ${activeGroup?.id === group.id ? 'text-gray-900' : 'text-gray-700'}`}>{group.name}</p>
                        <p className="text-xs text-gray-400">
                          {(() => {
                            const count = group.totalParticipant ??
@@ -1130,8 +1155,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           </div>
 
           {/* All Users Section */}
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-3 mb-2">All Users</h4>
+          <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200">
+            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-2 sm:px-3 mb-2">All Users</h4>
             {users.length === 0 ? (
               <div className="text-center text-gray-400 py-4 text-sm">No users found</div>
             ) : (
@@ -1147,7 +1172,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                     <div
                       key={user.id}
                       onClick={() => handleUserClick(user)}
-                      className={`p-2 cursor-pointer rounded-lg transition-colors ${
+                      className={`p-1.5 sm:p-2 cursor-pointer rounded-lg transition-colors ${
                         isActive 
                           ? 'bg-white shadow-md border border-gray-100' 
                           : 'hover:bg-gray-100'
@@ -1186,17 +1211,27 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
       {/* Chat Area */}
       {(activeGroup || activeUser) ? (
-        <div className="w-2/3 flex flex-col bg-white relative">
+        <div className="flex flex-col w-full sm:w-2/3 bg-white relative min-w-0">
         {/* Header */}
-        <div className="p-4 border-b border-gray-200 flex justify-between items-center shadow-sm z-10">
-          <div className="flex items-center space-x-3">
+        <div className="p-3 sm:p-4 border-b border-gray-200 flex justify-between items-center shadow-sm z-10 gap-2">
+          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
+            {/* Back button - mobile only */}
+            <button
+              onClick={() => { setActiveGroup(null); setActiveUser(null); setShowMembersPanel(false); }}
+              className="sm:hidden p-2 -ml-2 rounded-lg hover:bg-gray-100 text-gray-600 shrink-0"
+              aria-label="Back to messages"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
               {activeGroup ? (
                 <>
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white ${activeGroup.isPrivate ? 'bg-indigo-500' : 'bg-brand-500'}`}>
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0 ${activeGroup.isPrivate ? 'bg-indigo-500' : 'bg-brand-500'}`}>
                {activeGroup.isPrivate ? <Users size={16} /> : <Hash size={16} />}
             </div>
-            <div>
-               <span className="font-bold text-gray-800 text-base block leading-none">{activeGroup.name}</span>
+            <div className="min-w-0 flex-1">
+               <span className="font-bold text-gray-800 text-sm sm:text-base block leading-none truncate">{activeGroup.name}</span>
                     <span className="text-xs text-gray-500">
                       {(() => {
                         const memberCount = activeGroup.totalParticipant ??
@@ -1220,9 +1255,9 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                       }
                     }}
                   />
-                  <div>
-                    <span className="font-bold text-gray-800 text-base block leading-none">{activeUser.name}</span>
-                    <span className="text-xs text-gray-500">{activeUser.email || activeUser.designation || activeUser.role}</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="font-bold text-gray-800 text-sm sm:text-base block leading-none truncate">{activeUser.name}</span>
+                    <span className="text-xs text-gray-500 truncate block">{activeUser.email || activeUser.designation || activeUser.role}</span>
                   </div>
                 </>
               ) : null}
@@ -1230,7 +1265,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             {activeGroup && (
               <button
                 onClick={() => setShowMembersPanel(!showMembersPanel)}
-                className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-colors ${
+                className={`flex items-center space-x-1 sm:space-x-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg transition-colors shrink-0 ${
                   showMembersPanel 
                     ? 'bg-brand-600 text-white' 
                     : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
@@ -1238,7 +1273,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                 title="Show group members"
               >
                 <Users size={18} />
-                <span className="text-sm font-medium">
+                <span className="text-xs sm:text-sm font-medium hidden sm:inline">
                   {(() => {
                     return activeGroup.totalParticipant ??
                       groupMembers[(activeGroup as any).groupId]?.length ??
@@ -1250,7 +1285,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         </div>
 
         {/* Messages */}
-        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 sm:space-y-6 bg-slate-50">
           {isLoadingMessages ? (
             <div className="text-center text-gray-400 mt-10">
               <p>Loading messages...</p>
@@ -1295,7 +1330,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                   {!isMe && (
                     <img src={sender?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(msg.sender)}&background=random`} className="w-8 h-8 rounded-full mr-2 self-end mb-1" alt="" />
                   )}
-                  <div className={`max-w-[70%] rounded-2xl p-4 shadow-sm ${isMe ? 'bg-brand-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'}`}>
+                  <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 sm:p-4 shadow-sm ${isMe ? 'bg-brand-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'}`}>
                     {!isMe && <p className="text-xs font-bold text-brand-600 mb-1">{msg.sender}</p>}
                     <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</p>
                     <p className={`text-[10px] mt-2 text-right ${isMe ? 'text-brand-200' : 'text-gray-400'}`}>
@@ -1310,8 +1345,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         </div>
 
         {/* Input */}
-        <div className="p-4 bg-white border-t border-gray-200 relative">
-          <div className="flex items-center space-x-2 bg-gray-100 rounded-xl px-4 py-2 border border-gray-200">
+        <div className="p-3 sm:p-4 bg-white border-t border-gray-200 relative">
+          <div className="flex items-center space-x-2 bg-gray-100 rounded-xl px-3 sm:px-4 py-2 border border-gray-200">
             {/* Emoji Picker Button */}
             <button
               type="button"
@@ -1324,7 +1359,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
             {/* Emoji Picker */}
             {showEmojiPicker && (
-              <div className="emoji-picker-container absolute bottom-16 left-4 bg-white border border-gray-200 rounded-lg shadow-xl p-3 z-50 max-w-xs">
+              <div className="emoji-picker-container absolute bottom-full left-2 right-2 sm:left-4 sm:right-auto mb-2 bg-white border border-gray-200 rounded-lg shadow-xl p-3 z-50 max-w-xs sm:max-w-xs">
                 <div className="grid grid-cols-8 gap-1 max-h-48 overflow-y-auto">
                   {['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑', '😬', '🙄', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤', '😪', '😵', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '😈', '👿', '👹', '👺', '🤡', '💩', '👻', '💀', '☠️', '👽', '👾', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾'].map((emoji) => (
                     <button
@@ -1374,7 +1409,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
           {/* Group Members Panel - Only show for groups */}
           {showMembersPanel && activeGroup && (
-            <div className="absolute right-0 top-0 bottom-0 w-80 bg-white border-l border-gray-200 shadow-xl z-20 flex flex-col">
+            <div className="absolute right-0 top-0 bottom-0 w-full sm:w-80 bg-white border-l border-gray-200 shadow-xl z-20 flex flex-col">
               <div className="p-4 border-b border-gray-200 bg-gray-50">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-bold text-gray-800 text-lg">People ({currentGroupMembers.length})</h3>
@@ -1505,20 +1540,20 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           )}
         </div>
       ) : (
-        <div className="w-2/3 flex items-center justify-center bg-gray-50">
-          <div className="text-center text-gray-400">
+        <div className="hidden sm:flex w-2/3 items-center justify-center bg-gray-50">
+          <div className="text-center text-gray-400 p-4">
             <Users size={48} className="mx-auto mb-4 opacity-50" />
-            <p className="text-lg">Select a group or user to start chatting</p>
+            <p className="text-base sm:text-lg">Select a group or user to start chatting</p>
           </div>
         </div>
       )}
 
       {/* Create Group Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
-            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h2 className="text-2xl font-bold text-gray-800">Create New Group</h2>
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-2 sm:p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-xl sm:rounded-2xl w-full max-w-2xl max-h-[95vh] overflow-hidden flex flex-col shadow-2xl">
+            <div className="p-4 sm:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <h2 className="text-lg sm:text-2xl font-bold text-gray-800">Create New Group</h2>
               <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-gray-600 bg-white rounded-full p-2 shadow-sm">
                 <X size={20} />
               </button>
@@ -1586,7 +1621,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               </div>
             </div>
             
-            <div className="p-6 border-t border-gray-100 flex justify-end space-x-3 bg-gray-50">
+            <div className="p-4 sm:p-6 border-t border-gray-100 flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 bg-gray-50">
               <button
                 onClick={() => setShowCreateModal(false)}
                 className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -1607,10 +1642,10 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
       {/* Add User to Group Modal */}
       {showAddUserModal && activeGroup && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 backdrop-blur-sm p-2 sm:p-4">
+          <div className="bg-white rounded-xl sm:rounded-2xl p-4 sm:p-6 w-full max-w-md max-h-[95vh] overflow-y-auto shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold text-gray-800">Add User to Group</h3>
+              <h3 className="text-lg sm:text-xl font-bold text-gray-800">Add User to Group</h3>
               <button
                 onClick={() => {
                   setShowAddUserModal(false);
@@ -1651,21 +1686,21 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                 </select>
             </div>
 
-            <div className="flex justify-end space-x-3">
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 sm:space-x-3">
               <button
                 onClick={() => {
                   setShowAddUserModal(false);
                   setSelectedUserToAdd('');
                 }}
                 disabled={isAddingUser}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+                className="w-full sm:w-auto px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddUserToGroup}
                 disabled={isAddingUser || !selectedUserToAdd}
-                className="px-4 py-2 text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full sm:w-auto px-4 py-2 text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isAddingUser ? 'Adding...' : 'Add User'}
               </button>

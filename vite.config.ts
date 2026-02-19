@@ -20,6 +20,11 @@ export default defineConfig(({ mode }) => {
               proxy.on('proxyReq', (_proxyReq, _req, _res) => {});
             },
           },
+          // Proxy WebSocket to backend (connect via localhost)
+          '/ws': {
+            target: 'ws://192.168.42.111:8000/',
+            ws: true,
+          },
         },
       },
       plugins: [react()],

@@ -326,7 +326,11 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
           onSave={handleSaveMeeting}
           currentUser={currentUser}
           initialMeeting={meetingToEdit}
-          employees={users.map((u) => ({ id: u.id, name: u.name }))}
+          employees={users.map((u) => ({
+            id: u.id,
+            name: u.name,
+            employeeId: (u as any).Employee_id ?? u.id,
+          }))}
         />
       )}
 

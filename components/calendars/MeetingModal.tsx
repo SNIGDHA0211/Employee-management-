@@ -12,7 +12,7 @@ interface MeetingModalProps {
   onSave: (meeting: Meeting) => void;
   currentUser?: User | null;
   initialMeeting?: Meeting | null;
-  employees?: Array<{ id: string; name: string }>;
+  employees?: Array<{ id: string; name: string; employeeId?: string }>;
 }
 
 export const MeetingModal: React.FC<MeetingModalProps> = ({
@@ -62,7 +62,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
       setStartTime(start < '09:00' ? '09:00' : start > '17:30' ? '17:30' : start);
       setEndTime(end < '09:00' ? '10:00' : end > '18:00' ? '18:00' : end);
       setType(initialMeeting.type);
-      const attendees = (initialMeeting.attendees ?? []).filter((a) => a != null && String(a).trim() !== '');
+      const attendees = [...new Set((initialMeeting.attendees ?? []).filter((a) => a != null && String(a).trim() !== ''))];
       setSelectedUsers(attendees);
     }
   }, [initialMeeting]);
@@ -88,13 +88,30 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     return val < min || val > max;
   };
 
+  // Resolve members to employee IDs only (API expects Employee_id, not names)
+  const resolveToEmployeeIds = (idsOrNames: string[]): string[] => {
+    const result: string[] = [];
+    const seen = new Set<string>();
+    for (const item of idsOrNames) {
+      if (!item || String(item).trim() === '') continue;
+      const s = String(item).trim();
+      if (/^\d+$/.test(s)) {
+        if (!seen.has(s)) { seen.add(s); result.push(s); }
+        continue;
+      }
+      const emp = employees.find((e) => e.name === s || (e as any).employeeId === s || e.id === s);
+      const empId = emp ? ((emp as any).employeeId ?? emp.id) : null;
+      if (empId && !seen.has(empId)) { seen.add(empId); result.push(empId); }
+    }
+    return result;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setOfficeHoursNote(null);
     let members = type === MeetingType.INDIVIDUAL
       ? [String((displayUser as any).Employee_id ?? displayUser.id)]
-      : selectedUsers;
-    // Filter out empty strings
+      : resolveToEmployeeIds(selectedUsers);
     members = members.filter((m) => m != null && String(m).trim() !== '');
     if (members.length === 0) {
       setError('Please select at least one participant for group meetings.');
@@ -385,6 +402,25 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Select Participants
                 </label>
+                {isEdit && initialMeeting?.attendeeNames && (() => {
+                  const employeeIds = new Set(employees.map((e) => [(e as any).employeeId ?? e.id, e.id]).flat());
+                  const otherAttendees = (initialMeeting?.attendees ?? []).filter(
+                    (aid) => !employeeIds.has(aid) && aid && String(aid).trim() !== ''
+                  );
+                  if (otherAttendees.length === 0) return null;
+                  return (
+                    <div className="mb-2 p-2 bg-slate-50 rounded-lg border border-slate-100">
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Other participants (not in list)</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {otherAttendees.map((aid) => (
+                          <span key={aid} className="inline-block px-2 py-0.5 bg-slate-200 text-slate-700 rounded text-[10px]">
+                            {initialMeeting.attendeeNames?.[aid] ?? aid}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="relative mb-1.5">
                   <svg className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -403,20 +439,25 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                   ) : filteredEmployees.length === 0 ? (
                     <span className="col-span-2 text-xs text-slate-500 p-1.5">No matching participants</span>
                   ) : (
-                    filteredEmployees.map((user) => (
+                    filteredEmployees.map((user) => {
+                      const empId = (user as any).employeeId ?? user.id;
+                      const isSelected = selectedUsers.includes(user.id) || selectedUsers.includes(empId);
+                      const idInSelected = selectedUsers.includes(user.id) ? user.id : selectedUsers.includes(empId) ? empId : null;
+                      return (
                     <label
                       key={user.id}
                       className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-white rounded cursor-pointer"
                     >
                       <input
                         type="checkbox"
-                        checked={selectedUsers.includes(user.id)}
-                        onChange={() => toggleUser(user.id)}
+                        checked={isSelected}
+                        onChange={() => toggleUser(isSelected ? (idInSelected ?? empId) : empId)}
                         className="rounded border-slate-300 text-indigo-600 w-3 h-3"
                       />
                       <span className="text-xs truncate">{user.name}</span>
                     </label>
-                    ))
+                    );
+                    })
                   )}
                 </div>
               </div>

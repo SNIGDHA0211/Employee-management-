@@ -667,6 +667,77 @@ export default function App() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  // WebSocket notifications - connect after login (via localhost proxy)
+  useEffect(() => {
+    if (!currentUser) return;
+    let closed = false;
+    let pingInterval: ReturnType<typeof setInterval> | null = null;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    const maxRetries = 5;
+    const getDelay = () => Math.min(1000 * 2 ** retryCount, 30000);
+    let currentWs: WebSocket | null = null;
+
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      const wsUrl = `${protocol}//${host}/ws/notifications/`;
+      const ws = new WebSocket(wsUrl);
+      currentWs = ws;
+      ws.onopen = () => {
+        retryCount = 0;
+        console.log('WebSocket connected (session auth)');
+        pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 30000);
+      };
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'notification') {
+            console.log('Notification:', data.title, data.message);
+          } else if (data.type === 'pong') {
+            console.log('Pong');
+          } else {
+            console.log('[WebSocket] Message:', data);
+          }
+        } catch {
+          console.log('[WebSocket] Message:', event.data);
+        }
+      };
+      ws.onerror = () => {
+        if (!closed) console.error('WebSocket error');
+      };
+      ws.onclose = (event) => {
+        if (ws === currentWs && pingInterval) {
+          clearInterval(pingInterval);
+          pingInterval = null;
+        }
+        if (closed) return;
+        if (event.code === 4001) {
+          console.log('Not authenticated – please log in');
+          return;
+        }
+        if (event.code === 1006 && retryCount < maxRetries) {
+          retryCount++;
+          reconnectTimeout = setTimeout(connect, getDelay());
+        } else {
+          console.log('WebSocket closed:', event.code, event.reason);
+        }
+      };
+    };
+
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (pingInterval) clearInterval(pingInterval);
+      if (currentWs) currentWs.close();
+    };
+  }, [currentUser]);
+
   // Restore authenticated session & last active tab on page refresh
   useEffect(() => {
     if (typeof window === 'undefined') return;

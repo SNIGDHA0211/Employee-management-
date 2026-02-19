@@ -69,24 +69,24 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
   const isDatePast = format(date, 'yyyy-MM-dd') < format(new Date(), 'yyyy-MM-dd');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-300">
-        <div className="bg-gradient-to-br from-[#6366f1] to-[#a855f7] p-10 flex justify-between items-start shrink-0">
-          <div>
-            <h2 className="text-3xl font-black text-white tracking-tight">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-2 sm:p-4">
+      <div className="bg-white rounded-2xl sm:rounded-[2.5rem] shadow-2xl w-full max-w-2xl h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-300">
+        <div className="bg-gradient-to-br from-[#6366f1] to-[#a855f7] p-4 sm:p-10 flex justify-between items-start shrink-0">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg sm:text-3xl font-black text-white tracking-tight">
               {format(date, 'EEEE, MMMM do')}
             </h2>
-            <div className="mt-2 inline-flex items-center px-3 py-1 bg-white/15 rounded-lg backdrop-blur-md border border-white/10">
-              <span className="text-white/90 text-[11px] font-black uppercase tracking-[0.15em]">
+            <div className="mt-1.5 sm:mt-2 inline-flex items-center px-2 sm:px-3 py-1 bg-white/15 rounded-lg backdrop-blur-md border border-white/10">
+              <span className="text-white/90 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.1em] sm:tracking-[0.15em]">
                 Office Hours: 09:00 - 18:00
               </span>
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2 sm:gap-3 flex-shrink-0">
             <button
               onClick={isDatePast ? undefined : onNewBooking}
               disabled={isDatePast}
-              className={`w-12 h-12 flex items-center justify-center rounded-2xl transition-all shadow-lg active:scale-95 ${isDatePast ? 'bg-white/10 text-white/50 cursor-not-allowed' : 'bg-white/20 hover:bg-white/30 text-white'}`}
+              className={`w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-xl sm:rounded-2xl transition-all shadow-lg active:scale-95 ${isDatePast ? 'bg-white/10 text-white/50 cursor-not-allowed' : 'bg-white/20 hover:bg-white/30 text-white'}`}
             >
               <svg
                 className="w-6 h-6"
@@ -104,7 +104,7 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
             </button>
             <button
               onClick={onClose}
-              className="bg-white/10 hover:bg-white/20 text-white w-12 h-12 flex items-center justify-center rounded-2xl transition-all shadow-lg active:scale-95"
+              className="bg-white/10 hover:bg-white/20 text-white w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-xl sm:rounded-2xl transition-all shadow-lg active:scale-95"
             >
               <svg
                 className="w-6 h-6"
@@ -123,8 +123,8 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-10 custom-scrollbar bg-white">
-          <div className="relative border-l-2 border-slate-100 ml-16">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-10 custom-scrollbar bg-white">
+          <div className="relative border-l-2 border-slate-100 ml-12 sm:ml-16">
             {hours.map((hour) => {
               const hourMeetings = getMeetingsForHour(hour);
               const availableHalls = getAvailableHallsForHour(hour);
@@ -132,74 +132,74 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
               const isPartiallyOccupied = hourMeetings.length > 0;
 
               return (
-                <div key={hour} className="relative pl-12 pb-12 group last:pb-4">
+                <div key={hour} className="relative pl-8 sm:pl-12 pb-8 sm:pb-12 group last:pb-4">
                   <div
-                    className={`absolute -left-[5.5rem] top-0 text-xs font-black transition-colors ${isPartiallyOccupied ? 'text-indigo-600' : 'text-slate-400'}`}
+                    className={`absolute -left-[4rem] sm:-left-[5.5rem] top-0 text-[10px] sm:text-xs font-black transition-colors ${isPartiallyOccupied ? 'text-indigo-600' : 'text-slate-400'}`}
                   >
                     {formattedHour}
                   </div>
 
                   <div
-                    className={`absolute -left-[0.72rem] top-0.5 w-5.5 h-5.5 rounded-full border-[5px] border-white shadow-lg transition-all ring-2 ${isPartiallyOccupied ? 'ring-indigo-500 bg-indigo-500 scale-110' : 'ring-slate-100 bg-slate-50'}`}
+                    className={`absolute -left-[0.72rem] top-0.5 w-4 h-4 sm:w-5.5 sm:h-5.5 rounded-full border-[3px] sm:border-[5px] border-white shadow-lg transition-all ring-2 ${isPartiallyOccupied ? 'ring-indigo-500 bg-indigo-500 scale-110' : 'ring-slate-100 bg-slate-50'}`}
                   ></div>
 
-                  <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-3 sm:gap-4">
                     {hourMeetings.map((m) => {
                       const isDone = m.status === MeetingStatus.DONE;
                       return (
                         <div
                           key={m.id}
-                          className={`relative p-8 rounded-[2rem] shadow-[0_15px_40px_-15px_rgba(0,0,0,0.1)] border-l-[8px] transition-all animate-in slide-in-from-bottom-4 duration-500 ${isDone ? 'bg-emerald-50/40 border-emerald-500' : 'bg-white border-indigo-600'}`}
+                          className={`relative p-4 sm:p-8 rounded-xl sm:rounded-[2rem] shadow-[0_15px_40px_-15px_rgba(0,0,0,0.1)] border-l-4 sm:border-l-[8px] transition-all animate-in slide-in-from-bottom-4 duration-500 ${isDone ? 'bg-emerald-50/40 border-emerald-500' : 'bg-white border-indigo-600'}`}
                         >
-                          <div className="flex justify-between items-start mb-4">
+                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-3 sm:mb-4">
                             <span
-                              className={`px-4 py-1.5 rounded-full text-[11px] font-black tracking-wider ${isDone ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-50 text-indigo-600'}`}
+                              className={`px-3 sm:px-4 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-[11px] font-black tracking-wider w-fit ${isDone ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-50 text-indigo-600'}`}
                             >
                               {m.startTime} - {m.endTime}
                             </span>
                             <div className="flex items-center gap-2">
                               <span
-                                className={`w-2 h-2 rounded-full ${isDone ? 'bg-emerald-500' : 'bg-indigo-400'}`}
+                                className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full flex-shrink-0 ${isDone ? 'bg-emerald-500' : 'bg-indigo-400'}`}
                               ></span>
-                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                              <span className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest truncate">
                                 {m.hallName}
                               </span>
                             </div>
                           </div>
 
                           <h4
-                            className={`text-xl font-black text-slate-800 leading-tight ${m.description ? 'mb-2' : 'mb-6'} ${isDone ? 'opacity-30' : ''}`}
+                            className={`text-base sm:text-xl font-black text-slate-800 leading-tight ${m.description ? 'mb-1.5 sm:mb-2' : 'mb-4 sm:mb-6'} ${isDone ? 'opacity-30' : ''}`}
                           >
                             {m.title}
                           </h4>
                           {m.description && (
-                            <p className={`text-sm text-slate-600 leading-relaxed mb-6 ${isDone ? 'opacity-30' : ''}`}>
+                            <p className={`text-xs sm:text-sm text-slate-600 leading-relaxed mb-4 sm:mb-6 ${isDone ? 'opacity-30' : ''}`}>
                               {m.description}
                             </p>
                           )}
 
-                          <div className="flex flex-wrap gap-2 mb-6">
+                          <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-4 sm:mb-6">
                             {isCreator(m, currentUser) && !isDone && (
                               <>
                                 <button
                                   onClick={() =>
                                     onMeetingStatusUpdate(m.id, MeetingStatus.DONE)
                                   }
-                                  className="px-6 py-2.5 bg-[#10b981] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
+                                  className="px-4 sm:px-6 py-2 sm:py-2.5 bg-[#10b981] text-white rounded-lg sm:rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
                                 >
                                   Done
                                 </button>
                                 {onEditMeeting && (
                                   <button
                                     onClick={() => onEditMeeting(m)}
-                                    className="px-6 py-2.5 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
+                                    className="px-4 sm:px-6 py-2 sm:py-2.5 bg-amber-500 text-white rounded-lg sm:rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
                                   >
                                     Edit
                                   </button>
                                 )}
                                 <button
                                   onClick={() => onCancelMeeting(m.id)}
-                                  className="px-6 py-2.5 bg-[#ef4444] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
+                                  className="px-4 sm:px-6 py-2 sm:py-2.5 bg-[#ef4444] text-white rounded-lg sm:rounded-xl text-[10px] font-black uppercase tracking-[0.1em] hover:brightness-110 transition-all shadow-md active:scale-95"
                                 >
                                   Cancel
                                 </button>
@@ -207,17 +207,17 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
                             )}
                           </div>
 
-                          <div className="pt-5 border-t border-slate-50 space-y-4">
+                          <div className="pt-4 sm:pt-5 border-t border-slate-50 space-y-3 sm:space-y-4">
                             {m.attendees?.length > 0 && (
-                              <div>
-                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                              <div className="min-w-0">
+                                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5 sm:mb-2">
                                   Participants
                                 </span>
-                                <div className="flex flex-wrap gap-2">
+                                <div className="flex flex-wrap gap-1.5 sm:gap-2">
                                   {m.attendees.map((aid) => (
                                     <span
                                       key={aid}
-                                      className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-semibold"
+                                      className="inline-block px-2 sm:px-3 py-1 sm:py-1.5 bg-indigo-50 text-indigo-700 rounded-md sm:rounded-lg text-[10px] sm:text-xs font-semibold max-w-[140px] sm:max-w-none truncate sm:overflow-visible sm:whitespace-normal"
                                     >
                                       {getAttendeeName(m, aid)}
                                     </span>
@@ -225,15 +225,15 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
                                 </div>
                               </div>
                             )}
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-indigo-600 border-2 border-white shadow-sm flex items-center justify-center text-[12px] font-black text-white shrink-0">
+                            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-indigo-600 border-2 border-white shadow-sm flex items-center justify-center text-[10px] sm:text-[12px] font-black text-white shrink-0">
                                 {(m.createdByName || (m.attendees[0] && getAttendeeName(m, m.attendees[0])) || '?').charAt(0)}
                               </div>
-                              <div className="flex flex-col">
-                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                              <div className="flex flex-col min-w-0 overflow-hidden">
+                                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                                   Booked by
                                 </span>
-                                <span className="text-[12px] font-black text-slate-700 uppercase">
+                                <span className="text-[11px] sm:text-[12px] font-black text-slate-700 uppercase truncate">
                                   {m.createdByName || (m.attendees[0] ? getAttendeeName(m, m.attendees[0]) : 'Unknown')}
                                 </span>
                               </div>
@@ -246,11 +246,11 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
                     {availableHalls.length > 0 && (
                       <div
                         onClick={isDatePast ? undefined : onNewBooking}
-                        className={`w-full text-left p-6 rounded-[2rem] border-2 border-dashed transition-all group ${isDatePast ? 'bg-slate-50/30 border-slate-100 cursor-not-allowed opacity-60' : 'bg-slate-50/50 border-slate-200 hover:bg-slate-50 hover:border-indigo-200 cursor-pointer'}`}
+                        className={`w-full text-left p-4 sm:p-6 rounded-xl sm:rounded-[2rem] border-2 border-dashed transition-all group ${isDatePast ? 'bg-slate-50/30 border-slate-100 cursor-not-allowed opacity-60' : 'bg-slate-50/50 border-slate-200 hover:bg-slate-50 hover:border-indigo-200 cursor-pointer'}`}
                       >
-                        <span className={`text-[11px] font-black uppercase tracking-[0.2em] flex items-center gap-3 transition-colors ${isDatePast ? 'text-slate-300' : 'text-slate-400 group-hover:text-indigo-400'}`}>
+                        <span className={`text-[10px] sm:text-[11px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] flex items-center gap-2 sm:gap-3 transition-colors ${isDatePast ? 'text-slate-300' : 'text-slate-400 group-hover:text-indigo-400'}`}>
                           <svg
-                            className="w-4 h-4"
+                            className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0"
                             fill="none"
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -262,7 +262,7 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
                               d="M12 6v6m0 0v6m0-6h6m-6 0H6"
                             />
                           </svg>
-                          {isDatePast ? 'Past date – booking disabled' : 'This slot of meeting is available'}
+                          <span className="truncate">{isDatePast ? 'Past date – booking disabled' : 'This slot of meeting is available'}</span>
                         </span>
                       </div>
                     )}
@@ -273,22 +273,22 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
           </div>
         </div>
 
-        <div className="p-8 bg-white border-t flex justify-center gap-10 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-3.5 h-3.5 rounded-full bg-[#6366f1] shadow-[0_0_10px_rgba(99,102,241,0.4)]"></div>
-            <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
+        <div className="p-4 sm:p-8 bg-white border-t flex flex-wrap justify-center gap-4 sm:gap-10 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 rounded-full bg-[#6366f1] shadow-[0_0_10px_rgba(99,102,241,0.4)]"></div>
+            <span className="text-[10px] sm:text-[11px] font-black text-slate-500 uppercase tracking-widest">
               Booked
             </span>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="w-3.5 h-3.5 rounded-full bg-slate-200"></div>
-            <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 rounded-full bg-slate-200"></div>
+            <span className="text-[10px] sm:text-[11px] font-black text-slate-500 uppercase tracking-widest">
               Available
             </span>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="w-3.5 h-3.5 rounded-full bg-[#10b981] shadow-[0_0_10px_rgba(16,185,129,0.4)]"></div>
-            <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 rounded-full bg-[#10b981] shadow-[0_0_10px_rgba(16,185,129,0.4)]"></div>
+            <span className="text-[10px] sm:text-[11px] font-black text-slate-500 uppercase tracking-widest">
               Completed
             </span>
           </div>

@@ -11,6 +11,7 @@ import {
 // Production backend URL
 const PRODUCTION_BACKEND_URL = 'https://employee-management-system-tmrl.onrender.com';
 //https://employee-management-system-tmrl.onrender.com
+//192.168.42.111:8000
 // Use proxy in development to bypass CORS, direct URL in production
 const isDevelopment = typeof window !== 'undefined' && 
   (window.location.hostname === 'localhost' || 
@@ -2603,7 +2604,7 @@ export const showCreatedGroups = async (): Promise<
  * @returns Array of participant objects with participant_name field
  */
 export const showGroupMembers = async (
-  groupId: number
+  groupId: number | string
 ): Promise<Array<{ participant_name: string }>> => {
   try {
     const response = await api.get(`/messaging/showGroupMembers/${groupId}/`);
@@ -2977,7 +2978,7 @@ export const loadChats = async (): Promise<{
  * @returns Response with success message
  */
 export const addUserToGroup = async (
-  groupId: number,
+  groupId: number | string,
   employeeId: string
 ): Promise<{ Message: string }> => {
   try {const response = await api.post(`/messaging/addUser/${groupId}/`, {
@@ -3028,10 +3029,14 @@ export const addUserToGroup = async (
  * @returns Response with success message or error message
  */
 export const deleteUserFromGroup = async (
-  groupId: number,
+  groupId: number | string,
   userId: string
 ): Promise<{ Message: string }> => {
-  try {const response = await api.delete(`/messaging/deleteUser/${groupId}/${userId}/`);return response.data;
+  const uid = String(userId || '').trim();
+  if (groupId == null || groupId === '' || !uid) {
+    throw new Error('Invalid group ID or user ID');
+  }
+  try {const response = await api.delete(`/messaging/deleteUser/${groupId}/${uid}/`);return response.data;
   } catch (error: any) {
     console.error("❌ [DELETE USER FROM GROUP API] Exception:", error);
     console.error("❌ [DELETE USER FROM GROUP API] Error Response:", error.response?.data);
@@ -3097,7 +3102,7 @@ export const deleteUserFromGroup = async (
  * @returns Response with success message
  */
 export const deleteGroup = async (
-  groupId: number
+  groupId: number | string
 ): Promise<{ message: string }> => {
   try {const response = await api.delete(`/messaging/deleteGroup/${groupId}/`);return response.data;
   } catch (error: any) {

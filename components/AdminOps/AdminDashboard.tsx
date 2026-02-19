@@ -29,6 +29,13 @@ const AdminDashboard: React.FC<DashboardProps> = ({
   expenses,
   vendors,
 }) => {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 640);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+
   const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
   const expenseChartData = useMemo(() => {
@@ -96,59 +103,53 @@ const AdminDashboard: React.FC<DashboardProps> = ({
   );
 
   return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
-          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
-<span className="text-2xl font-bold">
-  {assets.length}
-</span>
+    <div className="space-y-4 md:space-y-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+        <div className="bg-white p-3 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-2 sm:space-x-4">
+          <div className="p-2 sm:p-3 bg-indigo-50 text-indigo-600 rounded-lg sm:rounded-xl shrink-0">
+            <span className="text-lg sm:text-2xl font-bold">{assets.length}</span>
           </div>
-          <div>
-            <p className="text-sm text-gray-500 font-medium">Total Assets</p>
-            <p className="text-lg font-bold">In System</p>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm text-gray-500 font-medium truncate">Total Assets</p>
+            <p className="text-sm sm:text-lg font-bold truncate">In System</p>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
-          <div className="p-3 bg-green-50 text-green-600 rounded-xl">
-            <span className="text-2xl font-bold">{bills.length}</span>
+        <div className="bg-white p-3 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-2 sm:space-x-4">
+          <div className="p-2 sm:p-3 bg-green-50 text-green-600 rounded-lg sm:rounded-xl shrink-0">
+            <span className="text-lg sm:text-2xl font-bold">{bills.length}</span>
           </div>
-          <div>
-            <p className="text-sm text-gray-500 font-medium">Active Bills</p>
-            <p className="text-lg font-bold">This Month</p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
-          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-            <span className="text-2xl font-bold">{vendors.length}</span>
-          </div>
-          <div>
-            <p className="text-sm text-gray-500 font-medium">
-              Verified Vendors
-            </p>
-            <p className="text-lg font-bold">Partners</p>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm text-gray-500 font-medium truncate">Active Bills</p>
+            <p className="text-sm sm:text-lg font-bold truncate">This Month</p>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
-          <div className="p-3 bg-red-50 text-red-600 rounded-xl">
-            <span className="text-2xl font-bold">
-            ₹{totalExpense.toLocaleString()}
-            </span>
+        <div className="bg-white p-3 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-2 sm:space-x-4">
+          <div className="p-2 sm:p-3 bg-blue-50 text-blue-600 rounded-lg sm:rounded-xl shrink-0">
+            <span className="text-lg sm:text-2xl font-bold">{vendors.length}</span>
           </div>
-          <div>
-            <p className="text-sm text-gray-500 font-medium">Total Expenses</p>
-            <p className="text-lg font-bold">YTD Spend</p>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm text-gray-500 font-medium truncate">Verified Vendors</p>
+            <p className="text-sm sm:text-lg font-bold truncate">Partners</p>
+          </div>
+        </div>
+        <div className="bg-white p-3 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-2 sm:space-x-4">
+          <div className="p-2 sm:p-3 bg-red-50 text-red-600 rounded-lg sm:rounded-xl shrink-0">
+            <span className="text-base sm:text-2xl font-bold truncate">₹{totalExpense.toLocaleString()}</span>
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm text-gray-500 font-medium truncate">Total Expenses</p>
+            <p className="text-sm sm:text-lg font-bold truncate">YTD Spend</p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold mb-6 text-gray-800">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-8">
+        <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <h3 className="text-base sm:text-lg font-bold mb-4 sm:mb-6 text-gray-800">
             Expense Trend (Monthly Comparison)
           </h3>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height={320}>
+          <div className="h-56 sm:h-80">
+            <ResponsiveContainer width="100%" height="100%">
               <LineChart data={expenseChartData}>
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -190,9 +191,9 @@ const AdminDashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-gray-800">Bills Analysis</h3>
+        <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 sm:mb-6">
+            <h3 className="text-base sm:text-lg font-bold text-gray-800">Bills Analysis</h3>
             <div className="flex space-x-2">
               <button className="px-3 py-1 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-full">
                 Monthly
@@ -202,8 +203,8 @@ const AdminDashboard: React.FC<DashboardProps> = ({
               </button>
             </div>
           </div>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height={320}>
+          <div className="h-56 sm:h-80">
+            <ResponsiveContainer width="100%" height="100%">
               <BarChart data={billsData}>
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -246,20 +247,20 @@ const AdminDashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold mb-4 text-gray-800">
+        <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <h3 className="text-base sm:text-lg font-bold mb-4 text-gray-800">
             Asset Distribution
           </h3>
-          <div className="flex flex-row items-center gap-1">
-            <div className="h-80 flex-1 min-w-0">
-              <ResponsiveContainer width="100%" height={320}>
+          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-1">
+            <div className="h-48 sm:h-80 w-full sm:flex-1 min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={donutData}
                     cx="50%"
                     cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
+                    innerRadius={isMobile ? 35 : 60}
+                    outerRadius={isMobile ? 65 : 100}
                     paddingAngle={5}
                     dataKey="value"
                   >
@@ -275,7 +276,7 @@ const AdminDashboard: React.FC<DashboardProps> = ({
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="flex flex-col gap-2 text-sm font-medium shrink-0 border-l border-gray-200 pl-2 pr-20">
+            <div className="flex flex-row sm:flex-col flex-wrap gap-x-4 gap-y-2 text-sm font-medium shrink-0 sm:border-l border-gray-200 sm:pl-2 sm:pr-20">
               <span className="text-gray-700">Total: {assetStatusCounts.total}</span>
               <span className="text-amber-600">Pending: {assetStatusCounts.pending}</span>
               <span className="text-blue-600">In process: {assetStatusCounts.inprocess}</span>
@@ -284,26 +285,26 @@ const AdminDashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold mb-4 text-gray-800">
+        <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-gray-100">
+          <h3 className="text-base sm:text-lg font-bold mb-4 text-gray-800">
             Vendor Overview
           </h3>
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             {vendors.slice(0, 4).map((v) => (
               <div
                 key={v.id}
-                className="flex items-center justify-between p-3 bg-gray-50 rounded-xl"
+                className="flex items-center justify-between p-2 sm:p-3 bg-gray-50 rounded-lg sm:rounded-xl gap-2"
               >
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold">
+                <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-sm shrink-0">
                     {v.name.charAt(0)}
                   </div>
-                  <div>
-                    <p className="font-semibold text-sm">{v.name}</p>
-                    <p className="text-xs text-gray-500">{v.email}</p>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-xs sm:text-sm truncate">{v.name}</p>
+                    <p className="text-xs text-gray-500 truncate">{v.email}</p>
                   </div>
                 </div>
-                <span className="text-xs font-bold text-gray-400">
+                <span className="text-xs font-bold text-gray-400 shrink-0 hidden sm:inline">
                   # {v.gstNumber}
                 </span>
               </div>
