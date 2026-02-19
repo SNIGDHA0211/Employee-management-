@@ -43,6 +43,7 @@ import { useEmployeesQuery, useEmployeesInvalidate } from './hooks/useEmployees'
 import { useBranchesQuery } from './hooks/useBranches';
 import { useMeetingPushQuery, useMeetingPushInvalidate } from './hooks/useMeetingPush';
 import { useTasksQuery, usePrefetchTasks } from './hooks/useTasks';
+import { requestPermission, handleIncomingNotification } from './services/notification.service';
 
 // Helper function to convert Photo_link to absolute URL with /media/ prefix for Django
 const convertPhotoLinkToUrl = (photoLink: string | null | undefined): string => {
@@ -648,6 +649,8 @@ export default function App() {
   const currentUserRef = useRef<User | null>(null);
   currentUserRef.current = currentUser;
   const [notificationMeetings, setNotificationMeetings] = useState<any[]>([]);
+  const [toastNotification, setToastNotification] = useState<{ title: string; message: string } | null>(null);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [allowedNMRHICategories, setAllowedNMRHICategories] = useState<string[]>([]);
   const [meetRooms, setMeetRooms] = useState<Array<{ id: number; name: string }>>([]);
   const [meetEmployees, setMeetEmployees] = useState<Array<{ id: string; name: string }>>([]);
@@ -670,13 +673,22 @@ export default function App() {
   // WebSocket notifications - connect after login
   useEffect(() => {
     if (!currentUser) return;
+
+    // Request notification permission (triggered by login; required for desktop notifications)
+    requestPermission().then((perm) => {
+      if (perm === 'denied') {
+        console.info('[Notifications] Permission denied – desktop notifications disabled');
+      }
+    });
+
     let closed = false;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
     let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
     const maxRetries = 5;
-    const getDelay = () => Math.min(1000 * 2 ** retryCount, 30000);
+    const getDelay = () => Math.min(3000 * 2 ** retryCount, 30000); // 3s, 6s, 12s, 24s, 30s
     let currentWs: WebSocket | null = null;
+    let hasLoggedGiveUp = false;
 
     const connect = () => {
       const isDev = typeof window !== 'undefined' && (
@@ -694,6 +706,7 @@ export default function App() {
       currentWs = ws;
       ws.onopen = () => {
         retryCount = 0;
+        hasLoggedGiveUp = false;
         console.log('WebSocket connected (session auth)');
         pingInterval = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
@@ -704,19 +717,27 @@ export default function App() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === 'notification') {
-            console.log('Notification:', data.title, data.message);
-          } else if (data.type === 'pong') {
-            console.log('Pong');
-          } else {
-            console.log('[WebSocket] Message:', data);
+          if (data.type === 'pong') return;
+          if (data.type === 'notification' || data.type === 'send_notification') {
+            const payload = {
+              type: data.type,
+              title: data.title ?? data.data?.title ?? 'Notification',
+              message: data.message ?? data.data?.message ?? '',
+              extra: data.extra ?? data.data?.extra,
+            };
+            handleIncomingNotification(payload);
+            setToastNotification({ title: payload.title, message: payload.message });
           }
+          console.log('[WebSocket] Message:', data);
         } catch {
           console.log('[WebSocket] Message:', event.data);
         }
       };
       ws.onerror = () => {
-        if (!closed) console.error('WebSocket error');
+        if (!closed && retryCount >= maxRetries && !hasLoggedGiveUp) {
+          hasLoggedGiveUp = true;
+          console.warn('WebSocket unavailable – notifications disabled. Ensure backend is running and reachable.');
+        }
       };
       ws.onclose = (event) => {
         if (ws === currentWs && pingInterval) {
@@ -731,8 +752,9 @@ export default function App() {
         if (event.code === 1006 && retryCount < maxRetries) {
           retryCount++;
           reconnectTimeout = setTimeout(connect, getDelay());
-        } else {
-          console.log('WebSocket closed:', event.code, event.reason);
+        } else if (!hasLoggedGiveUp) {
+          hasLoggedGiveUp = true;
+          console.warn('WebSocket unavailable – notifications disabled. Ensure backend is running and reachable.');
         }
       };
     };
@@ -745,6 +767,19 @@ export default function App() {
       if (currentWs) currentWs.close();
     };
   }, [currentUser]);
+
+  // Auto-dismiss toast notification
+  useEffect(() => {
+    if (!toastNotification) return;
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastNotification(null);
+      toastTimeoutRef.current = null;
+    }, 5000);
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    };
+  }, [toastNotification]);
 
   // Restore authenticated session & last active tab on page refresh
   useEffect(() => {
@@ -1753,6 +1788,34 @@ export default function App() {
           {renderContent()}
         </main>
       </div>
+
+      {/* In-app toast notification */}
+      {toastNotification && (
+        <div
+          className="fixed top-4 right-4 z-[9999] max-w-sm bg-white rounded-lg shadow-lg border border-gray-200 p-4"
+          role="alert"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-gray-900">{toastNotification.title}</p>
+              <p className="mt-1 text-sm text-gray-600 line-clamp-3">{toastNotification.message}</p>
+            </div>
+            <button
+              onClick={() => {
+                setToastNotification(null);
+                if (toastTimeoutRef.current) {
+                  clearTimeout(toastTimeoutRef.current);
+                  toastTimeoutRef.current = null;
+                }
+              }}
+              className="text-gray-400 hover:text-gray-600 p-1 -m-1"
+              aria-label="Dismiss"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Meet Card - from header Meet button */}
       {showMeetCard && currentUser && (
