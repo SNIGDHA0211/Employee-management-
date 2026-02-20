@@ -7,7 +7,11 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 60 * 1000, // 1 min - reduce refetches
-      retry: 1,
+      retry: (failureCount, error) => {
+        const status = (error as any)?.response?.status;
+        if (status && status >= 500) return false; // Don't retry server errors - reduces load on failing backend
+        return failureCount < 1; // Retry once for network/other errors
+      },
       refetchOnWindowFocus: false,
     },
   },

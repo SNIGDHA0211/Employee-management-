@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, UserRole, formatRoleForDisplay } from '../types';
 import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart } from 'lucide-react';
 import { getMotivationalQuote } from '../services/gemini';
+import { getPermission, requestPermission, isNotificationSupported } from '../utils/browserNotifications';
 
 const formatBookingTime = (val: string): string => {
   if (!val) return '';
@@ -250,7 +251,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
 export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number; notificationMeetings?: any[] }> = ({ user, users = [], toggleSidebar, onMeetClick, notificationMeetings = [] }) => {
   const [quote, setQuote] = useState("Loading thought...");
   const [showMeetingDropdown, setShowMeetingDropdown] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | null>(null);
   const meetings = notificationMeetings ?? [];
+
+  useEffect(() => {
+    if (isNotificationSupported()) setNotifPermission(getPermission());
+  }, []);
 
   const toggleMeetingDropdown = () => setShowMeetingDropdown((prev) => !prev);
 
@@ -314,6 +320,16 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
         </div>
       </div>
       <div className="flex items-center space-x-4">
+        {notifPermission === 'default' && (
+          <button
+            type="button"
+            onClick={() => requestPermission().then((p) => setNotifPermission(p))}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand-600 bg-brand-50 rounded-lg hover:bg-brand-100 transition-colors"
+          >
+            <Bell size={14} />
+            <span>Enable notifications</span>
+          </button>
+        )}
         {user.role === UserRole.MD && onMeetClick && (
           <button
             type="button"

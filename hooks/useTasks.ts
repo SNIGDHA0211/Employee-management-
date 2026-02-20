@@ -29,7 +29,7 @@ export function useTasksQuery(
     queryKey,
     queryFn: () => tasksQueryFn(viewMode, !!isMD),
     enabled: enabled && !!currentUser?.id,
-    staleTime: 30 * 1000, // 30 sec
+    staleTime: 60 * 1000, // 1 min; invalidateTasks() on mutations keeps data fresh
     gcTime: 2 * 60 * 1000,
   });
 }

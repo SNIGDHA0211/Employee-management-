@@ -14,6 +14,7 @@ import api, {
 } from './services/api';
 import { getNMRHIAllowedCategories } from './components/NMRHI/constants';
 import { convertApiTasksToTasks } from './utils/taskConversion';
+import { requestPermission, handleWebSocketNotification, parseNotificationPayload, playNotificationSound } from './utils/browserNotifications';
 import { clearAuthData } from './services/utils/auth';
 import { Sidebar, Header } from './components/Layout';
 import { MeetCard } from './components/MeetCard';
@@ -34,7 +35,7 @@ import AssetManager from './components/AdminOps/AssetManager';
 import VendorManager from './components/AdminOps/VendorManager';
 import ExpenseManager from './components/AdminOps/ExpenseManager';
 import BillsManager from './components/AdminOps/BillsManager';
-import { Users, Briefcase, CheckSquare, AlertTriangle, ShieldCheck, Activity, Lock, User as UserIcon, ArrowRight, Clock, CheckCircle2, XCircle, Leaf, Building2, Cpu, Database, Fingerprint, X, Mail, Calendar, Briefcase as BriefcaseIcon, Eye, EyeOff, Shield, Download } from 'lucide-react';
+import { Users, Briefcase, CheckSquare, AlertTriangle, ShieldCheck, Activity, Lock, User as UserIcon, ArrowRight, Clock, CheckCircle2, XCircle, Leaf, Building2, Cpu, Database, Fingerprint, X, Mail, Calendar, Briefcase as BriefcaseIcon, Eye, EyeOff, Shield, Download, Bell } from 'lucide-react';
 import { Asset, Bill, Expense, Vendor } from './types';
 import { getBills } from './services/bill.service';
 import { getExpenses } from './services/expense.service';
@@ -43,7 +44,6 @@ import { useEmployeesQuery, useEmployeesInvalidate } from './hooks/useEmployees'
 import { useBranchesQuery } from './hooks/useBranches';
 import { useMeetingPushQuery, useMeetingPushInvalidate } from './hooks/useMeetingPush';
 import { useTasksQuery, usePrefetchTasks } from './hooks/useTasks';
-import { requestPermission, handleIncomingNotification } from './services/notification.service';
 
 // Helper function to convert Photo_link to absolute URL with /media/ prefix for Django
 const convertPhotoLinkToUrl = (photoLink: string | null | undefined): string => {
@@ -90,6 +90,37 @@ const convertPhotoLinkToUrl = (photoLink: string | null | undefined): string => 
   }
 };
 
+const ToastNotification: React.FC<{
+  id: string;
+  title: string;
+  message: string;
+  extra?: { time?: string };
+  onDismiss: () => void;
+}> = ({ title, message, extra, onDismiss }) => {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 7000);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+  return (
+    <div
+      className="bg-white rounded-xl shadow-lg border border-gray-200 p-4 flex items-start gap-3"
+      role="alert"
+    >
+      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center">
+        <Bell size={20} className="text-brand-600" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-gray-900 text-sm">{title}</p>
+        <p className="text-gray-600 text-sm mt-0.5">{message}</p>
+        {extra?.time && <p className="text-xs text-gray-500 mt-1">{extra.time}</p>}
+      </div>
+      <button onClick={onDismiss} className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600 rounded" aria-label="Dismiss">
+        <X size={18} />
+      </button>
+    </div>
+  );
+};
+
 const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -105,7 +136,9 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    // Request notification permission immediately (must be in user gesture - before any await)
+    requestPermission().catch(() => {});
+
     if (!username || !password) {
       setError('Credentials required');
       return;
@@ -649,8 +682,7 @@ export default function App() {
   const currentUserRef = useRef<User | null>(null);
   currentUserRef.current = currentUser;
   const [notificationMeetings, setNotificationMeetings] = useState<any[]>([]);
-  const [toastNotification, setToastNotification] = useState<{ title: string; message: string } | null>(null);
-  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [toastNotifications, setToastNotifications] = useState<Array<{ id: string; title: string; message: string; extra?: { time?: string } }>>([]);
   const [allowedNMRHICategories, setAllowedNMRHICategories] = useState<string[]>([]);
   const [meetRooms, setMeetRooms] = useState<Array<{ id: number; name: string }>>([]);
   const [meetEmployees, setMeetEmployees] = useState<Array<{ id: string; name: string }>>([]);
@@ -673,19 +705,11 @@ export default function App() {
   // WebSocket notifications - connect after login
   useEffect(() => {
     if (!currentUser) return;
-
-    // Request notification permission (triggered by login; required for desktop notifications)
-    requestPermission().then((perm) => {
-      if (perm === 'denied') {
-        console.info('[Notifications] Permission denied – desktop notifications disabled');
-      }
-    });
-
     let closed = false;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
     let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
-    const maxRetries = 5;
+    const maxRetries = 3;
     const getDelay = () => Math.min(3000 * 2 ** retryCount, 30000); // 3s, 6s, 12s, 24s, 30s
     let currentWs: WebSocket | null = null;
     let hasLoggedGiveUp = false;
@@ -708,6 +732,7 @@ export default function App() {
         retryCount = 0;
         hasLoggedGiveUp = false;
         console.log('WebSocket connected (session auth)');
+        requestPermission().catch(() => {}); // Request desktop notification permission
         pingInterval = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'ping' }));
@@ -717,20 +742,19 @@ export default function App() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log('[WebSocket] Response:', data);
           if (data.type === 'pong') return;
-          if (data.type === 'notification' || data.type === 'send_notification') {
-            const payload = {
-              type: data.type,
-              title: data.title ?? data.data?.title ?? 'Notification',
-              message: data.message ?? data.data?.message ?? '',
-              extra: data.extra ?? data.data?.extra,
-            };
-            handleIncomingNotification(payload);
-            setToastNotification({ title: payload.title, message: payload.message });
+          const payload = parseNotificationPayload(data);
+          if (payload) {
+            playNotificationSound();
+            handleWebSocketNotification(data); // Desktop notification (when permission granted)
+            setToastNotifications((prev) => {
+              const next = [...prev, { id: String(Date.now()), title: payload.title, message: payload.message, extra: payload.extra as { time?: string } }];
+              return next.slice(-5); // Keep last 5
+            });
           }
-          console.log('[WebSocket] Message:', data);
         } catch {
-          console.log('[WebSocket] Message:', event.data);
+          console.log('[WebSocket] Response (raw):', event.data);
         }
       };
       ws.onerror = () => {
@@ -767,19 +791,6 @@ export default function App() {
       if (currentWs) currentWs.close();
     };
   }, [currentUser]);
-
-  // Auto-dismiss toast notification
-  useEffect(() => {
-    if (!toastNotification) return;
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    toastTimeoutRef.current = setTimeout(() => {
-      setToastNotification(null);
-      toastTimeoutRef.current = null;
-    }, 5000);
-    return () => {
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    };
-  }, [toastNotification]);
 
   // Restore authenticated session & last active tab on page refresh
   useEffect(() => {
@@ -878,13 +889,13 @@ export default function App() {
     }
   }, [currentUser?.id]); // Only run when user ID changes (after login)
 
-  // Load meeting rooms for Meet card after login (employees come from shared users)
+  // Load meeting rooms only when Meet card is opened (lazy-load to reduce login-time API calls)
   useEffect(() => {
-    if (!currentUser?.id) return;
+    if (!currentUser?.id || !showMeetCard) return;
     getRooms()
       .then((roomsList) => setMeetRooms(roomsList || []))
       .catch(() => setMeetRooms([]));
-  }, [currentUser?.id]);
+  }, [currentUser?.id, showMeetCard]);
 
   // Meeting push - single source via React Query (no duplicate fetch from Layout)
   const { data: meetingPushData } = useMeetingPushQuery(!!currentUser?.id);
@@ -1212,13 +1223,19 @@ export default function App() {
     invalidateEmployees(); // Refetch to sync with server
   }, [invalidateEmployees]);
 
-  // Prefetch tasks on hover - uses React Query cache, TaskBoard will use same cache
+  // Prefetch tasks on hover (debounced) - reduces API load from rapid hovers
   const prefetchTasksFn = usePrefetchTasks();
+  const prefetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (prefetchDebounceRef.current) clearTimeout(prefetchDebounceRef.current); }, []);
   const prefetchTasks = useCallback(() => {
     if (!currentUser?.id || activeTab === 'assignTask' || activeTab === 'reportingTask') return;
-    const isMD = currentUser.role === UserRole.MD;
-    prefetchTasksFn('assign', isMD);
-    prefetchTasksFn('reporting', isMD);
+    if (prefetchDebounceRef.current) clearTimeout(prefetchDebounceRef.current);
+    prefetchDebounceRef.current = setTimeout(() => {
+      prefetchDebounceRef.current = null;
+      const isMD = currentUser.role === UserRole.MD;
+      prefetchTasksFn('assign', isMD);
+      prefetchTasksFn('reporting', isMD);
+    }, 300);
   }, [currentUser?.id, currentUser?.role, activeTab, prefetchTasksFn]);
 
   const handleAddTour = (newTour: Tour) => {
@@ -1789,33 +1806,19 @@ export default function App() {
         </main>
       </div>
 
-      {/* In-app toast notification */}
-      {toastNotification && (
-        <div
-          className="fixed top-4 right-4 z-[9999] max-w-sm bg-white rounded-lg shadow-lg border border-gray-200 p-4"
-          role="alert"
-        >
-          <div className="flex items-start gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-900">{toastNotification.title}</p>
-              <p className="mt-1 text-sm text-gray-600 line-clamp-3">{toastNotification.message}</p>
-            </div>
-            <button
-              onClick={() => {
-                setToastNotification(null);
-                if (toastTimeoutRef.current) {
-                  clearTimeout(toastTimeoutRef.current);
-                  toastTimeoutRef.current = null;
-                }
-              }}
-              className="text-gray-400 hover:text-gray-600 p-1 -m-1"
-              aria-label="Dismiss"
-            >
-              <X size={18} />
-            </button>
-          </div>
-        </div>
-      )}
+      {/* In-app toast notifications from WebSocket */}
+      <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm">
+        {toastNotifications.map((t) => (
+          <ToastNotification
+            key={t.id}
+            id={t.id}
+            title={t.title}
+            message={t.message}
+            extra={t.extra}
+            onDismiss={() => setToastNotifications((prev) => prev.filter((n) => n.id !== t.id))}
+          />
+        ))}
+      </div>
 
       {/* Meet Card - from header Meet button */}
       {showMeetCard && currentUser && (

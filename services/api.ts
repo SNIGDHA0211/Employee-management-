@@ -31,7 +31,7 @@ const API_BASE_URL = isDevelopment
     "Content-Type": "application/json",
   },
   withCredentials: true, // Include cookies for session-based auth
-  timeout: 80000, // 80 second timeout (eventsapi can be slow with large datasets)
+  timeout: 45000, // 45s default; use per-request timeout for heavy endpoints (e.g. events)
 });
 
 // Create axios instance for public endpoints (no auth required)

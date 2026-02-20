@@ -682,12 +682,12 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         const startChatResponse = await apiStartChat(employeeId);
         // After starting chat, reload chats to get the new chat_id
         // Wait a bit to ensure backend has processed the new chat
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Increased wait time
+        await new Promise(resolve => setTimeout(resolve, 1500));
         
-        // Reload chats multiple times if needed to get the chat_id
+        // Reload chats multiple times if needed to get the chat_id (2 retries, longer delay)
         let chatIdFound = false;
         let retryCount = 0;
-        const maxRetries = 3;
+        const maxRetries = 2;
         
         while (!chatIdFound && retryCount < maxRetries) {
           try {
@@ -734,14 +734,14 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             } else {
               retryCount++;
               if (retryCount < maxRetries) {
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait before retry
+                await new Promise(resolve => setTimeout(resolve, 1500));
               }
             }
           } catch (reloadError) {
             console.error('Error reloading chats:', reloadError);
             retryCount++;
             if (retryCount < maxRetries) {
-              await new Promise(resolve => setTimeout(resolve, 1000));
+              await new Promise(resolve => setTimeout(resolve, 1500));
             }
           }
         }
@@ -963,7 +963,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         // Try to reload chats and find chat_id - retry multiple times
         let chatIdFound = false;
         let retryCount = 0;
-        const maxRetries = 3;
+        const maxRetries = 2;
         
         while (!chatIdFound && retryCount < maxRetries) {
           try {
@@ -1001,13 +1001,13 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               chatIdFound = true;
             } else {
               retryCount++;
-              if (retryCount < maxRetries) await new Promise(resolve => setTimeout(resolve, 500));
+              if (retryCount < maxRetries) await new Promise(resolve => setTimeout(resolve, 1000));
             }
           } catch (reloadError) {
             console.error('Error reloading chats:', reloadError);
             retryCount++;
             if (retryCount < maxRetries) {
-              await new Promise(resolve => setTimeout(resolve, 500));
+              await new Promise(resolve => setTimeout(resolve, 1000));
             }
           }
         }
