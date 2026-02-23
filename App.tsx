@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { UserRole, User, Task, Project, Message, ChatGroup, AttendanceRecord, Tour, formatRoleForDisplay } from './types';
 import api, { 
   login as apiLogin, 
@@ -14,7 +15,7 @@ import api, {
 } from './services/api';
 import { getNMRHIAllowedCategories } from './components/NMRHI/constants';
 import { convertApiTasksToTasks } from './utils/taskConversion';
-import { requestPermission, handleWebSocketNotification, parseNotificationPayload, playNotificationSound } from './utils/browserNotifications';
+import { requestPermission, handleWebSocketNotification, parseNotificationPayload, playNotificationSound, getPermission, isNotificationSupported } from './utils/browserNotifications';
 import { clearAuthData } from './services/utils/auth';
 import { Sidebar, Header } from './components/Layout';
 import { MeetCard } from './components/MeetCard';
@@ -136,8 +137,6 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Request notification permission immediately (must be in user gesture - before any await)
-    requestPermission().catch(() => {});
 
     if (!username || !password) {
       setError('Credentials required');
@@ -683,6 +682,7 @@ export default function App() {
   currentUserRef.current = currentUser;
   const [notificationMeetings, setNotificationMeetings] = useState<any[]>([]);
   const [toastNotifications, setToastNotifications] = useState<Array<{ id: string; title: string; message: string; extra?: { time?: string } }>>([]);
+  const [showNotificationPermissionPopup, setShowNotificationPermissionPopup] = useState(false);
   const [allowedNMRHICategories, setAllowedNMRHICategories] = useState<string[]>([]);
   const [meetRooms, setMeetRooms] = useState<Array<{ id: number; name: string }>>([]);
   const [meetEmployees, setMeetEmployees] = useState<Array<{ id: string; name: string }>>([]);
@@ -1277,6 +1277,11 @@ export default function App() {
     
     setCurrentUser(finalUser);
 
+    // Show notification permission popup after login if not yet granted
+    if (isNotificationSupported() && getPermission() === 'default') {
+      setShowNotificationPermissionPopup(true);
+    }
+
     // Decide starting tab based on role and persist it
     let nextTab = 'assignTask';
     if (finalUser.role === UserRole.ADMIN) {
@@ -1806,19 +1811,62 @@ export default function App() {
         </main>
       </div>
 
-      {/* In-app toast notifications from WebSocket */}
-      <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm">
-        {toastNotifications.map((t) => (
-          <ToastNotification
-            key={t.id}
-            id={t.id}
-            title={t.title}
-            message={t.message}
-            extra={t.extra}
-            onDismiss={() => setToastNotifications((prev) => prev.filter((n) => n.id !== t.id))}
-          />
-        ))}
-      </div>
+      {/* In-app toast notifications - rendered via portal so visible on all tabs/sections */}
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed top-4 right-4 z-[99999] flex flex-col gap-2 max-w-sm">
+            {toastNotifications.map((t) => (
+              <ToastNotification
+                key={t.id}
+                id={t.id}
+                title={t.title}
+                message={t.message}
+                extra={t.extra}
+                onDismiss={() => setToastNotifications((prev) => prev.filter((n) => n.id !== t.id))}
+              />
+            ))}
+          </div>,
+          document.body
+        )}
+
+      {/* Notification permission popup - shown after login */}
+      {showNotificationPermissionPopup && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[99998] p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center">
+                <Bell size={24} className="text-brand-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900 text-lg">Enable notifications</h3>
+                <p className="text-sm text-gray-500">Get alerted for task assignments and updates</p>
+              </div>
+            </div>
+            <p className="text-gray-600 text-sm mb-6">
+              Allow notifications to receive alerts when tasks are assigned to you, even when this tab is in the background.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowNotificationPermissionPopup(false);
+                }}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+              >
+                Not now
+              </button>
+              <button
+                onClick={async () => {
+                  await requestPermission();
+                  setShowNotificationPermissionPopup(false);
+                }}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 transition-colors"
+              >
+                Allow
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Meet Card - from header Meet button */}
       {showMeetCard && currentUser && (

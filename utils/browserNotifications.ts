@@ -51,8 +51,24 @@ export async function requestPermission(): Promise<NotificationPermission> {
   }
 }
 
-/** Play a short notification sound using Web Audio API (no external file needed) */
+/** Path to notification sound (place file at public/assets/notification.mp3) */
+const NOTIFICATION_SOUND_URL = '/assets/notification.mp3';
+
+/** Play notification sound from asset file, fallback to Web Audio API beep */
 export function playNotificationSound(): void {
+  try {
+    const audio = new Audio(NOTIFICATION_SOUND_URL);
+    audio.volume = 0.7;
+    audio.play().catch(() => {
+      // Fallback to Web Audio API if file fails (e.g. autoplay policy, 404)
+      playNotificationSoundFallback();
+    });
+  } catch {
+    playNotificationSoundFallback();
+  }
+}
+
+function playNotificationSoundFallback(): void {
   try {
     const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     const osc = ctx.createOscillator();
@@ -66,7 +82,7 @@ export function playNotificationSound(): void {
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.15);
   } catch {
-    // Silently ignore if AudioContext fails (e.g. autoplay policy)
+    // Silently ignore
   }
 }
 
