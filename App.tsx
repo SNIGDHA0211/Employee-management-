@@ -10,6 +10,7 @@ import api, {
   getEvents,
   getTours,
   getBookSlots,
+  getBookSlotsToday,
   viewTasks as apiViewTasks,
   viewAssignedTasks as apiViewAssignedTasks,
 } from './services/api';
@@ -676,6 +677,9 @@ export default function App() {
   const [scheduleTours, setScheduleTours] = useState<ScheduleTour[]>([]);
   const [scheduleMeetings, setScheduleMeetings] = useState<Meeting[]>([]);
   const [scheduleRefreshTrigger, setScheduleRefreshTrigger] = useState(0);
+  const [scheduleFilterApplied, setScheduleFilterApplied] = useState(false);
+  const [scheduleTodayLoading, setScheduleTodayLoading] = useState(false);
+  const [scheduleHolidaysToursLoading, setScheduleHolidaysToursLoading] = useState(false);
   const scheduleLastFetchedRef = useRef<number>(-1);
   const scheduleMeetingsCacheRef = useRef<Record<string, Meeting[]>>({});
   const currentUserRef = useRef<User | null>(null);
@@ -722,7 +726,7 @@ export default function App() {
         window.location.hostname.startsWith('10.') ||
         window.location.hostname.startsWith('172.')
       );
-      const productionUrl = 'https://employee-management-system-tmrl.onrender.com';
+      const productionUrl = 'https://employee-management-system-1-jwyn.onrender.com';
       const wsUrl = isDev
         ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/notifications/`
         : `${productionUrl.replace(/^https/, 'wss')}/ws/notifications/`;
@@ -994,14 +998,16 @@ export default function App() {
     fetchAssets();
   }, [activeTab, currentUser?.role, assetsRefreshTrigger]);
 
-  // Schedule Hub: fetch holidays, events, tours in parallel - cache, refetch only on update
+  // Schedule Hub: fetch holidays, events, tours, full month bookslots only when Filter button is clicked
   useEffect(() => {
     const shouldFetch =
       currentUser &&
       activeTab === 'schedule-hub' &&
+      scheduleFilterApplied &&
       scheduleLastFetchedRef.current !== scheduleRefreshTrigger;
     if (!shouldFetch) return;
     const fetchScheduleData = async () => {
+      setScheduleHolidaysToursLoading(true);
       try {
         const [holidayList, eventList, tourList] = await Promise.all([
           getHolidays(),
@@ -1058,10 +1064,12 @@ export default function App() {
         scheduleLastFetchedRef.current = scheduleRefreshTrigger;
       } catch (err) {
         console.error('Error fetching schedule data:', err);
+      } finally {
+        setScheduleHolidaysToursLoading(false);
       }
     };
     fetchScheduleData();
-  }, [activeTab, currentUser?.id, scheduleRefreshTrigger]);
+  }, [activeTab, currentUser?.id, scheduleRefreshTrigger, scheduleFilterApplied]);
 
   const mapApiToMeeting = useCallback((item: any): Meeting => {
     let memberDetails = item.member_details;
@@ -1141,6 +1149,25 @@ export default function App() {
       // Keep existing on error
     }
   }, [mapApiToMeeting]);
+
+  // Schedule Hub: fetch today's booked slots by default when tab is active (before Filter is clicked)
+  useEffect(() => {
+    if (!currentUser || activeTab !== 'schedule-hub' || scheduleFilterApplied) return;
+    const fetchTodaySlots = async () => {
+      setScheduleTodayLoading(true);
+      try {
+        const list = await getBookSlotsToday();
+        if (!Array.isArray(list)) return;
+        const mapped: Meeting[] = list.map(mapApiToMeeting);
+        setScheduleMeetings(mapped);
+      } catch {
+        // Keep existing on error
+      } finally {
+        setScheduleTodayLoading(false);
+      }
+    };
+    fetchTodaySlots();
+  }, [activeTab, currentUser?.id, mapApiToMeeting, scheduleFilterApplied]);
 
   const onScheduleDataUpdated = useCallback(() => {
     setScheduleRefreshTrigger((t) => t + 1);
@@ -1716,6 +1743,10 @@ export default function App() {
             onScheduleDataUpdated={onScheduleDataUpdated}
             meetingsCacheRef={scheduleMeetingsCacheRef}
             users={users}
+            scheduleFilterApplied={scheduleFilterApplied}
+            onScheduleFilterClick={() => setScheduleFilterApplied(true)}
+            scheduleTodayLoading={scheduleTodayLoading}
+            scheduleHolidaysToursLoading={scheduleHolidaysToursLoading}
           />
         );
 

@@ -7,6 +7,7 @@ import type { User } from '../../types';
 interface DayViewModalProps {
   date: Date;
   meetings: Meeting[];
+  isLoading?: boolean;
   currentUser?: User | null;
   onClose: () => void;
   onNewBooking: () => void;
@@ -34,6 +35,7 @@ const isCreator = (m: Meeting, currentUser: User | null | undefined): boolean =>
 export const DayViewModal: React.FC<DayViewModalProps> = ({
   date,
   meetings,
+  isLoading = false,
   currentUser,
   onClose,
   onNewBooking,
@@ -123,7 +125,15 @@ export const DayViewModal: React.FC<DayViewModalProps> = ({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-10 custom-scrollbar bg-white">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-10 custom-scrollbar bg-white relative">
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm font-medium text-slate-600">Loading schedule…</span>
+              </div>
+            </div>
+          )}
           <div className="relative border-l-2 border-slate-100 ml-12 sm:ml-16">
             {hours.map((hour) => {
               const hourMeetings = getMeetingsForHour(hour);

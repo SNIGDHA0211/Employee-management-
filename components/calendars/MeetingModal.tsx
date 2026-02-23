@@ -13,6 +13,8 @@ interface MeetingModalProps {
   currentUser?: User | null;
   initialMeeting?: Meeting | null;
   employees?: Array<{ id: string; name: string; employeeId?: string }>;
+  /** Existing meetings for the date - used to validate no double-booking same hall at same time */
+  existingMeetings?: Meeting[];
 }
 
 export const MeetingModal: React.FC<MeetingModalProps> = ({
@@ -22,6 +24,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   currentUser,
   initialMeeting,
   employees: employeesProp = [],
+  existingMeetings = [],
 }) => {
   const isEdit = !!initialMeeting;
   const displayUser = currentUser || CURRENT_USER;
@@ -136,6 +139,24 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     }
     if (endTime > OFFICE_END) {
       setError('End time must be by 18:00 (office hours end at 6:00 PM).');
+      return;
+    }
+    // Validate no overlapping booking in same hall
+    const timeOverlaps = (s1: string, e1: string, s2: string, e2: string) => {
+      const pad = (t: string) => (t.length === 5 ? t : t.substring(0, 5));
+      const a = pad(s1);
+      const b = pad(e1);
+      const c = pad(s2);
+      const d = pad(e2);
+      return a < d && c < b;
+    };
+    const conflicting = existingMeetings.find((m) => {
+      if (isEdit && initialMeeting && m.id === initialMeeting.id) return false;
+      if (m.hallName !== hallName) return false;
+      return timeOverlaps(startTime, endTime, m.startTime || '09:00', m.endTime || '10:00');
+    });
+    if (conflicting) {
+      setError(`${hallName} is already booked from ${conflicting.startTime} to ${conflicting.endTime} by "${conflicting.title}". Please choose a different time or hall.`);
       return;
     }
     setError(null);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { format, addMonths, subMonths } from 'date-fns';
-import { Calendar, ChevronLeft, ChevronRight, CalendarDays, PartyPopper, MapPin } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, CalendarDays, PartyPopper, MapPin, Filter } from 'lucide-react';
 import { UserRole } from '../../types';
 import { ViewMode, Meeting, Holiday, Tour, MeetingStatus } from './types';
 import { deleteHoliday, deleteBookSlot, updateBookSlot, deleteEvent, deleteTour } from '../../services/api';
@@ -24,6 +24,10 @@ interface ScheduleHubPageProps {
   onScheduleDataUpdated?: () => void;
   meetingsCacheRef?: React.MutableRefObject<Record<string, Meeting[]>>;
   users?: User[];
+  scheduleFilterApplied?: boolean;
+  onScheduleFilterClick?: () => void;
+  scheduleTodayLoading?: boolean;
+  scheduleHolidaysToursLoading?: boolean;
 }
 
 export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
@@ -36,6 +40,10 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
   onScheduleDataUpdated,
   meetingsCacheRef,
   users = [],
+  scheduleFilterApplied = false,
+  onScheduleFilterClick,
+  scheduleTodayLoading = false,
+  scheduleHolidaysToursLoading = false,
 }) => {
   const canAddHolidayOrEvent = currentUser && [UserRole.MD, UserRole.ADMIN, UserRole.HR].includes(currentUser.role);
   const canEditDeleteHoliday = currentUser && [UserRole.MD, UserRole.ADMIN, UserRole.HR].includes(currentUser.role);
@@ -60,14 +68,21 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
 
   const [meetingsLoading, setMeetingsLoading] = useState(false);
 
-  // Request meetings for current month when date changes or on mount (data comes from App)
+  // Open today's day view modal by default when Schedule Hub is opened
   useEffect(() => {
-    if (!currentUser || !fetchMeetingsForMonth) return;
+    const today = new Date();
+    setSelectedDate(today);
+    setShowDayView(true);
+  }, []);
+
+  // Request meetings (bookslots) for current month only when Filter has been clicked
+  useEffect(() => {
+    if (!currentUser || !fetchMeetingsForMonth || !scheduleFilterApplied) return;
     const month = currentDate.getMonth() + 1;
     const year = currentDate.getFullYear();
     setMeetingsLoading(true);
     fetchMeetingsForMonth(month, year).finally(() => setMeetingsLoading(false));
-  }, [currentUser?.id, currentDate.getMonth(), currentDate.getFullYear(), fetchMeetingsForMonth]);
+  }, [currentUser?.id, currentDate.getMonth(), currentDate.getFullYear(), fetchMeetingsForMonth, scheduleFilterApplied]);
 
   const handleDateClick = (date: Date) => {
     setSelectedDate(date);
@@ -212,7 +227,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-nowrap items-center gap-3 overflow-x-auto min-w-0">
           <div className="flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
             <button
               onClick={() => setViewMode(ViewMode.MEETING)}
@@ -277,14 +292,49 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
               + Plan Tour
             </button>
           )}
+          <button
+            onClick={onScheduleFilterClick}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all border shadow-sm ${
+              scheduleFilterApplied
+                ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-indigo-200'
+            }`}
+          >
+            <Filter className="w-4 h-4" />
+            {scheduleFilterApplied ? 'Filter applied' : 'Filter'}
+          </button>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden min-h-[500px]">
-        {meetingsLoading && viewMode === ViewMode.MEETING && (
+        {!scheduleFilterApplied && (
+          <div className="flex items-center justify-center gap-2 py-4 bg-slate-50 border-b border-slate-200">
+            <Filter className="w-5 h-5 text-slate-500" />
+            <span className="text-sm font-medium text-slate-600">
+              {viewMode === ViewMode.HOLIDAY
+                ? 'Click Filter to load holidays & events'
+                : viewMode === ViewMode.TOUR
+                  ? 'Click Filter to load tours'
+                  : 'Click Filter to load meetings, holidays, events & tours'}
+            </span>
+          </div>
+        )}
+        {meetingsLoading && viewMode === ViewMode.MEETING && scheduleFilterApplied && (
           <div className="flex items-center justify-center gap-2 py-2 bg-indigo-50 border-b border-indigo-100">
             <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
             <span className="text-xs font-medium text-indigo-700">Loading meetings…</span>
+          </div>
+        )}
+        {scheduleHolidaysToursLoading && viewMode === ViewMode.HOLIDAY && scheduleFilterApplied && (
+          <div className="flex items-center justify-center gap-2 py-2 bg-red-50 border-b border-red-100">
+            <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs font-medium text-red-700">Loading holidays & events…</span>
+          </div>
+        )}
+        {scheduleHolidaysToursLoading && viewMode === ViewMode.TOUR && scheduleFilterApplied && (
+          <div className="flex items-center justify-center gap-2 py-2 bg-amber-50 border-b border-amber-100">
+            <div className="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs font-medium text-amber-700">Loading tours…</span>
           </div>
         )}
         <CalendarGrid
@@ -306,6 +356,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
         <DayViewModal
           date={selectedDate}
           meetings={meetings.filter((m) => m.date === format(selectedDate, 'yyyy-MM-dd'))}
+          isLoading={scheduleFilterApplied ? meetingsLoading : scheduleTodayLoading}
           currentUser={currentUser}
           onClose={() => setShowDayView(false)}
           onNewBooking={handleNewBooking}
@@ -331,6 +382,7 @@ export const ScheduleHubPage: React.FC<ScheduleHubPageProps> = ({
             name: u.name,
             employeeId: (u as any).Employee_id ?? u.id,
           }))}
+          existingMeetings={meetings.filter((m) => m.date === format(meetingToEdit ? new Date(meetingToEdit.date) : selectedDate!, 'yyyy-MM-dd'))}
         />
       )}
 

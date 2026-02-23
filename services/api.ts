@@ -9,9 +9,9 @@ import {
 } from "./utils/auth";
 
 // Production backend URL
-const PRODUCTION_BACKEND_URL = 'https://employee-management-system-tmrl.onrender.com';
+const PRODUCTION_BACKEND_URL = 'https://employee-management-system-1-jwyn.onrender.com';
 //https://employee-management-system-tmrl.onrender.com
-//192.168.42.111:8000
+//http://192.168.42.111:8000
 // Use proxy in development to bypass CORS, direct URL in production
 const isDevelopment = typeof window !== 'undefined' && 
   (window.location.hostname === 'localhost' || 
@@ -2169,6 +2169,32 @@ export const getBookSlots = async (month?: number, year?: number, signal?: Abort
 };
 
 /**
+ * Get today's booked slots.
+ * Uses getBookSlots(month, year) and filters for today's date to avoid 400 from
+ * /eventsapi/bookslots/today/ when that endpoint is missing or expects different params.
+ */
+export const getBookSlotsToday = async (): Promise<any[]> => {
+  try {
+    const now = new Date();
+    const month = now.getMonth() + 1; // 1-12
+    const year = now.getFullYear();
+    const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const list = await getBookSlots(month, year, undefined);
+    return Array.isArray(list)
+      ? list.filter((s: any) => {
+          const d = s.date ?? s.Date ?? s.booking_date;
+          const dateStr = d?.includes?.('T') ? d.split('T')[0] : (d || '').substring(0, 10);
+          return dateStr === todayStr;
+        })
+      : [];
+  } catch (error: any) {
+    if (error?.response?.status === 403 || error?.response?.status === 401) return [];
+    console.error("❌ [GET BOOK SLOTS TODAY] Error:", error);
+    throw error;
+  }
+};
+
+/**
  * Get meeting push list. GET /eventsapi/meetingpush/
  */
 export const getMeetingPush = async (): Promise<any[]> => {
@@ -2919,10 +2945,17 @@ export const loadChats = async (): Promise<{
     group_id: string | number;
     group_name: string;
     description: string;
+    created_by?: string;
+    total_participant?: number;
+    created_at?: string;
+    last_message_at?: string;
+    unseen_count?: number;
   }>;
   chats_info: Array<{
     chat_id: string;
     with: string;
+    last_message_at?: string;
+    unseen_count?: number;
   }>;
 }> => {
   try {const response = await api.get("/messaging/loadChats/");

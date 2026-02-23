@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, ChatGroup, User, UserRole } from '../types';
-import { Send, Image, Smile, Paperclip, PlusCircle, Users, Hash, X, Check, UserPlus, Trash2 } from 'lucide-react';
+import { Send, Image, Smile, Paperclip, PlusCircle, Users, Hash, X, Check, UserPlus, Trash2, Search } from 'lucide-react';
 import { 
   createGroup as apiCreateGroup, 
   showCreatedGroups as apiShowCreatedGroups,
@@ -34,7 +34,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   const [selectedParticipants, setSelectedParticipants] = useState<Record<string, string>>({});
   const [isLoadingGroups, setIsLoadingGroups] = useState(false);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
-  const [apiGroups, setApiGroups] = useState<Array<{group_id: number | string; name: string; description: string; created_at: string}>>([]);
+  const [apiGroups, setApiGroups] = useState<Array<{group_id: number | string; name: string; description: string; created_at: string; last_message_at?: string; unseen_count?: number}>>([]);
   const [groupMembers, setGroupMembers] = useState<Record<string | number, string[]>>({});
   const [showMembersPanel, setShowMembersPanel] = useState(false);
   const [currentGroupMembers, setCurrentGroupMembers] = useState<Array<{participant_name: string}>>([]);
@@ -51,7 +51,10 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [directChats, setDirectChats] = useState<Record<string, string>>({}); // Map user ID/name to chat_id
+  const [directChatUnseenCounts, setDirectChatUnseenCounts] = useState<Record<string, number>>({}); // Map user name (from "with") to unseen_count
   const [isStartingChat, setIsStartingChat] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [createGroupSearchQuery, setCreateGroupSearchQuery] = useState('');
 
   // Permission: Can create group?
   const canCreateGroup = [UserRole.MD, UserRole.ADMIN, UserRole.HR, UserRole.TEAM_LEADER].includes(currentUser.role);
@@ -70,21 +73,24 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     return null;
   };
 
-  // Helper to convert API group format to ChatGroup - always use group_id from API
+  // Helper to convert API group format to ChatGroup - supports group_id as string (e.g. "G83849") or number
   const convertApiGroupsToChatGroups = (rawGroups: any[], membersMap: Record<string | number, string[]>) =>
     rawGroups.map((g: any) => {
       const rawId = g.group_id ?? g.chat_id ?? g.id ?? g.groupId;
-      const groupIdNum = rawId != null ? Number(rawId) : NaN;
+      const groupIdNum = rawId != null && typeof rawId === 'string' && /^\d+$/.test(rawId) ? parseInt(rawId, 10) : (typeof rawId === 'number' && !isNaN(rawId) ? rawId : NaN);
       const id = !isNaN(groupIdNum) ? groupIdNum : rawId;
-      const finalGroupId = !isNaN(groupIdNum) ? groupIdNum : (typeof rawId === 'string' ? parseInt(rawId, 10) : rawId);
+      const groupId = !isNaN(groupIdNum) ? groupIdNum : rawId;
+      const lookupKey = groupId ?? id;
       return {
         id: `g${id}`,
         name: g.group_name || g.name || '',
-        members: membersMap[id] || membersMap[g.group_id] || [],
+        members: membersMap[lookupKey] || membersMap[g.group_id] || membersMap[rawId] || [],
         createdBy: g.created_by || '',
         isPrivate: false,
-        groupId: (typeof finalGroupId === 'number' && !isNaN(finalGroupId)) ? finalGroupId : rawId,
+        groupId,
         totalParticipant: typeof g.total_participant === 'number' ? g.total_participant : (g.total_participant != null ? Number(g.total_participant) : undefined),
+        last_message_at: g.last_message_at,
+        unseen_count: typeof g.unseen_count === 'number' ? g.unseen_count : (g.unseen_count != null ? Number(g.unseen_count) : 0),
       };
     });
 
@@ -108,11 +114,14 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           const convertedGroups = convertApiGroupsToChatGroups(groups, groupMembers);
           const chats = chatResult.chats_info || [];
           const chatMap: Record<string, string> = {};
+          const unseenMap: Record<string, number> = {};
           chats.forEach((chat: any) => {
             const chatWith = chat.with || '';
             let chatId = chat.chat_id ? String(chat.chat_id).trim() : '';
+            const unseen = typeof chat.unseen_count === 'number' ? chat.unseen_count : (chat.unseen_count != null ? Number(chat.unseen_count) : 0);
             if (chatWith && chatId) {
               chatMap[chatWith] = chatId;
+              unseenMap[chatWith] = unseen;
               const matchingUser = users.find((u: User) =>
                 u.name === chatWith || u.id === chatWith || String(u.id).includes(chatWith) ||
                 chatWith.includes(u.name) || chatWith.includes(String(u.id))
@@ -120,16 +129,18 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               if (matchingUser) {
                 chatMap[matchingUser.name] = chatId;
                 chatMap[matchingUser.id] = chatId;
+                unseenMap[matchingUser.name] = unseen;
                 if ((matchingUser as any).Employee_id) chatMap[(matchingUser as any).Employee_id] = chatId;
               }
             }
           });
           setDirectChats(prev => ({ ...prev, ...chatMap }));
+          setDirectChatUnseenCounts(prev => ({ ...prev, ...unseenMap }));
           setApiGroups(groups.map((g: any) => ({
             group_id: g.group_id,
             name: g.group_name || g.name || '',
             description: g.description || '',
-            created_at: '',
+            created_at: g.created_at || '',
           })));
           setGroups(convertedGroups);
           setActiveGroup((prev) => (prev ? prev : convertedGroups.length > 0 ? convertedGroups[0] : null));
@@ -286,6 +297,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       setNewGroupName('');
       setNewGroupDescription('');
       setSelectedParticipants({});
+      setCreateGroupSearchQuery('');
       setShowCreateModal(false);
       
       // Refresh groups using loadChats (shows only groups user is a member of)
@@ -471,26 +483,37 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         const convertedGroups: ChatGroup[] = groups.map((g: any) => ({
           id: `g${g.group_id}`,
           name: g.group_name || g.name || '',
-          members: [],
-          createdBy: '',
+          members: groupMembers[g.group_id] || [],
+          createdBy: g.created_by || '',
           isPrivate: false,
           groupId: g.group_id,
+          totalParticipant: g.total_participant,
+          last_message_at: g.last_message_at,
+          unseen_count: g.unseen_count ?? 0,
         }));
         
         // Update direct chats
         const chats = chatData.chats_info || [];
         const chatMap: Record<string, string> = {};
+        const unseenMap: Record<string, number> = {};
         chats.forEach((chat: any) => {
-          chatMap[chat.with] = chat.chat_id;
+          const chatWith = chat.with || '';
+          const chatId = chat.chat_id ? String(chat.chat_id).trim() : '';
+          const unseen = typeof chat.unseen_count === 'number' ? chat.unseen_count : (chat.unseen_count != null ? Number(chat.unseen_count) : 0);
+          if (chatWith && chatId) {
+            chatMap[chatWith] = chatId;
+            unseenMap[chatWith] = unseen;
+          }
         });
         setDirectChats(prev => ({ ...prev, ...chatMap }));
+        setDirectChatUnseenCounts(prev => ({ ...prev, ...unseenMap }));
         
         // Also update apiGroups for compatibility
         const apiGroupsFormat = groups.map((g: any) => ({
           group_id: g.group_id,
           name: g.group_name || g.name || '',
           description: g.description || '',
-          created_at: '',
+          created_at: g.created_at || '',
         }));
         
         setGroups(convertedGroups);
@@ -1107,6 +1130,20 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
   const hasActiveChat = !!(activeGroup || activeUser);
 
+  // Filter groups and users by search query
+  const searchLower = searchQuery.trim().toLowerCase();
+  const filteredGroups = searchLower
+    ? groups.filter((g) => (g.name || '').toLowerCase().includes(searchLower))
+    : groups;
+  const filteredUsers = searchLower
+    ? users.filter(
+        (u) =>
+          (u.name || '').toLowerCase().includes(searchLower) ||
+          (u.email || '').toLowerCase().includes(searchLower) ||
+          (u.id || '').toLowerCase().includes(searchLower)
+      )
+    : users;
+
   return (
     <div className="flex h-[calc(100vh-140px)] sm:h-[calc(100vh-140px)] min-h-[400px] bg-white rounded-xl sm:rounded-2xl shadow-sm overflow-hidden border border-gray-200">
       {/* Sidebar List - full width on mobile when no chat; hidden when chat open */}
@@ -1119,21 +1156,44 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
              </button>
           )}
         </div>
+        <div className="px-2 pt-2 pb-1 border-b border-gray-100">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search groups or users..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none transition-colors"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded"
+                aria-label="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {/* Groups Section */}
           <div className="space-y-1">
             {isLoadingGroups ? (
               <div className="text-center text-gray-400 py-8">Loading groups...</div>
-            ) : groups.length === 0 ? (
-              <div className="text-center text-gray-400 py-8">No groups yet</div>
+            ) : filteredGroups.length === 0 ? (
+              <div className="text-center text-gray-400 py-8">
+                {searchQuery ? 'No groups match your search' : 'No groups yet'}
+              </div>
             ) : (
-              groups.map(group => (
+              filteredGroups.map(group => (
             <div 
               key={group.id} 
                   onClick={() => handleGroupClick(group)}
                   className={`p-2 sm:p-3 cursor-pointer rounded-lg sm:rounded-xl transition-all ${activeGroup?.id === group.id ? 'bg-white shadow-md border border-gray-100' : 'hover:bg-gray-100 text-gray-600'}`}
             >
-              <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3">
                  <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white font-bold shadow-sm shrink-0 ${group.isPrivate ? 'bg-indigo-500' : 'bg-brand-500'}`}>
                    {group.isPrivate ? <Users size={16} className="sm:w-[18px] sm:h-[18px]" /> : <Hash size={16} className="sm:w-[18px] sm:h-[18px]" />}
                  </div>
@@ -1148,6 +1208,11 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                          })()}
                        </p>
                      </div>
+                 {(group.unseen_count ?? 0) > 0 && (
+                   <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-semibold shrink-0">
+                     {(group.unseen_count ?? 0) > 99 ? '99+' : group.unseen_count}
+                   </span>
+                 )}
                   </div>
                 </div>
               ))
@@ -1157,11 +1222,13 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           {/* All Users Section */}
           <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200">
             <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-2 sm:px-3 mb-2">All Users</h4>
-            {users.length === 0 ? (
-              <div className="text-center text-gray-400 py-4 text-sm">No users found</div>
+            {filteredUsers.length === 0 ? (
+              <div className="text-center text-gray-400 py-4 text-sm">
+                {searchQuery ? 'No users match your search' : 'No users found'}
+              </div>
             ) : (
               <div className="space-y-1">
-                {users.map(user => {
+                {filteredUsers.map(user => {
                   // Create DM channel ID for highlighting
                   const userIds = [currentUser.id, user.id].sort();
                   const dmChannelId = `dm-${userIds[0]}-${userIds[1]}`;
@@ -1199,6 +1266,11 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                         </p>
                         <p className="text-xs text-gray-500 truncate">{user.email || user.designation || user.role}</p>
                       </div>
+                      {(directChatUnseenCounts[user.name] ?? 0) > 0 && (
+                        <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-semibold shrink-0">
+                          {(directChatUnseenCounts[user.name] ?? 0) > 99 ? '99+' : directChatUnseenCounts[user.name]}
+                        </span>
+                      )}
                     </div>
                  </div>
                   );
@@ -1554,7 +1626,13 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           <div className="bg-white rounded-xl sm:rounded-2xl w-full max-w-2xl max-h-[95vh] overflow-hidden flex flex-col shadow-2xl">
             <div className="p-4 sm:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
               <h2 className="text-lg sm:text-2xl font-bold text-gray-800">Create New Group</h2>
-              <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-gray-600 bg-white rounded-full p-2 shadow-sm">
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setCreateGroupSearchQuery('');
+                }}
+                className="text-gray-400 hover:text-gray-600 bg-white rounded-full p-2 shadow-sm"
+              >
                 <X size={20} />
               </button>
             </div>
@@ -1584,12 +1662,44 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Select Participants *</label>
+                <div className="relative mb-2">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search employees..."
+                    value={createGroupSearchQuery}
+                    onChange={(e) => setCreateGroupSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 bg-white focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none"
+                  />
+                  {createGroupSearchQuery && (
+                    <button
+                      onClick={() => setCreateGroupSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded"
+                      aria-label="Clear search"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
                 <div className="border border-gray-200 rounded-lg p-4 max-h-64 overflow-y-auto bg-gray-50">
-                  {availableEmployees.filter(u => u.id !== currentUser.id && u.id !== '2000').length === 0 ? (
-                    <p className="text-sm text-gray-400">No other employees available</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {availableEmployees.filter(u => u.id !== currentUser.id && u.id !== '2000').map(user => (
+                  {(() => {
+                    const createSearchLower = createGroupSearchQuery.trim().toLowerCase();
+                    const filtered = availableEmployees.filter(
+                      (u) =>
+                        u.id !== currentUser.id &&
+                        u.id !== '2000' &&
+                        (!createSearchLower ||
+                          (u.name || '').toLowerCase().includes(createSearchLower) ||
+                          (u.email || '').toLowerCase().includes(createSearchLower) ||
+                          (u.id || '').toLowerCase().includes(createSearchLower))
+                    );
+                    return filtered.length === 0 ? (
+                      <p className="text-sm text-gray-400">
+                        {createGroupSearchQuery ? 'No employees match your search' : 'No other employees available'}
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {filtered.map((user) => (
                         <label
                           key={user.id}
                           className="flex items-center space-x-3 p-2 hover:bg-white rounded-lg cursor-pointer transition-colors"
@@ -1611,9 +1721,10 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                             <Check size={16} className="text-brand-600" />
                           )}
                         </label>
-                      ))}
-                    </div>
-                  )}
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
                   Selected: {Object.keys(selectedParticipants).length} participant(s)
@@ -1623,7 +1734,10 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             
             <div className="p-4 sm:p-6 border-t border-gray-100 flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 bg-gray-50">
               <button
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setCreateGroupSearchQuery('');
+                }}
                 className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Cancel

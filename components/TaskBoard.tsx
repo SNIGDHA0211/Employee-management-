@@ -4,7 +4,6 @@ import { Task, TaskType, TaskStatus, User, UserRole, Project } from '../types';
 import { AlertCircle, Calendar, CheckCircle2, Clock, MoreVertical, Plus, Search, Send, Upload, Sparkles, User as UserIcon, Users as UsersIcon, Filter, Info, ChevronDown } from 'lucide-react';
 import { getTaskAssistance } from '../services/gemini';
 import api, { 
-  getDesignations as apiGetDesignations,
   createTask as apiCreateTask,
   getTaskTypes as apiGetTaskTypes,
   getNamesFromRoleAndDesignation as apiGetNamesFromRoleAndDesignation,
@@ -173,60 +172,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
     fetchTaskTypes();
   }, [showAddModal]);
 
-  // Fetch designations when role is selected (for modal)
-  useEffect(() => {
-    const fetchDesignations = async () => {
-      if (!showAddModal || !selectedRole || selectedRole.trim() === '' || selectedRole.toLowerCase() === 'all') {
-        setAvailableDesignations([]);
-        setSelectedDesignation('');
-        return;
-      }
-      
-      setIsLoadingDesignations(true);
-      try {
-        const designations = await apiGetDesignations(selectedRole);
-        setAvailableDesignations(designations);
-        // Reset designation selection when role changes
-        setSelectedDesignation('');
-      } catch (err: any) {
-        setAvailableDesignations([]);
-        setSelectedDesignation('');
-      } finally {
-        setIsLoadingDesignations(false);
-      }
-    };
-    
-    fetchDesignations();
-  }, [selectedRole, showAddModal]);
-
-  // Fetch designations for view filter when viewFilterRole changes
-  const [viewFilterDesignations, setViewFilterDesignations] = useState<string[]>([]);
-  const [isLoadingViewDesignations, setIsLoadingViewDesignations] = useState(false);
-  
-  useEffect(() => {
-    const fetchViewDesignations = async () => {
-      if (!viewFilterRole || viewFilterRole.trim() === '' || viewFilterRole.toLowerCase() === 'all') {
-        setViewFilterDesignations([]);
-        setViewFilterDesignation('');
-        return;
-      }
-      
-      setIsLoadingViewDesignations(true);
-      try {
-        const designations = await apiGetDesignations(viewFilterRole);
-        setViewFilterDesignations(designations);
-        setViewFilterDesignation(''); // Reset when role changes
-      } catch (err: any) {
-        setViewFilterDesignations([]);
-        setViewFilterDesignation('');
-      } finally {
-        setIsLoadingViewDesignations(false);
-      }
-    };
-    
-    fetchViewDesignations();
-  }, [viewFilterRole]);
-
   // Fetch filtered names when role or designation changes
   useEffect(() => {
     const fetchFilteredNames = async () => {
@@ -325,8 +270,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
   const normalizeBranch = (b: string): string =>
     b.toUpperCase().replace(/\s+/g, '_');
 
-  // Filtering logic for Assign Task Page
-  const filteredTasks = tasks.filter(task => {
+  // Filtering logic for Assign Task Page (base = all filters except status, for counts)
+  const baseFilteredTasks = tasks.filter(task => {
     // Extract assignee information from task
     const taskAssigneeId = String(task.assigneeId || '').trim();
     const userId = String(currentUser.id || '').trim();
@@ -394,8 +339,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
     
     // Apply type filter
     if (filterType !== 'ALL' && task.type !== filterType) return false;
-    // Apply status filter
-    if (filterStatus !== 'ALL' && task.status !== filterStatus) return false;
     // Apply search filter - by task title, description, or created by
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
@@ -418,6 +361,14 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
     }
     return true;
   });
+
+  const filteredTasks = filterStatus === 'ALL'
+    ? baseFilteredTasks
+    : baseFilteredTasks.filter(t => t.status === filterStatus);
+
+  const assignPendingCount = baseFilteredTasks.filter(t => t.status === TaskStatus.PENDING).length;
+  const assignInProgressCount = baseFilteredTasks.filter(t => t.status === TaskStatus.IN_PROGRESS).length;
+  const assignCompletedCount = baseFilteredTasks.filter(t => t.status === TaskStatus.COMPLETED).length;
 
   const getStatusColor = (status: TaskStatus) => {
     switch (status) {
@@ -686,57 +637,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
       }
   };
 
-  // Fetch designations for a specific assignee based on their role
-  const fetchDesignationsForAssignee = async (index: number, role: string) => {
-    try {
-      if (role && role.trim() !== '' && role.toLowerCase() !== 'all roles') {
-        const designations = await apiGetDesignations(role);
-        setAssigneeDesignations(prev => ({ ...prev, [index]: designations || [] }));
-      } else {
-        // If "All Roles", get all designations
-        const designations = await apiGetDesignations();
-        setAssigneeDesignations(prev => ({ ...prev, [index]: designations || [] }));
-      }
-    } catch (err: any) {
-      console.error(`Failed to fetch designations for assignee ${index}:`, err);
-      setAssigneeDesignations(prev => ({ ...prev, [index]: [] }));
-    }
-  };
-
-  const fetchDesignationsForReportingBy = async (role: string) => {
-    setIsLoadingReportingByDesignations(true);
-    try {
-      if (role && role.trim() !== '' && role.toLowerCase() !== 'all roles') {
-        const designations = await apiGetDesignations(role);
-        setReportingByDesignations(designations || []);
-      } else {
-        const designations = await apiGetDesignations();
-        setReportingByDesignations(designations || []);
-      }
-    } catch {
-      setReportingByDesignations([]);
-    } finally {
-      setIsLoadingReportingByDesignations(false);
-    }
-  };
-
-  // Fetch names for a specific assignee based on their role and designation
-  const fetchNamesForAssignee = async (index: number, role: string, designation?: string) => {
-    setIsLoadingAssigneeNames(prev => ({ ...prev, [index]: true }));
-    try {
-      const roleParam = role && role.trim() !== '' && role.toLowerCase() !== 'all roles' ? role : '';
-      const designationParam = designation && designation.trim() !== '' && designation.toLowerCase() !== 'all designations' ? designation : '';
-      
-      const names = await apiGetNamesFromRoleAndDesignation(roleParam, designationParam);
-      setAssigneeFilteredNames(prev => ({ ...prev, [index]: names || [] }));
-    } catch (err: any) {
-      console.error(`Failed to fetch names for assignee ${index}:`, err);
-      setAssigneeFilteredNames(prev => ({ ...prev, [index]: [] }));
-    } finally {
-      setIsLoadingAssigneeNames(prev => ({ ...prev, [index]: false }));
-    }
-  };
-
   const fetchNamesForReportingBy = async (role: string, designation?: string) => {
     setIsLoadingReportingByNames(true);
     try {
@@ -752,66 +652,20 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
     }
   };
 
-  const fetchDesignationsForReportingByRow = async (index: number, role: string) => {
-    try {
-      if (role && role.trim() !== '' && role.toLowerCase() !== 'all roles') {
-        const designations = await apiGetDesignations(role);
-        setReportingByDesignationsByIndex(prev => ({ ...prev, [index]: designations || [] }));
-      } else {
-        const designations = await apiGetDesignations();
-        setReportingByDesignationsByIndex(prev => ({ ...prev, [index]: designations || [] }));
-      }
-    } catch {
-      setReportingByDesignationsByIndex(prev => ({ ...prev, [index]: [] }));
-    }
-  };
-
-  const fetchNamesForReportingByRow = async (index: number, role: string, designation?: string) => {
-    setIsLoadingReportingByByIndex(prev => ({ ...prev, [index]: true }));
-    try {
-      const roleParam = role && role.trim() !== '' && role.toLowerCase() !== 'all roles' ? role : '';
-      const designationParam =
-        designation && designation.trim() !== '' && designation.toLowerCase() !== 'all designations' ? designation : '';
-      const names = await apiGetNamesFromRoleAndDesignation(roleParam, designationParam);
-      setReportingByNamesByIndex(prev => ({ ...prev, [index]: names || [] }));
-    } catch {
-      setReportingByNamesByIndex(prev => ({ ...prev, [index]: [] }));
-    } finally {
-      setIsLoadingReportingByByIndex(prev => ({ ...prev, [index]: false }));
-    }
-  };
-
   // Handle role change for a specific assignee
-  const handleAssigneeRoleChange = async (index: number, newRole: string) => {
+  const handleAssigneeRoleChange = (index: number, newRole: string) => {
     const updated = [...multipleAssignees];
     updated[index] = { ...updated[index], role: newRole, designation: '', assigneeId: '' }; // Reset designation and assignee when role changes
     setMultipleAssignees(updated);
-    
-    // Fetch designations for this role
-    await fetchDesignationsForAssignee(index, newRole);
-    
-    // Fetch names for this role (without designation filter initially)
-    if (newRole && newRole.trim() !== '' && newRole.toLowerCase() !== 'all roles') {
-      await fetchNamesForAssignee(index, newRole, '');
-    } else {
-      // If "All Roles" selected, fetch all names
-      await fetchNamesForAssignee(index, '', '');
-    }
+    // Designations and users derived from employees - no API calls needed
   };
 
   // Handle designation change for a specific assignee
-  const handleAssigneeDesignationChange = async (index: number, newDesignation: string) => {
+  const handleAssigneeDesignationChange = (index: number, newDesignation: string) => {
     const updated = [...multipleAssignees];
     updated[index] = { ...updated[index], designation: newDesignation, assigneeId: '' }; // Reset assignee when designation changes
     setMultipleAssignees(updated);
-    
-    // Fetch names for this role and designation
-    const role = updated[index].role;
-    if (newDesignation && newDesignation.trim() !== '' && newDesignation.toLowerCase() !== 'all designations') {
-      await fetchNamesForAssignee(index, role, newDesignation);
-    } else {
-      await fetchNamesForAssignee(index, role, '');
-    }
+    // User list is derived from employees (assigneeFilteredNamesFromEmployees) - no API call needed
   };
 
   // MD sees Role/Designation/User (+ button) on both pages; Admin and HR see it only on Reporting Task page
@@ -824,6 +678,85 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
   // Get unique designations dynamically from API users
   const uniqueDesignations = ['All', ...Array.from(new Set(usersForDropdown.map(u => u.designation).filter(Boolean)))];
   
+  // Helper: filter employees by role and designation (for Create Task - Assign To & Reporting By)
+  const filterEmployeesByRoleAndDesignation = (employees: User[], role: string, designation: string): User[] => {
+    return employees.filter(u => {
+      if (role && role.trim() !== '' && role.toLowerCase() !== 'all roles') {
+        const roleMap: Record<string, string> = {
+          [UserRole.MD]: 'MD',
+          [UserRole.ADMIN]: 'ADMIN',
+          [UserRole.HR]: 'HR',
+          [UserRole.TEAM_LEADER]: 'TEAM_LEADER',
+          [UserRole.EMPLOYEE]: 'EMPLOYEE',
+          [UserRole.INTERN]: 'INTERN',
+        };
+        const userRoleNorm = (roleMap[u.role as UserRole] || String(u.role || '').toUpperCase()).replace(/[\s_]+/g, '_');
+        const selectedNorm = String(role).toUpperCase().replace(/[\s_]+/g, '_');
+        if (userRoleNorm !== selectedNorm) return false;
+      }
+      if (designation && designation.trim() !== '' && designation.toLowerCase() !== 'all designations') {
+        const userDes = String(u.designation || '').trim();
+        const selectedDes = String(designation).trim();
+        if (userDes !== selectedDes) return false;
+      }
+      return true;
+    });
+  };
+
+  // Helper: get unique designations from employees, optionally filtered by role
+  const getDesignationsFromEmployees = (employees: User[], role?: string): string[] => {
+    const filtered = role && role.trim() !== '' && role.toLowerCase() !== 'all roles'
+      ? filterEmployeesByRoleAndDesignation(employees, role, '')
+      : employees;
+    return [...Array.from(new Set(filtered.map(u => u.designation).filter(Boolean))).sort()];
+  };
+
+  // Assignee designations from employees (per row, filtered by role)
+  const assigneeDesignationsFromEmployees = useMemo(() => {
+    const out: Record<number, string[]> = {};
+    multipleAssignees.forEach((assignee, index) => {
+      out[index] = getDesignationsFromEmployees(usersForDropdown, assignee.role || '');
+    });
+    return out;
+  }, [multipleAssignees, usersForDropdown]);
+
+  // Reporting By designations from employees (per row, filtered by role)
+  const reportingByDesignationsFromEmployees = useMemo(() => {
+    const out: Record<number, string[]> = {};
+    multipleReportingBy.forEach((row, index) => {
+      out[index] = getDesignationsFromEmployees(usersForDropdown, row.role || '');
+    });
+    return out;
+  }, [multipleReportingBy, usersForDropdown]);
+
+  // View filter designations from employees (for viewFilterRole)
+  const viewFilterDesignationsFromEmployees = useMemo(() => {
+    return getDesignationsFromEmployees(usersForDropdown, viewFilterRole || '');
+  }, [usersForDropdown, viewFilterRole]);
+
+  // Modal available designations from employees (for selectedRole)
+  const availableDesignationsFromEmployees = useMemo(() => {
+    return getDesignationsFromEmployees(usersForDropdown, selectedRole || '');
+  }, [usersForDropdown, selectedRole]);
+
+  // Assignee names from employees (role + designation filtered) - used for Assign To User dropdown
+  const assigneeFilteredNamesFromEmployees = useMemo(() => {
+    const out: Record<number, (User | any)[]> = {};
+    multipleAssignees.forEach((assignee, index) => {
+      out[index] = filterEmployeesByRoleAndDesignation(usersForDropdown, assignee.role || '', assignee.designation || '');
+    });
+    return out;
+  }, [multipleAssignees, usersForDropdown]);
+
+  // Reporting By names from employees (role + designation filtered) - used for Employee/Intern Create Task
+  const reportingByNamesFromEmployees = useMemo(() => {
+    const out: Record<number, (User | any)[]> = {};
+    multipleReportingBy.forEach((row, index) => {
+      out[index] = filterEmployeesByRoleAndDesignation(usersForDropdown, row.role || '', row.designation || '');
+    });
+    return out;
+  }, [multipleReportingBy, usersForDropdown]);
+
   // Filter users by role and designation
   // If no filters are selected, show ALL users
   const filteredUsersForAssign = usersForDropdown.filter(u => {
@@ -881,17 +814,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
   if (viewMode === 'reporting') {
     const reportingTasks = tasks;
     
-    let filteredReportingTasks = filterType === 'ALL'
+    let filteredReportingTasksForCounts = filterType === 'ALL'
       ? reportingTasks
       : reportingTasks.filter(t => t.type === filterType);
-    // Apply status filter
-    if (filterStatus !== 'ALL') {
-      filteredReportingTasks = filteredReportingTasks.filter(t => t.status === filterStatus);
-    }
     // Apply date filter - match task due date to selected date
     if (reportingDateFilter && reportingDateFilter.trim() !== '') {
       const selectedYMD = reportingDateFilter.includes('T') ? reportingDateFilter.split('T')[0] : reportingDateFilter;
-      filteredReportingTasks = filteredReportingTasks.filter(t => {
+      filteredReportingTasksForCounts = filteredReportingTasksForCounts.filter(t => {
         const taskDue = t.dueDate || '';
         const taskYMD = taskDue.includes('T') ? taskDue.split('T')[0] : taskDue.substring(0, 10);
         return taskYMD === selectedYMD;
@@ -899,7 +828,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
     }
     // Apply role and designation filters
     if (viewFilterRole && viewFilterRole.trim() !== '') {
-      filteredReportingTasks = filteredReportingTasks.filter(task => {
+      filteredReportingTasksForCounts = filteredReportingTasksForCounts.filter(task => {
         const taskAssigneeId = String(task.assigneeId || '').trim();
         const assigneeUser = users.find(u => 
           u.id === taskAssigneeId || 
@@ -907,7 +836,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
           u.email === taskAssigneeId
         );
         if (assigneeUser) {
-          // Compare role - check both enum value and formatted string
           const assigneeRoleStr = String(assigneeUser.role).toUpperCase();
           const filterRoleStr = viewFilterRole.toUpperCase();
           if (assigneeRoleStr !== filterRoleStr && 
@@ -915,8 +843,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
               assigneeRoleStr !== filterRoleStr.replace(/_/g, ' ')) {
             return false;
           }
-          
-          // Apply designation filter if role matches
           if (viewFilterDesignation && viewFilterDesignation.trim() !== '') {
             const assigneeDesignation = assigneeUser.designation || '';
             if (assigneeDesignation !== viewFilterDesignation) {
@@ -927,10 +853,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
         return true;
       });
     }
-    // Apply search filter - by task title, description, or created by
+    // Apply search filter
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
-      filteredReportingTasks = filteredReportingTasks.filter(task => {
+      filteredReportingTasksForCounts = filteredReportingTasksForCounts.filter(task => {
         const titleMatch = (task.title || '').toLowerCase().includes(q);
         const descMatch = (task.description || '').toLowerCase().includes(q);
         const createdByMatch = (task.createdByName || '').toLowerCase().includes(q);
@@ -939,11 +865,19 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
     }
     // Apply branch filter - creator's branch must match (MD only)
     if (currentUser.role === UserRole.MD && branchFilter && branchFilter.trim() !== '') {
-      filteredReportingTasks = filteredReportingTasks.filter(task => {
+      filteredReportingTasksForCounts = filteredReportingTasksForCounts.filter(task => {
         const creatorBranch = getCreatorBranch(task);
         return creatorBranch && normalizeBranch(creatorBranch) === normalizeBranch(branchFilter);
       });
     }
+
+    const reportPendingCount = filteredReportingTasksForCounts.filter(t => t.status === TaskStatus.PENDING).length;
+    const reportInProgressCount = filteredReportingTasksForCounts.filter(t => t.status === TaskStatus.IN_PROGRESS).length;
+    const reportCompletedCount = filteredReportingTasksForCounts.filter(t => t.status === TaskStatus.COMPLETED).length;
+
+    const filteredReportingTasks = filterStatus === 'ALL'
+      ? filteredReportingTasksForCounts
+      : filteredReportingTasksForCounts.filter(t => t.status === filterStatus);
 
     return (
       <div className="space-y-4 sm:space-y-6">
@@ -981,10 +915,50 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
         {/* Reporting Tasks title with inline calendar date picker and search */}
         <div className="bg-white p-3 sm:p-4 rounded-xl border border-gray-200 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 flex items-center gap-2">
-              <Calendar size={24} className="text-brand-600 sm:w-7 sm:h-7" />
-              Reporting Tasks
-            </h2>
+            <div className="flex flex-col gap-2">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <Calendar size={24} className="text-brand-600 sm:w-7 sm:h-7" />
+                Reporting Tasks
+              </h2>
+              <div className="flex flex-wrap gap-2 text-sm">
+                <button
+                  type="button"
+                  onClick={() => setFilterStatus('ALL')}
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full border transition-colors ${
+                    filterStatus === 'ALL' ? 'bg-slate-200 text-slate-800 border-slate-400 ring-2 ring-slate-400' : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  All: {reportPendingCount + reportInProgressCount + reportCompletedCount}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterStatus(TaskStatus.PENDING)}
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full border transition-colors ${
+                    filterStatus === TaskStatus.PENDING ? 'bg-amber-300 text-amber-900 border-amber-400 ring-2 ring-amber-400' : 'bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-200'
+                  }`}
+                >
+                  Pending: {reportPendingCount}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterStatus(TaskStatus.IN_PROGRESS)}
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full border transition-colors ${
+                    filterStatus === TaskStatus.IN_PROGRESS ? 'bg-blue-300 text-blue-900 border-blue-400 ring-2 ring-blue-400' : 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200'
+                  }`}
+                >
+                  In Progress: {reportInProgressCount}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterStatus(TaskStatus.COMPLETED)}
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full border transition-colors ${
+                    filterStatus === TaskStatus.COMPLETED ? 'bg-green-300 text-green-900 border-green-400 ring-2 ring-green-400' : 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200'
+                  }`}
+                >
+                  Completed: {reportCompletedCount}
+                </button>
+              </div>
+            </div>
             {/* Search + Filters: stacked on mobile, inline on desktop */}
             <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 w-full sm:w-auto">
               <div className="relative w-full sm:flex-1 sm:min-w-[180px] sm:max-w-xs">
@@ -1020,16 +994,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                 <option value={TaskType.SOS}>SOS</option>
                 <option value={TaskType.ONE_DAY}>1 Day</option>
                 <option value={TaskType.TEN_DAYS}>10 Day</option>
-              </select>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full sm:w-auto px-2 sm:px-3 py-2 rounded-lg border border-gray-300 text-xs sm:text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 sm:min-w-[120px]"
-              >
-                <option value="ALL">All status</option>
-                <option value={TaskStatus.COMPLETED}>Completed</option>
-                <option value={TaskStatus.IN_PROGRESS}>In Progress</option>
-                <option value={TaskStatus.PENDING}>Pending</option>
               </select>
               <input
                 type="date"
@@ -1379,10 +1343,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                         <div className="space-y-3">
                             <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Assign To</label>
                             {multipleAssignees.map((assignee, index) => {
-                              const assigneeNames = assigneeFilteredNames[index] || [];
-                              const isLoading = isLoadingAssigneeNames[index] || false;
+                              const assigneeNames = assigneeFilteredNamesFromEmployees[index] ?? [];
+                              const isLoading = isLoadingEmployees && usersForDropdown.length === 0;
                               
-                              const assigneeDesignationsList = assigneeDesignations[index] || [];
+                              const assigneeDesignationsList = assigneeDesignationsFromEmployees[index] ?? [];
                               
                               return (
                                 <div key={index} className="space-y-2">
@@ -1491,32 +1455,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                                           type="button"
                                           onClick={() => {
                                             const updated = multipleAssignees.filter((_, i) => i !== index);
-                                            const updatedNames = { ...assigneeFilteredNames };
-                                            const updatedLoading = { ...isLoadingAssigneeNames };
-                                            const updatedDesignations = { ...assigneeDesignations };
-                                            delete updatedNames[index];
-                                            delete updatedLoading[index];
-                                            delete updatedDesignations[index];
-                                            // Reindex
-                                            const reindexedNames: Record<number, any[]> = {};
-                                            const reindexedLoading: Record<number, boolean> = {};
-                                            const reindexedDesignations: Record<number, string[]> = {};
-                                            Object.keys(updatedNames).forEach(key => {
-                                              const oldIdx = parseInt(key);
-                                              if (oldIdx > index) {
-                                                reindexedNames[oldIdx - 1] = updatedNames[oldIdx];
-                                                reindexedLoading[oldIdx - 1] = updatedLoading[oldIdx];
-                                                reindexedDesignations[oldIdx - 1] = updatedDesignations[oldIdx];
-                                              } else {
-                                                reindexedNames[oldIdx] = updatedNames[oldIdx];
-                                                reindexedLoading[oldIdx] = updatedLoading[oldIdx];
-                                                reindexedDesignations[oldIdx] = updatedDesignations[oldIdx];
-                                              }
-                                            });
                                             setMultipleAssignees(updated);
-                                            setAssigneeFilteredNames(reindexedNames);
-                                            setIsLoadingAssigneeNames(reindexedLoading);
-                                            setAssigneeDesignations(reindexedDesignations);
                                           }}
                                           className="flex items-center justify-center w-10 h-10 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors shadow-sm"
                                           title="Remove this assignee"
@@ -1552,9 +1491,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                         {multipleReportingBy.length > 1 && <div className="w-10" />}
                       </div>
                       {multipleReportingBy.map((row, index) => {
-                        const names = reportingByNamesByIndex[index] ?? [];
-                        const designations = reportingByDesignationsByIndex[index] ?? [];
-                        const loading = isLoadingReportingByByIndex[index];
+                        const names = reportingByNamesFromEmployees[index] ?? [];
+                        const designations = reportingByDesignationsFromEmployees[index] ?? [];
+                        const loading = isLoadingEmployees && usersForDropdown.length === 0;
                         const isEmployee = currentUser.role === UserRole.EMPLOYEE;
                         return (
                           <div key={`reporting-by-row-${index}`} className="flex items-start gap-2">
@@ -1575,8 +1514,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                                       setReportingById('');
                                       setReportingToId('');
                                     }
-                                    await fetchDesignationsForReportingByRow(index, role);
-                                    await fetchNamesForReportingByRow(index, role, '');
                                   }}
                                 >
                                   <option value="">All Roles</option>
@@ -1600,7 +1537,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                                       setReportingById('');
                                       setReportingToId('');
                                     }
-                                    await fetchNamesForReportingByRow(index, row.role, des);
                                   }}
                                   disabled={!row.role}
                                 >
@@ -1679,26 +1615,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                                     type="button"
                                     onClick={() => {
                                       const updated = multipleReportingBy.filter((_, i) => i !== index);
-                                      const updatedNames = { ...reportingByNamesByIndex };
-                                      const updatedDes = { ...reportingByDesignationsByIndex };
-                                      const updatedLoading = { ...isLoadingReportingByByIndex };
-                                      delete updatedNames[index];
-                                      delete updatedDes[index];
-                                      delete updatedLoading[index];
-                                      const reindexedNames: Record<number, any[]> = {};
-                                      const reindexedDes: Record<number, string[]> = {};
-                                      const reindexedLoading: Record<number, boolean> = {};
-                                      Object.keys(updatedNames).forEach(k => {
-                                        const oldIdx = parseInt(k);
-                                        const newIdx = oldIdx > index ? oldIdx - 1 : oldIdx;
-                                        reindexedNames[newIdx] = updatedNames[oldIdx];
-                                        reindexedDes[newIdx] = updatedDes[oldIdx];
-                                        reindexedLoading[newIdx] = updatedLoading[oldIdx];
-                                      });
                                       setMultipleReportingBy(updated);
-                                      setReportingByNamesByIndex(reindexedNames);
-                                      setReportingByDesignationsByIndex(reindexedDes);
-                                      setIsLoadingReportingByByIndex(reindexedLoading);
                                       if (index === 0 && updated[0]) {
                                         setReportingByRole(updated[0].role);
                                         setReportingByDesignation(updated[0].designation);
@@ -1799,10 +1716,50 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
       {/* Assigned Tasks title with search and date filter */}
         <div className="bg-white p-3 sm:p-4 rounded-xl border border-gray-200 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-800 flex items-center gap-2">
-              <Calendar size={24} className="text-brand-600 sm:w-7 sm:h-7" />
-              Assigned Tasks
-            </h2>
+            <div className="flex flex-col gap-2">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <Calendar size={24} className="text-brand-600 sm:w-7 sm:h-7" />
+                Assigned Tasks
+              </h2>
+              <div className="flex flex-wrap gap-2 text-sm">
+                <button
+                  type="button"
+                  onClick={() => setFilterStatus('ALL')}
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full border transition-colors ${
+                    filterStatus === 'ALL' ? 'bg-slate-200 text-slate-800 border-slate-400 ring-2 ring-slate-400' : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  All: {assignPendingCount + assignInProgressCount + assignCompletedCount}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterStatus(TaskStatus.PENDING)}
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full border transition-colors ${
+                    filterStatus === TaskStatus.PENDING ? 'bg-amber-300 text-amber-900 border-amber-400 ring-2 ring-amber-400' : 'bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-200'
+                  }`}
+                >
+                  Pending: {assignPendingCount}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterStatus(TaskStatus.IN_PROGRESS)}
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full border transition-colors ${
+                    filterStatus === TaskStatus.IN_PROGRESS ? 'bg-blue-300 text-blue-900 border-blue-400 ring-2 ring-blue-400' : 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200'
+                  }`}
+                >
+                  In Progress: {assignInProgressCount}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterStatus(TaskStatus.COMPLETED)}
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full border transition-colors ${
+                    filterStatus === TaskStatus.COMPLETED ? 'bg-green-300 text-green-900 border-green-400 ring-2 ring-green-400' : 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200'
+                  }`}
+                >
+                  Completed: {assignCompletedCount}
+                </button>
+              </div>
+            </div>
             {/* Search + Filters: stacked on mobile, inline on desktop */}
             <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 w-full sm:w-auto">
               <div className="relative w-full sm:flex-1 sm:min-w-[180px] sm:max-w-xs">
@@ -1838,16 +1795,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                 <option value={TaskType.SOS}>SOS</option>
                 <option value={TaskType.ONE_DAY}>1 Day</option>
                 <option value={TaskType.TEN_DAYS}>10 Day</option>
-              </select>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full sm:w-auto px-2 sm:px-3 py-2 rounded-lg border border-gray-300 text-xs sm:text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 sm:min-w-[120px]"
-              >
-                <option value="ALL">All status</option>
-                <option value={TaskStatus.COMPLETED}>Completed</option>
-                <option value={TaskStatus.IN_PROGRESS}>In Progress</option>
-                <option value={TaskStatus.PENDING}>Pending</option>
               </select>
               <input
                 type="date"
@@ -2172,9 +2119,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                     ) : (
                         <div className="space-y-3">
                             {multipleAssignees.map((assignee, index) => {
-                              const assigneeNames = assigneeFilteredNames[index] || [];
-                              const isLoading = isLoadingAssigneeNames[index] || false;
-                              const assigneeDesignationsList = assigneeDesignations[index] || [];
+                              const assigneeNames = assigneeFilteredNamesFromEmployees[index] ?? [];
+                              const isLoading = isLoadingEmployees && usersForDropdown.length === 0;
+                              const assigneeDesignationsList = assigneeDesignationsFromEmployees[index] ?? [];
                               
                               return (
                                 <div key={index} className="space-y-2">
@@ -2283,32 +2230,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                                           type="button"
                                           onClick={() => {
                                             const updated = multipleAssignees.filter((_, i) => i !== index);
-                                            const updatedNames = { ...assigneeFilteredNames };
-                                            const updatedLoading = { ...isLoadingAssigneeNames };
-                                            const updatedDesignations = { ...assigneeDesignations };
-                                            delete updatedNames[index];
-                                            delete updatedLoading[index];
-                                            delete updatedDesignations[index];
-                                            // Reindex
-                                            const reindexedNames: Record<number, any[]> = {};
-                                            const reindexedLoading: Record<number, boolean> = {};
-                                            const reindexedDesignations: Record<number, string[]> = {};
-                                            Object.keys(updatedNames).forEach(key => {
-                                              const oldIdx = parseInt(key);
-                                              if (oldIdx > index) {
-                                                reindexedNames[oldIdx - 1] = updatedNames[oldIdx];
-                                                reindexedLoading[oldIdx - 1] = updatedLoading[oldIdx];
-                                                reindexedDesignations[oldIdx - 1] = updatedDesignations[oldIdx];
-                                              } else {
-                                                reindexedNames[oldIdx] = updatedNames[oldIdx];
-                                                reindexedLoading[oldIdx] = updatedLoading[oldIdx];
-                                                reindexedDesignations[oldIdx] = updatedDesignations[oldIdx];
-                                              }
-                                            });
                                             setMultipleAssignees(updated);
-                                            setAssigneeFilteredNames(reindexedNames);
-                                            setIsLoadingAssigneeNames(reindexedLoading);
-                                            setAssigneeDesignations(reindexedDesignations);
                                           }}
                                           className="flex items-center justify-center w-10 h-10 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors shadow-sm"
                                           title="Remove this assignee"

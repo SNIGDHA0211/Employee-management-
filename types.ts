@@ -174,6 +174,8 @@ export interface ChatGroup {
   isPrivate: boolean;
   totalParticipant?: number; // From API loadChats Group_info
   groupId?: string | number; // From API, used as chat_id for messaging
+  last_message_at?: string; // From API loadChats Group_info
+  unseen_count?: number; // From API loadChats Group_info
 }
 
 export interface AttendanceRecord {
