@@ -96,27 +96,44 @@ const ToastNotification: React.FC<{
   id: string;
   title: string;
   message: string;
-  extra?: { time?: string };
+  extra?: Record<string, string | number | boolean | undefined | null>;
   onDismiss: () => void;
 }> = ({ title, message, extra, onDismiss }) => {
   useEffect(() => {
     const t = setTimeout(onDismiss, 7000);
     return () => clearTimeout(t);
   }, [onDismiss]);
+  const extraEntries = extra && typeof extra === 'object'
+    ? Object.entries(extra).filter(([, v]) => v != null && v !== '')
+    : [];
   return (
     <div
-      className="bg-white rounded-xl shadow-lg border border-gray-200 p-4 flex items-start gap-3"
+      className="toast-notification-enter toast-notification-glow toast-notification-blink relative overflow-hidden rounded-2xl border-2 border-brand-500/60 bg-gradient-to-br from-white via-brand-50/90 to-brand-100/60 p-4 flex items-start gap-3 shadow-xl backdrop-blur-sm"
       role="alert"
     >
-      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center">
-        <Bell size={20} className="text-brand-600" />
+      {/* Animated gradient accent bar - project brand colors */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-500 via-brand-600 to-brand-700" />
+      <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center shadow-lg shadow-brand-500/30">
+        <Bell size={24} className="text-white" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="font-semibold text-gray-900 text-sm">{title}</p>
-        <p className="text-gray-600 text-sm mt-0.5">{message}</p>
-        {extra?.time && <p className="text-xs text-gray-500 mt-1">{extra.time}</p>}
+        <p className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-brand-700 to-brand-900 text-sm">{title}</p>
+        <p className="text-gray-700 text-sm mt-0.5 font-medium">{message}</p>
+        {extraEntries.length > 0 && (
+          <div className="mt-2 space-y-0.5">
+            {extraEntries.map(([key, value]) => (
+              <p key={key} className="text-xs text-brand-700/90 font-medium">
+                <span className="capitalize">{key.replace(/_/g, ' ')}:</span> {String(value)}
+              </p>
+            ))}
+          </div>
+        )}
       </div>
-      <button onClick={onDismiss} className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600 rounded" aria-label="Dismiss">
+      <button
+        onClick={onDismiss}
+        className="flex-shrink-0 p-1.5 rounded-lg text-brand-600 hover:bg-brand-100 hover:text-brand-700 transition-colors"
+        aria-label="Dismiss"
+      >
         <X size={18} />
       </button>
     </div>
@@ -1845,7 +1862,7 @@ export default function App() {
       {/* In-app toast notifications - rendered via portal so visible on all tabs/sections */}
       {typeof document !== 'undefined' &&
         createPortal(
-          <div className="fixed top-4 right-4 z-[99999] flex flex-col gap-2 max-w-sm">
+          <div className="fixed top-4 right-4 z-[99999] flex flex-col gap-3 max-w-sm w-full px-2 sm:px-0">
             {toastNotifications.map((t) => (
               <ToastNotification
                 key={t.id}
