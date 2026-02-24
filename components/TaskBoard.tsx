@@ -403,12 +403,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
       alert("Please enter a task title.");
       return;
     }
-    const todayStr = new Date().toISOString().split('T')[0];
-    if (newTaskDate < todayStr) {
-      alert("Due date cannot be before today.");
-      return;
-    }
-    
+
     // If group task, ensure at least one person is selected
     if (newTaskType === TaskType.GROUP && newTaskAssigneeIds.length === 0) {
         alert("Please select at least one person for the group task.");
@@ -1273,7 +1268,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                        <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
                        <input 
                           type="date"
-                          min={new Date().toISOString().split('T')[0]}
                           className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
                           value={newTaskDate}
                           onChange={e => setNewTaskDate(e.target.value)}
@@ -2057,7 +2051,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                      <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
                      <input 
                         type="date"
-                        min={new Date().toISOString().split('T')[0]}
                         className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
                         value={newTaskDate}
                         onChange={e => setNewTaskDate(e.target.value)}
