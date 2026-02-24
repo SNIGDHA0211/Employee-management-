@@ -3,6 +3,7 @@ import { useRolesQuery } from '../hooks/useRoles';
 import { useBranchesQuery } from '../hooks/useBranches';
 import { User, UserRole, formatRoleForDisplay } from '../types';
 import { UserPlus, Trash2, Shield, Calendar, Mail, User as UserIcon, Upload, Hash, Camera, Lock, Key, Building2, X, Briefcase, Users as UsersIcon, Pencil, Clock, Plus, Search } from 'lucide-react';
+import { USE_BACKEND_AVATARS } from '../config';
 import api, { 
   getDesignations as apiGetDesignations,
   getDepartmentsandFunctions as apiGetDepartmentsandFunctions,
@@ -280,18 +281,25 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         const teamLead = emp['Teamlead'] || emp['Team_Lead'] || emp.teamLead || emp['Team Lead'] || emp['TeamLead'] || '';
         const joinDate = emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0];
         const birthDate = emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01';
-        // Get avatar URL - handle both full URLs and relative paths
+        // Get avatar URL - use ui-avatars when USE_BACKEND_AVATARS is false (avoids 429/503)
         let avatar = emp['Photo_link'] || emp['Profile Picture'] || emp.avatar || emp.profilePicture || '';
-        
-        // If avatar is a relative path, convert it to full URL
-        if (avatar && !avatar.startsWith('http') && !avatar.startsWith('data:')) {
-          // Check if it's a relative path that needs the base URL
-          // Assuming the backend serves images from a specific endpoint
-          // You may need to adjust this based on your backend setup
-          if (avatar.startsWith('/')) {
-            avatar = `https://employee-management-system-tmrl.onrender.com${avatar}`;
-          } else if (avatar) {
-            avatar = `https://employee-management-system-tmrl.onrender.com/${avatar}`;
+        if (!USE_BACKEND_AVATARS) {
+          avatar = '';
+        } else if (avatar && !avatar.startsWith('data:') && !avatar.includes('ui-avatars.com')) {
+          const isDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.'));
+          const mediaBase = 'https://employee-management-system-tmrl.onrender.com';
+          if (avatar.startsWith('http://') || avatar.startsWith('https://')) {
+            try {
+              const url = new URL(avatar);
+              const isMediaPath = url.pathname.startsWith('/media/') || url.pathname.includes('/media/');
+              const isOurBackend = url.hostname.includes('onrender.com') || url.hostname.includes('employee-management');
+              if (isDev && isMediaPath && isOurBackend) {
+                avatar = url.pathname.startsWith('/') ? url.pathname : `/${url.pathname}`;
+              }
+            } catch (e) { /* keep as-is */ }
+          } else {
+            const clean = (avatar.startsWith('/media/') ? avatar.slice(7) : avatar.startsWith('media/') ? avatar.slice(6) : avatar.startsWith('/') ? avatar.slice(1) : avatar);
+            avatar = isDev ? `/media/${clean}` : `${mediaBase}/media/${clean}`;
           }
         }
         
@@ -800,9 +808,9 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
               ) : (
                 filteredDisplayUsers.map(user => {
                   const avatarUrl = user.avatar && user.avatar.trim()
-                    ? (user.avatar.startsWith('http') || user.avatar.startsWith('data:')
+                    ? (user.avatar.startsWith('http') || user.avatar.startsWith('data:') || user.avatar.startsWith('/')
                         ? user.avatar
-                        : `https://employee-management-system-tmrl.onrender.com${user.avatar.startsWith('/') ? '' : '/'}${user.avatar}`)
+                        : `https://employee-management-system-tmrl.onrender.com/${user.avatar}`)
                     : `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`;
                   return (
                     <div
@@ -1502,6 +1510,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                     className="w-10 h-10 rounded-full object-cover border-2 border-gray-200 shadow-sm flex-shrink-0"
                     alt={selectedUser.name}
                     src={selectedUser.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUser.name)}&background=random`}
+                    onError={(e) => { const t = e.target as HTMLImageElement; if (!t.src.includes('ui-avatars.com')) t.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUser.name)}&background=random`; }}
                   />
                   <div className="min-w-0 flex-1">
                     <h2 className="text-lg sm:text-xl font-bold text-white truncate">{selectedUser.name}</h2>
@@ -1547,7 +1556,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                         {editPhotoPreview ? (
                           <img src={editPhotoPreview} alt="New" className="w-full h-full object-cover" />
                         ) : selectedUser.avatar ? (
-                          <img src={selectedUser.avatar} alt={selectedUser.name} className="w-full h-full object-cover" />
+                          <img src={selectedUser.avatar} alt={selectedUser.name} className="w-full h-full object-cover" onError={(e) => { const t = e.target as HTMLImageElement; if (!t.src.includes('ui-avatars.com')) t.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedUser.name)}&background=random`; }} />
                         ) : (
                           <Camera className="text-gray-400" size={24} />
                         )}

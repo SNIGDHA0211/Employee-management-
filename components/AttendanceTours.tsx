@@ -202,7 +202,7 @@ export const AttendanceTours: React.FC<AttendanceToursProps> = ({ currentUser, u
                    return (
                        <div key={tour.id} className={`flex items-center justify-between p-4 rounded-xl border ${isOngoing ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
                           <div className="flex items-center space-x-4">
-                              <img src={tourUser?.avatar} className="w-10 h-10 rounded-full border-2 border-white shadow-sm" alt={tourUser?.name} />
+                              <img src={tourUser?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(tourUser?.name || '')}&background=random`} className="w-10 h-10 rounded-full border-2 border-white shadow-sm" alt={tourUser?.name} onError={(e) => { const t = e.target as HTMLImageElement; if (!t.src.includes('ui-avatars.com')) t.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(tourUser?.name || '')}&background=random`; }} />
                               <div>
                                   <h4 className="font-bold text-gray-800">{tourUser?.name}</h4>
                                   <p className="text-xs text-gray-500 flex items-center">

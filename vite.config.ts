@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     const apiTarget = env.VITE_API_TARGET || 'https://employee-management-system-1-jwyn.onrender.com';
+    const mediaTarget = env.VITE_MEDIA_TARGET || 'https://employee-management-system-tmrl.onrender.com';
     const wsTarget = env.VITE_WS_TARGET || apiTarget;
     const wsTargetIsHttps = wsTarget.startsWith('https');
     return {
@@ -21,6 +22,11 @@ export default defineConfig(({ mode }) => {
               proxy.on('error', (_err, _req, _res) => {});
               proxy.on('proxyReq', (_proxyReq, _req, _res) => {});
             },
+          },
+          // Proxy media (profile images) to avoid CORS/429 blocking - same-origin requests
+          '/media': {
+            target: mediaTarget,
+            changeOrigin: true,
           },
           // Proxy WebSocket to backend (must match API target for session auth)
           '/ws': {

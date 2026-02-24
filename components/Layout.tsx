@@ -1,5 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { User, UserRole, formatRoleForDisplay } from '../types';
 import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart } from 'lucide-react';
 import { getMotivationalQuote } from '../services/gemini';
@@ -248,22 +249,91 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
   );
 };
 
-export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number; notificationMeetings?: any[] }> = ({ user, users = [], toggleSidebar, onMeetClick, notificationMeetings = [] }) => {
+type NotificationItem = { id: number; type_of_notification: number; from_user: string; receipient: string; message: string; is_read: boolean; created_at: string };
+
+/** Tracks when notification scrolls into view - reports to onSeen for marking read when panel closes */
+const NotificationEntry: React.FC<{
+  notification: NotificationItem;
+  onSeen?: (id: number) => void;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  isPanelOpen: boolean;
+}> = ({ notification: n, onSeen, scrollContainerRef, isPanelOpen }) => {
+  const entryRef = useRef<HTMLDivElement>(null);
+  const hasSeenRef = useRef(false);
+
+  useEffect(() => {
+    if (!isPanelOpen || !scrollContainerRef?.current || !entryRef.current || n.is_read || hasSeenRef.current || !onSeen) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !hasSeenRef.current) {
+          hasSeenRef.current = true;
+          onSeen(n.id);
+        }
+      },
+      { root: scrollContainerRef.current, threshold: 0.1 }
+    );
+    observer.observe(entryRef.current);
+    return () => observer.disconnect();
+  }, [isPanelOpen, n.id, n.is_read, onSeen, scrollContainerRef]);
+
+  return (
+    <div
+      ref={entryRef}
+      className={`p-3 rounded-lg hover:bg-gray-50 border-b border-gray-100 last:border-0 ${!n.is_read ? 'bg-blue-100/40' : ''}`}
+    >
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <p className="text-xs font-medium text-brand-600 shrink-0">{n.from_user}</p>
+        <p className="text-[10px] text-gray-400 shrink-0">{n.created_at}</p>
+      </div>
+      <p className="text-sm text-gray-800 break-words whitespace-pre-wrap">{n.message}</p>
+    </div>
+  );
+};
+
+export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number; notificationMeetings?: any[]; notificationsToday?: NotificationItem[]; onMarkNotificationRead?: (id: number) => void | Promise<void> }> = ({ user, users = [], toggleSidebar, onMeetClick, notificationMeetings = [], notificationsToday = [], onMarkNotificationRead }) => {
   const [quote, setQuote] = useState("Loading thought...");
   const [showMeetingDropdown, setShowMeetingDropdown] = useState(false);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | null>(null);
   const meetings = notificationMeetings ?? [];
+  const notifications = notificationsToday ?? [];
 
   useEffect(() => {
     if (isNotificationSupported()) setNotifPermission(getPermission());
   }, []);
 
   const toggleMeetingDropdown = () => setShowMeetingDropdown((prev) => !prev);
+  const notificationScrollRef = useRef<HTMLDivElement>(null);
+  const bellTriggerRef = useRef<HTMLButtonElement>(null);
+  const [panelPosition, setPanelPosition] = useState({ top: 0, right: 0 });
+  const seenNotificationIdsRef = useRef<Set<number>>(new Set());
+
+  // Update panel position when opening (for portal placement)
+  useEffect(() => {
+    if (showMeetingDropdown && bellTriggerRef.current) {
+      const rect = bellTriggerRef.current.getBoundingClientRect();
+      setPanelPosition({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+    }
+  }, [showMeetingDropdown]);
+
+  // When panel closes, mark all notifications that were displayed/scrolled as read
+  const prevPanelOpenRef = useRef(false);
+  useEffect(() => {
+    const wasOpen = prevPanelOpenRef.current;
+    prevPanelOpenRef.current = showMeetingDropdown;
+    if (wasOpen && !showMeetingDropdown && onMarkNotificationRead) {
+      seenNotificationIdsRef.current.forEach((id) => onMarkNotificationRead(id));
+      seenNotificationIdsRef.current.clear();
+    }
+  }, [showMeetingDropdown, onMarkNotificationRead]);
+
+  const handleNotificationSeen = useCallback((id: number) => {
+    seenNotificationIdsRef.current.add(id);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (showMeetingDropdown && !target.closest('.meeting-dropdown-trigger')) {
+      if (showMeetingDropdown && !target.closest('.meeting-dropdown-trigger') && !target.closest('.notification-panel')) {
         setShowMeetingDropdown(false);
       }
     };
@@ -279,8 +349,8 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
     return () => clearInterval(interval);
   }, []);
 
-  const meetingCount = meetings.length;
-  const sortedMeetings = [...meetings].sort((a: any, b: any) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const sortedNotifications = [...notifications].sort((a, b) => (b?.id ?? 0) - (a?.id ?? 0));
 
   const todayStr = new Date().toISOString().split('T')[0];
   const birthdayUsers = users.filter((u: User) => u.birthDate?.endsWith(todayStr.slice(5)));
@@ -341,55 +411,44 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
         )}
         <div className="relative meeting-dropdown-trigger">
           <button
+            ref={bellTriggerRef}
             type="button"
             onClick={toggleMeetingDropdown}
             className="relative p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-            aria-label="View meetings"
+            aria-label="View notifications"
           >
             <Bell size={20} className="text-gray-600 hover:text-brand-600" />
-            {meetingCount > 0 && (
+            {unreadCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full z-[1]">
-                {meetingCount > 99 ? '99+' : meetingCount}
+                {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             )}
           </button>
-          {showMeetingDropdown && (
-            <div className="absolute right-0 top-full mt-2 w-80 max-h-96 overflow-hidden bg-white rounded-xl shadow-lg border border-gray-200 z-[9999]">
+          {showMeetingDropdown && typeof document !== 'undefined' && createPortal(
+            <div
+              className="notification-panel fixed w-96 max-h-[28rem] overflow-hidden bg-white rounded-xl shadow-xl border border-gray-200"
+              style={{ top: panelPosition.top, right: panelPosition.right, zIndex: 2147483647 }}
+            >
               <div className="p-3 border-b border-gray-100 bg-gray-50">
-                <h3 className="font-semibold text-gray-800 text-sm">Meets</h3>
+                <h3 className="font-semibold text-gray-800 text-sm">Notifications</h3>
               </div>
-              <div className="overflow-y-auto max-h-72 p-2">
-                {meetings.length === 0 ? (
-                  <p className="text-sm text-gray-500 py-4 text-center">No meetings scheduled</p>
+              <div ref={notificationScrollRef} className="overflow-y-auto max-h-80 p-2">
+                {notifications.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-4 text-center">No notifications</p>
                 ) : (
-                  sortedMeetings.map((m: any) => {
-                    const room = m.meeting_room ?? m.room ?? m.meeting_name ?? m.name ?? 'Meeting';
-                    const duration = m.time ?? m.duration ?? 60;
-                    const scheduled = m.schedule_time ?? m.scheduled_time ?? m.scheduled_at ?? m.created_at ?? m.date ?? m.datetime;
-                    const members = m.user_details ?? m.users ?? [];
-                    return (
-                    <div
-                      key={m.id}
-                      className="p-3 rounded-lg hover:bg-gray-50 border-b border-gray-100 last:border-0"
-                    >
-                      <p className="text-xs font-medium text-brand-600 mb-1">
-                        {room} · {duration === 60 ? '1 hr' : `${duration} min`}
-                      </p>
-                      {scheduled && (
-                        <p className="text-xs text-gray-500 mb-1">
-                          Scheduled: {formatBookingTime(String(scheduled))}
-                        </p>
-                      )}
-                      <div className="text-xs text-gray-700">
-                        <span className="font-medium">Members: </span>
-                        {members.map((u: any) => u?.full_name ?? u?.username ?? (typeof u === 'string' ? u : u?.name)).filter(Boolean).join(', ') || '—'}
-                      </div>
-                    </div>
-                    );
-                  })
+                  sortedNotifications.map((n) => (
+                    <NotificationEntry
+                      key={n.id}
+                      notification={n}
+                      onSeen={handleNotificationSeen}
+                      scrollContainerRef={notificationScrollRef}
+                      isPanelOpen={showMeetingDropdown}
+                    />
+                  ))
                 )}
               </div>
-            </div>
+            </div>,
+            document.body
           )}
         </div>
         <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold border border-brand-200">

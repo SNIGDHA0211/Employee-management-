@@ -3,19 +3,32 @@ import { useCallback } from 'react';
 import { fromApiDateFormat } from '../services/dateUtils';
 import { UserRole, User } from '../types';
 import { getEmployees, getEmployeesFromAccounts } from '../services/api';
+import { USE_BACKEND_AVATARS } from '../config';
 
-/** Convert Photo_link to absolute URL */
-const convertPhotoLinkToUrl = (photoLink: string | null | undefined): string => {
+/** Convert Photo_link to avatar URL - uses ui-avatars when USE_BACKEND_AVATARS is false (avoids 429/503) */
+const convertPhotoLinkToUrl = (photoLink: string | null | undefined, fallbackName: string): string => {
+  if (!USE_BACKEND_AVATARS) return `https://ui-avatars.com/api/?name=${encodeURIComponent(fallbackName || '')}&background=random`;
   if (!photoLink || typeof photoLink !== 'string' || photoLink.trim() === '') return '';
   const s = photoLink.trim();
-  if (s.startsWith('http') || s.startsWith('data:')) return s;
-  if (s.includes('ui-avatars.com')) return s;
+  if (s.startsWith('data:') || s.includes('ui-avatars.com')) return s;
   const base = 'https://employee-management-system-tmrl.onrender.com';
+  const isDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.'));
+  if (s.startsWith('http://') || s.startsWith('https://')) {
+    try {
+      const url = new URL(s);
+      const isMediaPath = url.pathname.startsWith('/media/') || url.pathname.includes('/media/');
+      const isOurBackend = url.hostname.includes('onrender.com') || url.hostname.includes('employee-management');
+      if (isDev && isMediaPath && isOurBackend) {
+        return url.pathname.startsWith('/') ? url.pathname : `/${url.pathname}`;
+      }
+    } catch (e) { /* ignore */ }
+    return s;
+  }
   if (!s.startsWith('/media/') && !s.startsWith('media/')) {
     const clean = s.startsWith('/') ? s.slice(1) : s;
-    return `${base}/media/${clean}`;
+    return isDev ? `/media/${clean}` : `${base}/media/${clean}`;
   }
-  return s.startsWith('/') ? `${base}${s}` : `${base}/${s}`;
+  return isDev ? (s.startsWith('/') ? s : `/${s}`) : (s.startsWith('/') ? `${base}${s}` : `${base}/${s}`);
 };
 
 const mapApiRoleToUserRole = (apiRole: any): UserRole => {
@@ -44,7 +57,7 @@ const mapEmployeeToUser = (emp: any): User => {
     designation: emp['Designation'] || emp.designation || 'Employee',
     birthDate: fromApiDateFormat(emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '') || '1995-01-01',
     joinDate: fromApiDateFormat(emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || '') || new Date().toISOString().split('T')[0],
-    avatar: convertPhotoLinkToUrl(emp['Photo_link'] || emp['Profile Picture'] || emp.avatar) || `https://ui-avatars.com/api/?name=${encodeURIComponent(emp['Name'] || emp.name || '')}&background=random`,
+    avatar: convertPhotoLinkToUrl(emp['Photo_link'] || emp['Profile Picture'] || emp.avatar, emp['Name'] || emp.name || '') || `https://ui-avatars.com/api/?name=${encodeURIComponent(emp['Name'] || emp.name || '')}&background=random`,
     status: 'PRESENT',
     leaveBalance: 12,
     score: 0,

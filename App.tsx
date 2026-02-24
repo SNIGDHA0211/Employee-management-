@@ -11,6 +11,8 @@ import api, {
   getTours,
   getBookSlots,
   getBookSlotsToday,
+  getNotificationsToday,
+  markNotificationAsRead,
   viewTasks as apiViewTasks,
   viewAssignedTasks as apiViewAssignedTasks,
 } from './services/api';
@@ -46,50 +48,41 @@ import { useEmployeesQuery, useEmployeesInvalidate } from './hooks/useEmployees'
 import { useBranchesQuery } from './hooks/useBranches';
 import { useMeetingPushQuery, useMeetingPushInvalidate } from './hooks/useMeetingPush';
 import { useTasksQuery, usePrefetchTasks } from './hooks/useTasks';
+import { USE_BACKEND_AVATARS } from './config';
 
-// Helper function to convert Photo_link to absolute URL with /media/ prefix for Django
+// Helper function to convert Photo_link to absolute URL - returns '' when USE_BACKEND_AVATARS is false (avoids 429/503)
 const convertPhotoLinkToUrl = (photoLink: string | null | undefined): string => {
-  if (!photoLink || typeof photoLink !== 'string' || photoLink.trim() === '') {
-    return '';
-  }
-  
+  if (!USE_BACKEND_AVATARS) return '';
+  if (!photoLink || typeof photoLink !== 'string' || photoLink.trim() === '') return '';
   const trimmedLink = photoLink.trim();
-  
-  // If it's already an absolute URL (http/https), return as is
-  if (trimmedLink.startsWith('http://') || trimmedLink.startsWith('https://')) {
-    return trimmedLink;
-  }
-  
-  // If it's a data URI, return as is
-  if (trimmedLink.startsWith('data:')) {
-    return trimmedLink;
-  }
-  
-  // If it's a fallback avatar URL, return as is
-  if (trimmedLink.includes('ui-avatars.com')) {
-    return trimmedLink;
-  }
-  
-  // Convert relative URL to absolute with /media/ prefix for Django
+  if (trimmedLink.startsWith('data:') || trimmedLink.includes('ui-avatars.com')) return trimmedLink;
   const isDevelopment = typeof window !== 'undefined' && (
-    window.location.hostname === 'localhost' || 
-    window.location.hostname === '127.0.0.1' || 
-    window.location.hostname.startsWith('192.168.')
+    window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.')
   );
-  const apiBaseUrl = isDevelopment ? 'https://employee-management-system-tmrl.onrender.com' : 'https://employee-management-system-tmrl.onrender.com';
-  
-  // Handle Django media files - if path doesn't start with /media/, add it
+  const apiBaseUrl = 'https://employee-management-system-tmrl.onrender.com';
+  if (trimmedLink.startsWith('http://') || trimmedLink.startsWith('https://')) {
+    try {
+      const url = new URL(trimmedLink);
+      const isMediaPath = url.pathname.startsWith('/media/') || url.pathname.includes('/media/');
+      const isOurBackend = url.hostname.includes('onrender.com') || url.hostname.includes('employee-management');
+      if (isDevelopment && isMediaPath && isOurBackend) {
+        return url.pathname.startsWith('/') ? url.pathname : `/${url.pathname}`;
+      }
+    } catch (e) { /* ignore */ }
+    return trimmedLink;
+  }
+  if (isDevelopment) {
+    if (!trimmedLink.startsWith('/media/') && !trimmedLink.startsWith('media/')) {
+      const cleanPath = trimmedLink.startsWith('/') ? trimmedLink.substring(1) : trimmedLink;
+      return `/media/${cleanPath}`;
+    }
+    return trimmedLink.startsWith('/') ? trimmedLink : `/${trimmedLink}`;
+  }
   if (!trimmedLink.startsWith('/media/') && !trimmedLink.startsWith('media/')) {
-    // If path starts with /, remove it first, then add /media/
     const cleanPath = trimmedLink.startsWith('/') ? trimmedLink.substring(1) : trimmedLink;
     return `${apiBaseUrl}/media/${cleanPath}`;
-  } else if (trimmedLink.startsWith('/')) {
-    // If it already has /media/, just prepend base URL
-    return `${apiBaseUrl}${trimmedLink}`;
-  } else {
-    // If it starts with media/, prepend base URL with /
-    return `${apiBaseUrl}/${trimmedLink}`;
   }
+  return trimmedLink.startsWith('/') ? `${apiBaseUrl}${trimmedLink}` : `${apiBaseUrl}/${trimmedLink}`;
 };
 
 const ToastNotification: React.FC<{
@@ -702,6 +695,7 @@ export default function App() {
   const currentUserRef = useRef<User | null>(null);
   currentUserRef.current = currentUser;
   const [notificationMeetings, setNotificationMeetings] = useState<any[]>([]);
+  const [notificationsToday, setNotificationsToday] = useState<Array<{ id: number; type_of_notification: number; from_user: string; receipient: string; message: string; is_read: boolean; created_at: string }>>([]);
   const [toastNotifications, setToastNotifications] = useState<Array<{ id: string; title: string; message: string; extra?: { time?: string } }>>([]);
   const [showNotificationPermissionPopup, setShowNotificationPermissionPopup] = useState(false);
   const [allowedNMRHICategories, setAllowedNMRHICategories] = useState<string[]>([]);
@@ -927,6 +921,22 @@ export default function App() {
   useEffect(() => {
     if (meetingRefreshTrigger > 0 && currentUser?.id) invalidateMeetingPush();
   }, [meetingRefreshTrigger, currentUser?.id, invalidateMeetingPush]);
+
+  // Fetch today's notifications for the bell panel
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const fetchNotifications = async () => {
+      try {
+        const list = await getNotificationsToday();
+        setNotificationsToday(Array.isArray(list) ? list : []);
+      } catch {
+        setNotificationsToday([]);
+      }
+    };
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 60000); // Refresh every 60s
+    return () => clearInterval(interval);
+  }, [currentUser?.id]);
 
   // Branches - cached via React Query, only when dashboard active
   const { data: branchesData, isLoading: isLoadingBranches } = useBranchesQuery(
@@ -1853,7 +1863,7 @@ export default function App() {
       />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={currentUser} users={users} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onMeetClick={() => setShowMeetCard(true)} meetingRefreshTrigger={meetingRefreshTrigger} notificationMeetings={notificationMeetings} />
+        <Header user={currentUser} users={users} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onMeetClick={() => setShowMeetCard(true)} meetingRefreshTrigger={meetingRefreshTrigger} notificationMeetings={notificationMeetings} notificationsToday={notificationsToday} onMarkNotificationRead={async (id) => { try { await markNotificationAsRead(id); setNotificationsToday((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))); } catch { /* ignore */ } }} />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-4 md:p-6">
           {renderContent()}
         </main>

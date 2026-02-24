@@ -567,6 +567,38 @@ export const logout = async (): Promise<void> => {
 };
 
 /**
+ * Get today's notifications. GET /notifications/today/
+ * Used for the notification bell panel in the header.
+ */
+export const getNotificationsToday = async (): Promise<Array<{
+  id: number;
+  type_of_notification: number;
+  from_user: string;
+  receipient: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+}>> => {
+  try {
+    const response = await api.get("/notifications/today/", { timeout: 15000 });
+    const data = response.data;
+    return Array.isArray(data) ? data : data?.results ?? data?.data ?? [];
+  } catch (error: any) {
+    if (error?.response?.status === 403 || error?.response?.status === 401) return [];
+    console.error("❌ [GET NOTIFICATIONS TODAY] Error:", error);
+    return [];
+  }
+};
+
+/**
+ * Mark a notification as read. POST /notifications/read/{id}/
+ */
+export const markNotificationAsRead = async (id: number): Promise<{ status: string }> => {
+  const response = await api.post(`/notifications/read/${id}/`);
+  return response.data;
+};
+
+/**
  * Set authentication token for API calls
  */
 export const setAuthToken = (token: string) => {

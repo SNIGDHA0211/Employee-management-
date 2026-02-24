@@ -1400,7 +1400,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               return (
                 <div key={index} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                   {!isMe && (
-                    <img src={sender?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(msg.sender)}&background=random`} className="w-8 h-8 rounded-full mr-2 self-end mb-1" alt="" />
+                    <img src={sender?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(msg.sender)}&background=random`} className="w-8 h-8 rounded-full mr-2 self-end mb-1" alt="" onError={(e) => { const t = e.target as HTMLImageElement; if (!t.src.includes('ui-avatars.com')) t.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(msg.sender)}&background=random`; }} />
                   )}
                   <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 sm:p-4 shadow-sm ${isMe ? 'bg-brand-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'}`}>
                     {!isMe && <p className="text-xs font-bold text-brand-600 mb-1">{msg.sender}</p>}
@@ -1547,6 +1547,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                             src={avatar}
                             alt={displayName}
                             className="w-10 h-10 rounded-full flex-shrink-0"
+                            onError={(e) => { const t = e.target as HTMLImageElement; if (!t.src.includes('ui-avatars.com')) t.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random`; }}
                           />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-gray-700 truncate">
@@ -1711,7 +1712,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                             className="rounded text-brand-600 focus:ring-brand-500"
                           />
                           <div className="flex items-center space-x-2 flex-1">
-                            <img src={user.avatar || ''} alt={user.name} className="w-8 h-8 rounded-full" />
+                            <img src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || '')}&background=random`} alt={user.name} className="w-8 h-8 rounded-full" onError={(e) => { const t = e.target as HTMLImageElement; if (!t.src.includes('ui-avatars.com')) t.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || '')}&background=random`; }} />
                             <div>
                               <p className="text-sm font-medium text-gray-700">{user.name}</p>
                               <p className="text-xs text-gray-500">{user.email}</p>

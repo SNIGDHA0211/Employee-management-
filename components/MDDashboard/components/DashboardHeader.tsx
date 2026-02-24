@@ -72,6 +72,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 src={userAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=6366f1&color=fff`}
                 alt="Profile"
                 className="w-full h-full object-cover"
+                onError={(e) => { const t = e.target as HTMLImageElement; if (!t.src.includes('ui-avatars.com')) t.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=6366f1&color=fff`; }}
               />
             </div>
           </div>
