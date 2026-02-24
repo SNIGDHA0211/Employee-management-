@@ -764,7 +764,7 @@ export default function App() {
             playNotificationSound();
             handleWebSocketNotification(data); // Desktop notification (when permission granted)
             setToastNotifications((prev) => {
-              const next = [...prev, { id: String(Date.now()), title: payload.title, message: payload.message, extra: payload.extra as { time?: string } }];
+              const next = [...prev, { id: String(Date.now()), title: payload.title, message: payload.message, extra: payload.extra as { time?: string; from?: string; [key: string]: unknown } }];
               return next.slice(-5); // Keep last 5
             });
           }

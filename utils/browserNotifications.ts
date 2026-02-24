@@ -103,7 +103,8 @@ export function showDesktopNotification(payload: NotificationPayload): void {
   if (Notification.permission !== 'granted') return;
 
   const { title, message, extra } = payload;
-  const body = extra?.time ? `${message}\n${extra.time}` : message;
+  const bodyParts = [extra?.from && `From ${extra.from}`, message, extra?.time].filter(Boolean);
+  const body = bodyParts.join('\n');
   const options: NotificationOptions = {
     body,
     tag: `notification-${Date.now()}`, // unique tag to avoid stacking
@@ -131,11 +132,14 @@ export function showDesktopNotification(payload: NotificationPayload): void {
 export function parseNotificationPayload(data: unknown): NotificationPayload | null {
   if (!data || typeof data !== 'object') return null;
   const d = data as Record<string, unknown>;
-  if (d.type !== 'notification' && d.type !== 'send_notification') return null;
+  const hasType = d.type === 'notification' || d.type === 'send_notification';
+  const hasCategory = d.category && typeof d.title === 'string' && typeof d.message === 'string';
+  if (!hasType && !hasCategory) return null;
   const title = typeof d.title === 'string' ? d.title : 'Notification';
   const message = typeof d.message === 'string' ? d.message : '';
-  const extra = d.extra && typeof d.extra === 'object' ? (d.extra as Record<string, unknown>) : undefined;
-  return { type: 'notification', title, message, extra };
+  const baseExtra = d.extra && typeof d.extra === 'object' ? (d.extra as Record<string, unknown>) : {};
+  const extra = { ...baseExtra, ...(d.from ? { from: d.from } : {}) };
+  return { type: 'notification', title, message, extra: Object.keys(extra).length ? extra : undefined };
 }
 
 /**
