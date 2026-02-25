@@ -1206,27 +1206,28 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
           {/* Dynamic Content */}
           <div className="p-4 sm:p-6 lg:p-8 bg-gray-50">
             {view === 'Review' && (
-              <ReviewTable 
-                config={config} 
-                rows={reviewRows} 
-                setRows={setReviewRows} 
+              <ReviewTable
+                config={config}
+                rows={reviewRows}
+                setRows={setReviewRows}
                 onStatusChange={handleReviewStatusChange}
                 onAddRow={(tableType) => {
                   const todayStr = new Date().toISOString().split('T')[0];
                   setReviewRows(prev => [
                     ...prev,
-                    { 
-                      id: Math.random().toString(36), 
-                      col1: todayStr, 
-                      col2: '', 
-                      col3: '', 
-                      col4: '', 
+                    {
+                      id: Math.random().toString(36),
+                      col1: todayStr,
+                      col2: '',
+                      col3: '',
+                      col4: '',
                       status: 'PENDING',
                       tableType: tableType
                     }
                   ]);
                 }}
                 onRemoveRow={removeReviewRow}
+                viewerIsMD={isMD}
               />
             )}
             {view === 'Implementation' && (

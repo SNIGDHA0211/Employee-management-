@@ -5,7 +5,7 @@ export const KPI_DATA: { Overview: KPIData[]; Sales: KPIData[]; Marketing: KPIDa
     { title: 'Total Revenue', value: '₹24.5Cr', change: '+12.5%', trend: 'up' },
     { title: 'Active Projects', value: '18', change: '+3', trend: 'up' },
     { title: 'Team Efficiency', value: '94.2%', change: '+2.1%', trend: 'up' },
-    { title: 'Customer Satisfaction', value: '4.8/5', change: '+0.3', trend: 'up' },
+    { title: 'Customer Satisfaction', value: '', change: '', trend: 'up' },
   ],
   Sales: [
     { title: 'Monthly Sales', value: '₹4.2Cr', change: '+8.3%', trend: 'up' },

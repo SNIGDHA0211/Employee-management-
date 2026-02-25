@@ -11,9 +11,11 @@ interface ReviewTableProps {
   onRemoveRow?: (rowId: string) => void;
   emptyMessage?: string;
   isLoadingEntries?: boolean;
+  /** When true (e.g. MD viewing someone's report), D2 and D3 are always enabled so viewer can see all tables */
+  viewerIsMD?: boolean;
 }
 
-const ReviewTable: React.FC<ReviewTableProps> = ({ config, rows, setRows, onStatusChange, onAddRow, onRemoveRow, emptyMessage, isLoadingEntries }) => {
+const ReviewTable: React.FC<ReviewTableProps> = ({ config, rows, setRows, onStatusChange, onAddRow, onRemoveRow, emptyMessage, isLoadingEntries, viewerIsMD = false }) => {
   const [activeTable, setActiveTable] = useState<'D1' | 'D2' | 'D3'>('D1');
 
   // Expose activeTable to parent component via window (temporary solution)
@@ -51,8 +53,9 @@ const ReviewTable: React.FC<ReviewTableProps> = ({ config, rows, setRows, onStat
     return dates.size >= DAYS_REQUIRED;
   }, [rows]);
 
-  const shouldShowD2Button = d1TenDaysCompleted;
-  const shouldShowD3Button = d1TenDaysCompleted && d2TenDaysCompleted;
+  // For MD viewing a report: always show D2 and D3 so they can see all content. For report owner: require 10 days in D1/D2.
+  const shouldShowD2Button = viewerIsMD || d1TenDaysCompleted;
+  const shouldShowD3Button = viewerIsMD || (d1TenDaysCompleted && d2TenDaysCompleted);
 
   // Progress counts for UI hint (distinct dates with content)
   const d1DaysCount = useMemo(() => {

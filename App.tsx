@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { UserRole, User, Task, Project, Message, ChatGroup, AttendanceRecord, Tour, formatRoleForDisplay } from './types';
+import { UserRole, User, Task, Project, Message, ChatGroup, AttendanceRecord, Tour, formatRoleForDisplay, TaskStatus } from './types';
 import api, { 
   login as apiLogin, 
   getEmployeeDashboard,
@@ -32,7 +32,7 @@ import { ScheduleHubPage } from './components/calendars';
 import type { Meeting, Holiday, Tour as ScheduleTour } from './components/calendars/types';
 import { MeetingStatus, MeetingType } from './components/calendars/types';
 import { addDays, format } from 'date-fns';
-import { MDDashboardPage } from './components/MDDashboard';
+import MDDashboardPage from './components/MDDashboard/MDDashboardPage';
 import { NMRHIPage } from './components/NMRHI';
 import AdminDashboard from './components/AdminOps/AdminDashboard';
 import AssetManager from './components/AdminOps/AssetManager';
@@ -656,11 +656,25 @@ export default function App() {
   const [users, setUsers] = useState<User[]>([]);
   const isMD = currentUser?.role === UserRole.MD;
   const tasksAssignQuery = useTasksQuery('assign', currentUser, isMD && activeTab === 'dashboard');
+  const tasksReportingQuery = useTasksQuery('reporting', currentUser, isMD && activeTab === 'dashboard');
   const tasksForDashboard = React.useMemo(() => {
     const raw = tasksAssignQuery.data;
     if (!raw || !currentUser) return [];
     return convertApiTasksToTasks(raw, users, currentUser);
   }, [tasksAssignQuery.data, users, currentUser]);
+  const reportingTasks = React.useMemo(() => {
+    const raw = tasksReportingQuery.data;
+    if (!raw || !currentUser) return [];
+    return convertApiTasksToTasks(raw, users, currentUser);
+  }, [tasksReportingQuery.data, users, currentUser]);
+  const reportingTaskCounts = React.useMemo(
+    () => ({
+      completed: reportingTasks.filter((t) => t.status === TaskStatus.COMPLETED).length,
+      pending: reportingTasks.filter((t) => t.status === TaskStatus.PENDING).length,
+      inProgress: reportingTasks.filter((t) => t.status === TaskStatus.IN_PROGRESS).length,
+    }),
+    [reportingTasks]
+  );
   const [projects, setProjects] = useState<Project[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
@@ -692,6 +706,7 @@ export default function App() {
   const [scheduleHolidaysToursLoading, setScheduleHolidaysToursLoading] = useState(false);
   const scheduleLastFetchedRef = useRef<number>(-1);
   const scheduleMeetingsCacheRef = useRef<Record<string, Meeting[]>>({});
+  const [todayMeetCountForMD, setTodayMeetCountForMD] = useState<number>(0);
   const currentUserRef = useRef<User | null>(null);
   currentUserRef.current = currentUser;
   const [notificationMeetings, setNotificationMeetings] = useState<any[]>([]);
@@ -1196,6 +1211,41 @@ export default function App() {
     fetchTodaySlots();
   }, [activeTab, currentUser?.id, mapApiToMeeting, scheduleFilterApplied]);
 
+  // MD Dashboard: fetch today's meeting count for current user (same data as Schedule Hub)
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== UserRole.MD || activeTab !== 'dashboard') {
+      setTodayMeetCountForMD(0);
+      return;
+    }
+    const fetchTodayMeetCount = async () => {
+      try {
+        const list = await getBookSlotsToday();
+        if (!Array.isArray(list)) return;
+        const mapped: Meeting[] = list.map(mapApiToMeeting);
+        const todayStr = new Date().toISOString().split('T')[0];
+        const currentUserId = String(currentUser.id || '').trim();
+        const currentUserName = String(currentUser.name || '').trim().toLowerCase();
+        const currentUserEmail = String((currentUser as any).email || '').trim().toLowerCase();
+        const involved = mapped.filter((m) => {
+          const dateStr = (m.date || '').includes('T') ? m.date.split('T')[0] : (m.date || '').substring(0, 10);
+          if (dateStr !== todayStr) return false;
+          const isAttendee = (m.attendees || []).some(
+            (a) =>
+              String(a).trim() === currentUserId ||
+              (m.attendeeNames && String((m.attendeeNames as any)[a] || '').trim().toLowerCase() === currentUserName) ||
+              (currentUserEmail && String(a).toLowerCase() === currentUserEmail)
+          );
+          const isCreator = m.createdByName && String(m.createdByName).trim().toLowerCase() === currentUserName;
+          return isAttendee || isCreator;
+        });
+        setTodayMeetCountForMD(involved.length);
+      } catch {
+        setTodayMeetCountForMD(0);
+      }
+    };
+    fetchTodayMeetCount();
+  }, [activeTab, currentUser, mapApiToMeeting]);
+
   const onScheduleDataUpdated = useCallback(() => {
     setScheduleRefreshTrigger((t) => t + 1);
   }, []);
@@ -1412,10 +1462,12 @@ export default function App() {
     // MD gets the executive dashboard
     if (currentUser.role === UserRole.MD) {
       return (
-        <MDDashboardPage 
+        <MDDashboardPage
           userName={currentUser.name}
           userAvatar={currentUser.avatar}
           employees={users}
+          reportingTaskCounts={reportingTaskCounts}
+          todayMeetCount={todayMeetCountForMD}
         />
       );
     }
