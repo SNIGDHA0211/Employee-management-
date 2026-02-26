@@ -119,6 +119,10 @@ export interface User {
   branch?: 'TECH' | 'FARM_CORE' | 'FARM_TECH' | 'INFRA_CORE' | 'INFRA_TECH'; // Granular branches
   // Human-readable tenure label from backend, e.g. "1 years 27 days"
   numberOfDaysFromJoining?: string;
+  department?: string;
+  /** Function(s) from API - from Functions array, e.g. "MMR", "NPD, HC" */
+  function?: string;
+  teamLead?: string;
 }
 
 export interface Task {

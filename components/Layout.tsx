@@ -5,6 +5,7 @@ import { User, UserRole, formatRoleForDisplay } from '../types';
 import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart } from 'lucide-react';
 import { getMotivationalQuote } from '../services/gemini';
 import { getPermission, requestPermission, isNotificationSupported } from '../utils/browserNotifications';
+import { getBirthdayCounter, postBirthdayCounter } from '../services/api';
 
 const formatBookingTime = (val: string): string => {
   if (!val) return '';
@@ -356,6 +357,37 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
   const birthdayUsers = users.filter((u: User) => u.birthDate?.endsWith(todayStr.slice(5)));
   const showBirthdayWish = birthdayUsers.length > 0;
 
+  const [wishCount, setWishCount] = useState<number>(0);
+  const [isSendingWishes, setIsSendingWishes] = useState(false);
+
+  const currentUserId = (user as any).Employee_id ?? user.id;
+
+  useEffect(() => {
+    if (!showBirthdayWish || !currentUserId) return;
+    const fetchCount = async () => {
+      try {
+        const res = await getBirthdayCounter(currentUserId);
+        setWishCount(res.birthday_counter);
+      } catch {
+        setWishCount(0);
+      }
+    };
+    fetchCount();
+  }, [showBirthdayWish, currentUserId]);
+
+  const handleSendWishes = async () => {
+    if (birthdayUsers.length === 0 || isSendingWishes) return;
+    setIsSendingWishes(true);
+    try {
+      const res = await postBirthdayCounter(currentUserId);
+      setWishCount(res.birthday_counter);
+    } catch {
+      /* ignore */
+    } finally {
+      setIsSendingWishes(false);
+    }
+  };
+
   return (
     <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-4 sticky top-0 z-10 shadow-sm">
       <div className="flex items-center space-x-4 flex-1 min-w-0">
@@ -369,16 +401,25 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
               <div className="min-w-0 flex-1 truncate">
                 <span className="font-bold text-sm">Wishing you a very Happy Birthday {birthdayUsers.map((u: User) => u.name).join(', ')}</span>
               </div>
-              <div className="flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-2.5 py-1 rounded-full font-bold text-sm">
-                <Heart size={16} className="text-pink-300 fill-pink-300" />
-                <span>{birthdayUsers.length}</span>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-2.5 py-1 rounded-full font-bold text-sm">
+                  <Cake size={14} className="text-pink-200" />
+                  <span>{birthdayUsers.length}</span>
+                  <span className="text-pink-200/90 text-xs font-normal">birthdays</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-white/20 backdrop-blur-sm px-2.5 py-1 rounded-full font-bold text-sm">
+                  <Heart size={16} className="text-pink-300 fill-pink-300" />
+                  <span>{wishCount}</span>
+                  <span className="text-pink-200/90 text-xs font-normal">wishes</span>
+                </div>
               </div>
               <button
-                onClick={() => alert(`Wish sent to ${birthdayUsers.map((u: User) => u.name).join(', ')}!`)}
-                className="flex-shrink-0 flex items-center gap-1.5 bg-white text-purple-600 px-3 py-1.5 rounded-lg font-semibold text-sm hover:bg-purple-50 transition-colors"
+                onClick={handleSendWishes}
+                disabled={isSendingWishes}
+                className="flex-shrink-0 flex items-center gap-1.5 bg-white text-purple-600 px-3 py-1.5 rounded-lg font-semibold text-sm hover:bg-purple-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <Gift size={14} />
-                <span>Send Wishes</span>
+                <span>{isSendingWishes ? 'Sending...' : 'Send Wishes'}</span>
               </button>
             </div>
           ) : (
@@ -464,10 +505,40 @@ export const BirthdayBanner: React.FC<{ users: User[], currentUser: User }> = ({
   const birthdayUsers = users.filter(u => u.birthDate?.endsWith(todayStr.slice(5)));
   
   const [showConfetti, setShowConfetti] = useState(false);
+  const [wishCount, setWishCount] = useState<number>(0);
+  const [isSendingWishes, setIsSendingWishes] = useState(false);
+
+  const currentUserId = (currentUser as any).Employee_id ?? currentUser.id;
 
   useEffect(() => {
     if (birthdayUsers.length > 0) setShowConfetti(true);
   }, [birthdayUsers.length]);
+
+  useEffect(() => {
+    if (birthdayUsers.length === 0 || !currentUserId) return;
+    const fetchCount = async () => {
+      try {
+        const res = await getBirthdayCounter(currentUserId);
+        setWishCount(res.birthday_counter);
+      } catch {
+        setWishCount(0);
+      }
+    };
+    fetchCount();
+  }, [birthdayUsers.length, currentUserId]);
+
+  const handleSendWishes = async () => {
+    if (birthdayUsers.length === 0 || isSendingWishes) return;
+    setIsSendingWishes(true);
+    try {
+      const res = await postBirthdayCounter(currentUserId);
+      setWishCount(res.birthday_counter);
+    } catch {
+      /* ignore */
+    } finally {
+      setIsSendingWishes(false);
+    }
+  };
 
   if (birthdayUsers.length === 0) return null;
 
@@ -497,16 +568,25 @@ export const BirthdayBanner: React.FC<{ users: User[], currentUser: User }> = ({
       </div>
       
       <div className="mt-4 md:mt-0 z-10 flex items-center space-x-4">
-        <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full font-bold text-lg">
-          <Heart size={24} className="text-pink-300 fill-pink-300" />
-          <span>{birthdayUsers.length}</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full font-bold text-lg">
+            <Cake size={20} className="text-pink-200" />
+            <span>{birthdayUsers.length}</span>
+            <span className="text-white/80 text-sm font-normal">birthdays</span>
+          </div>
+          <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full font-bold text-lg">
+            <Heart size={24} className="text-pink-300 fill-pink-300" />
+            <span>{wishCount}</span>
+            <span className="text-white/80 text-sm font-normal">wishes</span>
+          </div>
         </div>
         <button 
-          onClick={() => alert(`Wish sent to ${birthdayUsers.map(u => u.name).join(', ')}!`)}
-          className="bg-white text-purple-600 px-6 py-2 rounded-full font-bold shadow-md hover:scale-105 transition-transform flex items-center space-x-2"
+          onClick={handleSendWishes}
+          disabled={isSendingWishes}
+          className="bg-white text-purple-600 px-6 py-2 rounded-full font-bold shadow-md hover:scale-105 transition-transform flex items-center space-x-2 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
         >
            <Gift size={18} />
-           <span>Send Wishes</span>
+           <span>{isSendingWishes ? 'Sending...' : 'Send Wishes'}</span>
         </button>
       </div>
     </div>

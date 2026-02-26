@@ -599,6 +599,32 @@ export const markNotificationAsRead = async (id: number): Promise<{ status: stri
 };
 
 /**
+ * Get birthday wish count for a user.
+ * @endpoint GET /eventsapi/events/birthdaycounter/{userid}/
+ * @returns { birthday_counter: number }
+ */
+export const getBirthdayCounter = async (userId: string): Promise<{ birthday_counter: number }> => {
+  const response = await api.get(`/eventsapi/events/birthdaycounter/${encodeURIComponent(userId)}/`);
+  const data = response.data;
+  return {
+    birthday_counter: typeof data?.birthday_counter === 'number' ? data.birthday_counter : 0,
+  };
+};
+
+/**
+ * Increment birthday wish count (e.g. when user sends wishes).
+ * @endpoint POST /eventsapi/events/birthdaycounter/{userid}/
+ * @returns { birthday_counter: number }
+ */
+export const postBirthdayCounter = async (userId: string): Promise<{ birthday_counter: number }> => {
+  const response = await api.post(`/eventsapi/events/birthdaycounter/${encodeURIComponent(userId)}/`);
+  const data = response.data;
+  return {
+    birthday_counter: typeof data?.birthday_counter === 'number' ? data.birthday_counter : 0,
+  };
+};
+
+/**
  * Set authentication token for API calls
  */
 export const setAuthToken = (token: string) => {
@@ -692,7 +718,8 @@ export const createEmployee = async (employeeData: {
   designation: string;
   branch: string;
   department: string;
-  function?: string;
+  function?: string; // Deprecated: use functions
+  functions?: string[]; // Multiple functions (e.g. ["NPD", "MMR"])
   teamLead?: string; // Team Lead Employee_id
   joiningDate: string;
   dateOfBirth: string;
@@ -713,7 +740,9 @@ export const createEmployee = async (employeeData: {
   formData.append("Date_of_birth", employeeData.dateOfBirth);
   formData.append("Branch", employeeData.branch);
   formData.append("Department", employeeData.department);
-  if (employeeData.function) {
+  if (employeeData.functions && employeeData.functions.length > 0) {
+    employeeData.functions.forEach((f) => formData.append("Functions", f));
+  } else if (employeeData.function) {
     formData.append("Function", employeeData.function);
   }
   if (employeeData.teamLead) {
@@ -921,7 +950,8 @@ export const updateProfile = async (employeeData: {
   designation?: string;
   branch?: string;
   department?: string;
-  function?: string;
+  function?: string; // Deprecated: use functions
+  functions?: string[];
   teamLead?: string;
   joiningDate: string;
   dateOfBirth: string;
@@ -942,7 +972,9 @@ export const updateProfile = async (employeeData: {
   formData.append("Date_of_birth", employeeData.dateOfBirth);
   formData.append("Branch", employeeData.branch ?? '');
   formData.append("Department", employeeData.department ?? '');
-  if (employeeData.function != null && employeeData.function !== '') {
+  if (employeeData.functions && employeeData.functions.length > 0) {
+    employeeData.functions.forEach((f) => formData.append("Functions", f));
+  } else if (employeeData.function != null && employeeData.function !== '') {
     formData.append("Function", employeeData.function);
   }
   if (employeeData.teamLead != null && employeeData.teamLead !== '') {
@@ -1721,11 +1753,16 @@ export const getDepartmentsandFunctions = async (role?: string): Promise<{ depar
 
 /**
  * Get monthly schedule for a user
- * @endpoint GET /getMonthlySchedule/{user_id}/
+ * @endpoint GET /getMonthlySchedule/{user_id}/?quater=Q3&month=October
  * @param userId - User ID (Employee_id)
+ * @param params - quater (e.g. "Q3"), month (e.g. "October") – query params
  * @returns Array of monthly schedule objects
  */
-export const getMonthlySchedule = async (userId: string): Promise<Array<{
+export const getMonthlySchedule = async (
+  userId: string,
+  params?: { quater?: string; month?: string }
+): Promise<Array<{
+  id?: number;
   quater: string;
   financial_year: string;
   month: number;
@@ -1735,24 +1772,34 @@ export const getMonthlySchedule = async (userId: string): Promise<Array<{
   "sub-head-D1": string;
   "sub-head-D2": string;
   "sub-head-D3": string;
-
   month_quater_id?: number;
-  id?: number;
 }>> => {
-  try {const endpoint = `/getMonthlySchedule/${encodeURIComponent(userId)}/`;const response = await api.get(endpoint);
+  try {
+    const endpoint = `/getMonthlySchedule/${encodeURIComponent(userId)}/`;
+    const queryParams: Record<string, string> = {};
+    if (params?.quater) queryParams.quater = params.quater;
+    if (params?.month) queryParams.month = params.month;
+    const response = await api.get(endpoint, {
+      params: Object.keys(queryParams).length ? queryParams : undefined,
+    });
     const data = response.data;// Handle different response formats
     let scheduleArray: any[] = [];
 
     if (Array.isArray(data)) {
       scheduleArray = data;
-    } else if (data.schedule && Array.isArray(data.schedule)) {
+    } else if (data?.schedule && Array.isArray(data.schedule)) {
       scheduleArray = data.schedule;
-    } else if (data.data && Array.isArray(data.data)) {
+    } else if (data?.data && Array.isArray(data.data)) {
       scheduleArray = data.data;
-    } else if (data.monthly_schedule && Array.isArray(data.monthly_schedule)) {
+    } else if (data?.monthly_schedule && Array.isArray(data.monthly_schedule)) {
       scheduleArray = data.monthly_schedule;
-    } else {return [];
-    }return scheduleArray;
+    } else if (data?.results && Array.isArray(data.results)) {
+      scheduleArray = data.results;
+    } else if (data && typeof data === 'object') {
+      const key = Object.keys(data).find((k) => Array.isArray((data as any)[k]));
+      if (key) scheduleArray = (data as any)[key];
+    }
+    return scheduleArray;
   } catch (error: any) {
     if (
       error.name === "TypeError" &&
@@ -1862,17 +1909,15 @@ export const getUserEntries = async (
 
 /**
  * Get user entries by filters (for Report Review – display stored entries; note field shown in table).
- * @endpoint GET /getUserEntries/?quater=Q1&month=April&department=Sales&username=3001&date=2026-01-21&month_quater_id=...
- * @param params - Required: quater, month, department, username. Optional: date, month_quater_id (use for correct month id when backend supports it)
+ * Same format as getMonthlySchedule: user_id in path, quater & month as query params
+ * @endpoint GET /getUserEntries/{user_id}/?quater=Q4&month=February
+ * @param params - user_id, quater, month
  * @returns Array of entries with id, note, meeting_head, meeting_sub_head, username, date, status, month_quater_id
  */
 export const getUserEntriesByFilters = async (params: {
+  user_id: string;
   quater: string;
   month: string;
-  department: string;
-  username: string;
-  date?: string;
-  month_quater_id?: string | number;
 }): Promise<Array<{
   id: number;
   note: string;
@@ -1884,14 +1929,9 @@ export const getUserEntriesByFilters = async (params: {
   month_quater_id: string;
 }>> => {
   try {
-    const qs = new URLSearchParams();
-    qs.set("quater", params.quater);
-    qs.set("month", params.month);
-    qs.set("department", params.department);
-    qs.set("username", params.username);
-    if (params.date) qs.set("date", params.date);
-    if (params.month_quater_id != null && params.month_quater_id !== '') qs.set("month_quater_id", String(params.month_quater_id));
-    const endpoint = `/getUserEntries/?${qs.toString()}`;const response = await api.get(endpoint);
+    const endpoint = `/getUserEntries/${encodeURIComponent(params.user_id)}/`;
+    const queryParams = { quater: params.quater, month: params.month };
+    const response = await api.get(endpoint, { params: queryParams });
     const data = response.data;
     let entriesArray: any[] = [];
     if (data == null) {

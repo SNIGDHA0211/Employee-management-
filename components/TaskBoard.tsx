@@ -518,6 +518,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
       // Create task with all assignees in a single API call
       await apiCreateTask(taskData);
       
+      // Refresh task list (view tasks) after create success
+      invalidateTasks();
+      
       setShowAddModal(false);
       
       // Reset form
@@ -537,9 +540,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
       setReportingByNamesByIndex({});
       setReportingByDesignationsByIndex({});
       setIsLoadingReportingByByIndex({});
-      
-      // Brief delay so backend has the new task indexed, then invalidate to refetch
-      setTimeout(() => invalidateTasks(), 300);
       
     } catch (err: any) {
       setTaskError(err.message || 'Failed to create task. Please try again.');
