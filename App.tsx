@@ -1846,7 +1846,8 @@ export default function App() {
         // return <AttendanceTours currentUser={currentUser} users={users} attendance={attendance} tours={tours} onAddTour={handleAddTour} />;
 
       case 'reports':
-        // Reports page - Available for Employee, Intern, TeamLead
+        // Reports page - Not available for Intern
+        if (currentUser.role === UserRole.INTERN) return <div className="p-10 text-center text-gray-500">Access Denied</div>;
         return (
           <ReportsPage 
             currentUserName={currentUser.name} 
