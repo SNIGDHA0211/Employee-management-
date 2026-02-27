@@ -9,7 +9,7 @@ import {
 } from "./utils/auth";
 
 // Production backend URL
-const PRODUCTION_BACKEND_URL = 'http://192.168.42.111:8002';
+const PRODUCTION_BACKEND_URL = 'https://employee-management-system-1-jwyn.onrender.com';
 
 /** WebSocket URL for audio/video calls - ws://192.168.42.103:8000/ws/calls/ */
 export const getCallsWebSocketUrl = (): string => {

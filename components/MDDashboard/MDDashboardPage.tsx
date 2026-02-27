@@ -1,11 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell, ComposedChart, Line
+  BarChart, Bar, Cell, ComposedChart, Line, PieChart, Pie
 } from 'recharts';
 import { Filter, Download, History, User as UserIcon, Check, Calendar, ChartPie, X as XIcon } from 'lucide-react';
-import type { DefaultizedPieValueType } from '@mui/x-charts/models';
-import { PieChart as MuiPieChart, pieArcLabelClasses } from '@mui/x-charts/PieChart';
 import StatCard from './components/StatCard';
 import { ProjectData, WorkforceData } from './types';
 import { KPI_DATA, REVENUE_CHART_DATA, WORKFORCE_DATA, PROJECTS, ASSETS_DATA } from './constants';
@@ -129,11 +127,6 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({
       { label: 'In Process', value: inProgress, color: '#0088FE' },
     ].filter((d) => d.value > 0);
   }, [reportingTaskCounts]);
-  const taskPieTotal = taskPieData.reduce((a, b) => a + b.value, 0);
-  const getArcLabel = (params: DefaultizedPieValueType) => {
-    const percent = taskPieTotal > 0 ? params.value / taskPieTotal : 0;
-    return `${(percent * 100).toFixed(0)}%`;
-  };
 
   // Helper to get the most recent non-upcoming milestone
   const getRecentTrack = (project: ProjectData) => {
@@ -219,25 +212,21 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({
             </div>
             <div className="flex-1 flex items-center justify-center min-h-[280px]">
               {taskPieData.length > 0 ? (
-                <MuiPieChart
-                  series={[
-                    {
-                      outerRadius: 120,
-                      data: taskPieData,
-                      arcLabel: getArcLabel,
-                    },
-                  ]}
-                  sx={{
-                    [`& .${pieArcLabelClasses.root}`]: {
-                      fill: 'white',
-                      fontSize: 14,
-                    },
-                  }}
-                  margin={{ right: 5 }}
-                  width={280}
-                  height={280}
-                  hideLegend
-                />
+                <PieChart width={280} height={280}>
+                  <Pie
+                    data={taskPieData}
+                    dataKey="value"
+                    nameKey="label"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={120}
+                    label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
+                  >
+                    {taskPieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                </PieChart>
               ) : (
                 <p className="text-slate-500 text-sm">No reporting tasks yet.</p>
               )}
