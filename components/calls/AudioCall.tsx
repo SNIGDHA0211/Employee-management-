@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { PhoneOff, PhoneIncoming, Mic, MicOff } from 'lucide-react';
+import { useCallRingtone } from '../../hooks/useCallRingtone';
 
 export type CallStatus = 'outgoing' | 'incoming' | 'active';
 
@@ -30,6 +31,14 @@ export const AudioCall: React.FC<AudioCallProps> = ({
 }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isMuted, setIsMuted] = useState(false);
+
+  const ringtoneMode = status === 'incoming' ? 'incoming' : status === 'outgoing' ? 'outgoing' : 'none';
+  useCallRingtone(
+    ringtoneMode,
+    status === 'incoming' ? 'Incoming Audio Call' : 'Calling…',
+    status === 'incoming' ? `${targetName} is calling you` : `Calling ${targetName}…`,
+    targetAvatar,
+  );
 
   const toggleMute = () => {
     localStream?.getAudioTracks().forEach((t) => { t.enabled = isMuted; });

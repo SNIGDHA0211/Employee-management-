@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { PhoneOff, PhoneIncoming, Users, Mic, MicOff, Monitor, MonitorOff, Video, VideoOff } from 'lucide-react';
+import { useCallRingtone } from '../../hooks/useCallRingtone';
 
 export type GroupCallStatus = 'incoming' | 'active';
 
@@ -49,6 +50,12 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
+
+  useCallRingtone(
+    status === 'incoming' ? 'incoming' : 'none',
+    'Incoming Group Video Call',
+    creatorName ? `${creatorName} is inviting you to a group video call` : 'You have an incoming group video call',
+  );
 
   const toggleMute = () => {
     localStream?.getAudioTracks().forEach((t) => { t.enabled = isMuted; });

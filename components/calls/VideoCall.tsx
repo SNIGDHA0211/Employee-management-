@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { PhoneOff, PhoneIncoming, Mic, MicOff, Monitor, MonitorOff, Video, VideoOff } from 'lucide-react';
+import { useCallRingtone } from '../../hooks/useCallRingtone';
 
 export type CallStatus = 'outgoing' | 'incoming' | 'active';
 
@@ -42,6 +43,14 @@ export const VideoCall: React.FC<VideoCallProps> = ({
   const remoteRef = useRef<HTMLVideoElement | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
+
+  const ringtoneMode = status === 'incoming' ? 'incoming' : status === 'outgoing' ? 'outgoing' : 'none';
+  useCallRingtone(
+    ringtoneMode,
+    status === 'incoming' ? 'Incoming Video Call' : 'Calling…',
+    status === 'incoming' ? `${targetName} is video calling you` : `Video calling ${targetName}…`,
+    targetAvatar,
+  );
 
   const toggleMute = () => {
     localStream?.getAudioTracks().forEach((t) => { t.enabled = isMuted; });

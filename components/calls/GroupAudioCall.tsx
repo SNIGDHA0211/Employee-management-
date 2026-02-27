@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { PhoneOff, PhoneIncoming, Users, Mic, MicOff } from 'lucide-react';
+import { useCallRingtone } from '../../hooks/useCallRingtone';
 
 export type GroupCallStatus = 'incoming' | 'active';
 
@@ -39,6 +40,12 @@ export const GroupAudioCall: React.FC<GroupAudioCallProps> = ({
   const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
   const remoteParticipants = participants.filter((p) => !p.isLocal);
   const [isMuted, setIsMuted] = useState(false);
+
+  useCallRingtone(
+    status === 'incoming' ? 'incoming' : 'none',
+    'Incoming Group Audio Call',
+    creatorName ? `${creatorName} is inviting you to a group call` : 'You have an incoming group call',
+  );
 
   const toggleMute = () => {
     localStream?.getAudioTracks().forEach((t) => { t.enabled = isMuted; });
