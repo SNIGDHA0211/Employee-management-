@@ -21,6 +21,10 @@ interface AdminPanelProps {
   onRefreshEmployees?: () => void | Promise<void>;
 }
 
+/** Parse function string (e.g. "NPD, MMR" or "NPD") to array */
+const parseFunctionString = (s: string): string[] =>
+  (s || '').split(',').map((f) => f.trim()).filter(Boolean);
+
 const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDeleteUser, onRefreshEmployees }) => {
   const [activeTab, setActiveTab] = useState<'list' | 'add'>('list');
   const [isLoading, setIsLoading] = useState(false);
@@ -78,7 +82,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     designation: '',
     branch: '',
     department: '',
-    function: '',
+    functions: [] as string[],
     teamLead: '',
     joinDate: '',
     birthDate: '',
@@ -99,7 +103,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
     password: '', // New password field
     branch: '',
     department: '',
-    function: '',
+    functions: [] as string[], // Multiple functions
     teamLead: '', // Team Lead Employee_id
   });
 
@@ -277,8 +281,9 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         const designation = emp['Designation'] || emp.designation || '';
         const branch = emp['Branch'] || emp.branch || '';
         const department = emp['Department'] || emp.department || '';
-        const functionValue = emp['Function'] || emp.function || emp.Function || '';
-        const teamLead = emp['Teamlead'] || emp['Team_Lead'] || emp.teamLead || emp['Team Lead'] || emp['TeamLead'] || '';
+        const functionValue = emp['Function'] || emp.function || emp.Function ||
+          (Array.isArray(emp['Functions']) ? emp['Functions'].filter((f: string) => f && f !== 'None').join(', ') : '') || '';
+        const teamLead = emp['Teamleader'] || emp['Teamlead'] || emp['Team_Lead'] || emp.teamLead || emp['Team Lead'] || emp['TeamLead'] || '';
         const joinDate = emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || new Date().toISOString().split('T')[0];
         const birthDate = emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '1995-01-01';
         // Get avatar URL - use ui-avatars when USE_BACKEND_AVATARS is false (avoids 429/503)
@@ -433,7 +438,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         designation: formData.designation,
         branch: formData.branch,
         department: formData.department,
-        function: formData.function,
+        functions: formData.functions,
         teamLead: resolveTeamLeadToEmployeeId(formData.teamLead) || undefined,
         joiningDate: formData.joinDate,
         dateOfBirth: formData.birthDate,
@@ -456,6 +461,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       score: 0,
       password: formData.password || '12345',
       branch: (formData.branch || undefined) as User['branch'],
+      function: formData.functions.join(', '),
     };
     onAddUser(newUser);
       
@@ -471,7 +477,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       password: '',
       branch: '',
       department: '',
-      function: '',
+      functions: [],
       teamLead: '',
     });
     setAvatarPreview(null);
@@ -557,7 +563,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       designation: user.designation || '',
       branch: user.branch || '',
       department: (user as any).department || '',
-      function: (user as any).function || '',
+      functions: parseFunctionString((user as any).function || user.function || ''),
       teamLead: resolvedTeamLead,
       joinDate: user.joinDate ? new Date(user.joinDate).toISOString().split('T')[0] : '',
       birthDate: user.birthDate ? new Date(user.birthDate).toISOString().split('T')[0] : '',
@@ -580,7 +586,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
       designation: '',
       branch: '',
       department: '',
-      function: '',
+      functions: [],
       teamLead: '',
       joinDate: '',
       birthDate: '',
@@ -608,7 +614,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         designation: updateSidebarFormData.designation || undefined,
         branch: updateSidebarFormData.branch || undefined,
         department: updateSidebarFormData.department || undefined,
-        function: updateSidebarFormData.function || undefined,
+        functions: updateSidebarFormData.functions,
         teamLead: resolveTeamLeadToEmployeeId(updateSidebarFormData.teamLead) || undefined,
         joiningDate: updateSidebarFormData.joinDate,
         dateOfBirth: updateSidebarFormData.birthDate,
@@ -679,7 +685,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
         designation: editFormData.designation || undefined,
         branch: editFormData.branch || undefined,
         department: editFormData.department || undefined,
-        function: (selectedUser as any).function || undefined,
+        functions: parseFunctionString((selectedUser as any).function || selectedUser.function || ''),
         teamLead: (selectedUser as any).teamLead || (selectedUser as any).Team_Lead || undefined,
         joiningDate: editFormData.joinDate,
         dateOfBirth: editFormData.birthDate,
@@ -844,7 +850,7 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                           </div>
                           {user.branch && <p className="text-xs text-gray-600">Branch: {user.branch}</p>}
                           {(user as any).department && <p className="text-xs text-gray-600">Dept: {(user as any).department}</p>}
-                          {(user as any).function && <p className="text-xs text-gray-600">Function: {(user as any).function}</p>}
+                          {(user.function || (user as any).function) && <p className="text-xs text-gray-600">Function: {user.function || (user as any).function}</p>}
                           {(user as any).teamLead && <p className="text-xs text-gray-600">Team Lead: {(user as any).teamLead}</p>}
                           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500 pt-1">
                             {user.joinDate && <span>Joined: {user.joinDate}</span>}
@@ -891,8 +897,8 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                   <th className="pb-2 sm:pb-3 font-medium">Designation</th>
                   <th className="pb-2 sm:pb-3 font-medium hidden lg:table-cell">Branch</th>
                   <th className="pb-2 sm:pb-3 font-medium hidden lg:table-cell">Department</th>
-                  <th className="pb-2 sm:pb-3 font-medium hidden xl:table-cell">Function</th>
-                  <th className="pb-2 sm:pb-3 font-medium hidden xl:table-cell">Team Lead</th>
+                  <th className="pb-2 sm:pb-3 font-medium hidden lg:table-cell">Function</th>
+                  <th className="pb-2 sm:pb-3 font-medium hidden lg:table-cell">Team Lead</th>
                   <th className="pb-2 sm:pb-3 font-medium">Role</th>
                   <th className="pb-2 sm:pb-3 font-medium hidden lg:table-cell">Birth Date</th>
                   <th className="pb-2 sm:pb-3 font-medium hidden md:table-cell">Joined</th>
@@ -968,11 +974,11 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                       <p className="text-xs text-gray-600 truncate max-w-[100px]">{(user as any).department || 'N/A'}</p>
                     </td>
                     {/* Function Column */}
-                    <td className="py-2 sm:py-3 hidden xl:table-cell">
-                      <p className="text-xs text-gray-600 truncate max-w-[100px]">{(user as any).function || 'N/A'}</p>
+                    <td className="py-2 sm:py-3 hidden lg:table-cell">
+                      <p className="text-xs text-gray-600 truncate max-w-[100px]">{user.function || (user as any).function || 'N/A'}</p>
                     </td>
                     {/* Team Lead Column */}
-                    <td className="py-2 sm:py-3 hidden xl:table-cell">
+                    <td className="py-2 sm:py-3 hidden lg:table-cell">
                       <p className="text-xs text-gray-600 truncate max-w-[80px]">{(user as any).teamLead || (user as any).Team_Lead || 'N/A'}</p>
                     </td>
                     <td className="py-2 sm:py-3">
@@ -1252,34 +1258,52 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                 </div>
               )}
 
-              {/* Function - Optional, hidden when MD role is selected */}
+              {/* Functions - Multi-select, hidden when MD role is selected */}
               {formData.role && String(formData.role).toUpperCase().trim() !== 'MD' && (
                 <div className="space-y-2">
-                  <label className="text-sm font-bold text-gray-700">Function</label>
-                  <div className="relative">
-                    <Briefcase className="absolute left-3 top-3 text-gray-400" size={18} />
-                    <select
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white"
-                      value={formData.function}
-                      onChange={e => setFormData({...formData, function: e.target.value})}
-                      disabled={isLoadingOptions}
-                    >
-                      <option value="">Select Function</option>
-                      {Array.isArray(functions) && functions.length > 0 ? (
-                        functions
-                          .filter(f => f != null && typeof f === 'string' && f.trim() !== '')
+                  <label className="text-sm font-bold text-gray-700">Functions</label>
+                  <div className="border border-gray-300 rounded-lg p-3 bg-gray-50/50 max-h-40 overflow-y-auto">
+                    {isLoadingOptions ? (
+                      <p className="text-xs text-gray-500">Loading functions...</p>
+                    ) : Array.isArray(functions) && functions.length > 0 ? (
+                      <div className="flex flex-col gap-2">
+                        <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1.5 rounded">
+                          <input
+                            type="checkbox"
+                            checked={formData.functions.length === 0}
+                            onChange={(e) => {
+                              if (e.target.checked) setFormData(prev => ({ ...prev, functions: [] }));
+                            }}
+                            className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                          />
+                          <span className="text-sm">None</span>
+                        </label>
+                        {functions
+                          .filter(f => f != null && typeof f === 'string' && f.trim() !== '' && f !== 'None')
                           .map((func) => (
-                            <option key={`function-${String(func)}`} value={String(func)}>
-                              {String(func)}
-                            </option>
-                          ))
-                      ) : (
-                        !isLoadingOptions && <option disabled>No functions available</option>
-                      )}
-                    </select>
+                            <label key={`function-${String(func)}`} className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1.5 rounded">
+                              <input
+                                type="checkbox"
+                                checked={formData.functions.includes(String(func))}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    functions: checked
+                                      ? [...prev.functions, String(func)]
+                                      : prev.functions.filter(f => f !== func),
+                                  }));
+                                }}
+                                className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                              />
+                              <span className="text-sm">{String(func)}</span>
+                            </label>
+                          ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-yellow-600">No functions found. Check console for errors.</p>
+                    )}
                   </div>
-                  {isLoadingOptions && <p className="text-xs text-gray-500">Loading functions...</p>}
-                  {!isLoadingOptions && functions.length === 0 && <p className="text-xs text-yellow-600">No functions found. Check console for errors.</p>}
                 </div>
               )}
 
@@ -1448,12 +1472,40 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-bold text-gray-700">Function</label>
-                    <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white" value={updateSidebarFormData.function} onChange={e => setUpdateSidebarFormData(prev => ({ ...prev, function: e.target.value }))}>
-                      <option value="">Select Function</option>
-                      {functions.map((f) => <option key={f} value={f}>{f}</option>)}
-                      {updateSidebarFormData.function && !functions.includes(updateSidebarFormData.function) && <option value={updateSidebarFormData.function}>{updateSidebarFormData.function}</option>}
-                    </select>
+                    <label className="text-sm font-bold text-gray-700">Functions</label>
+                    <div className="border border-gray-300 rounded-lg p-3 bg-gray-50/50 max-h-40 overflow-y-auto">
+                      {(() => {
+                        const apiFuncs = functions.filter(f => f && f !== 'None');
+                        const currentFuncs = updateSidebarFormData.functions;
+                        const otherFuncs = currentFuncs.filter(f => !apiFuncs.includes(f));
+                        const allFuncs = [...new Set([...apiFuncs, ...otherFuncs])];
+                        return allFuncs.length > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            {allFuncs.map((f) => (
+                              <label key={f} className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1.5 rounded">
+                                <input
+                                  type="checkbox"
+                                  checked={updateSidebarFormData.functions.includes(f)}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setUpdateSidebarFormData(prev => ({
+                                      ...prev,
+                                      functions: checked
+                                        ? [...prev.functions, f]
+                                        : prev.functions.filter(x => x !== f),
+                                    }));
+                                  }}
+                                  className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                                />
+                                <span className="text-sm">{f}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-500">No functions available</p>
+                        );
+                      })()}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-bold text-gray-700">Team Lead</label>

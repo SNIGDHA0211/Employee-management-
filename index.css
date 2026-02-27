@@ -1,0 +1,10 @@
+/* Base styles - Tailwind handles most via CDN */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  min-height: 100%;
+}

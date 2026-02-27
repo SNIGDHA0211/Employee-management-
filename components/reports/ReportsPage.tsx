@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { FileText, Printer, Send, Plus, Calendar, Building2, User as UserIcon } from 'lucide-react';
+import { FileText, Printer, Send, Plus, Calendar, Building2, User as UserIcon, Filter } from 'lucide-react';
 import { Department, ViewType, ReviewRow, ImplementationRow, SalesOpsRow } from './types';
 import { MONTH_TO_MEETING_MAP, MONTH_NAMES } from './constants';
 import ReviewTable from './ReviewTable';
@@ -10,8 +10,6 @@ import {
   getMonthlySchedule, 
   addDayEntries, 
   changeEntryStatus, 
-  getUserEntries,
-  getUserEntriesByFilters,
   getDepartmentsandFunctions,
 } from '../../services/api';
 import type { User } from '../../types';
@@ -30,8 +28,10 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   const [availableDepartments, setAvailableDepartments] = useState<string[]>([]);
   const [isLoadingDeptList, setIsLoadingDeptList] = useState(false);
   const [isMD, setIsMD] = useState(false);
-  const [selectedQuarter, setSelectedQuarter] = useState<number | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState<number | null>(null); // 1-12
+  const currentMonthNum = new Date().getMonth() + 1;
+  const currentQuarterNum = currentMonthNum >= 4 && currentMonthNum <= 6 ? 1 : currentMonthNum >= 7 && currentMonthNum <= 9 ? 2 : currentMonthNum >= 10 ? 3 : 4;
+  const [selectedQuarter, setSelectedQuarter] = useState<number | null>(currentQuarterNum);
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(currentMonthNum); // 1-12
   const [view, setView] = useState<ViewType>('Review');
   const [attendee, setAttendee] = useState(currentUserName || '');
   const [businessName] = useState('Planeteye AI');
@@ -40,6 +40,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   const [monthlySchedule, setMonthlySchedule] = useState<any[]>([]);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(false);
   const [currentSchedule, setCurrentSchedule] = useState<any | null>(null);
+  const [selectedScheduleIndex, setSelectedScheduleIndex] = useState<number>(0);
   // Use shared users from App
   const allEmployees = usersProp.map((u) => ({
     id: u.id,
@@ -87,6 +88,14 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
       default:
         return [1, 2, 3]; // January, February, March
     }
+  };
+
+  // Helper: map month number (1-12) to quarter (April→Q1, July→Q2, Oct→Q3, Jan→Q4)
+  const getQuarterForMonth = (monthNum: number): number => {
+    if (monthNum >= 4 && monthNum <= 6) return 1;  // Apr-Jun → Q1
+    if (monthNum >= 7 && monthNum <= 9) return 2;  // Jul-Sep → Q2
+    if (monthNum >= 10 && monthNum <= 12) return 3; // Oct-Dec → Q3
+    return 4; // Jan-Mar → Q4
   };
 
   // Helper function to map API department string to Department enum
@@ -206,117 +215,62 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     fetchUserData();
   }, [currentUserDepartment]);
 
-  // Fetch monthly schedule when user ID and month are available
-  useEffect(() => {
-    const fetchSchedule = async () => {
-      if (!userId) return;
+  // Helper: map month number (1-12) to month name
+  const monthNumToName = (num: number): string => MONTH_NAMES[Math.max(0, Math.min(num - 1, 11))] || 'January';
 
-      setIsLoadingSchedule(true);
-      try {
-        const schedule = await getMonthlySchedule(userId);
-        setMonthlySchedule(schedule);
-        
-        // Find schedule for current month and year
-        const currentYear = currentDate.getFullYear();
-        const currentMonthNum = new Date().getMonth() + 1; // Current month (1-12)
-        
-        // Find matching schedule entry - prioritize current month, but also check if any schedule exists
-        let matchingSchedule = schedule.find((s: any) => {
-          const scheduleMonth = s.month || s.month_number || null;
-          const scheduleYear = s.financial_year || s.year || null;
-          
-          // Check if month matches
-          const monthMatches = scheduleMonth === currentMonthNum;
-          
-          // Check if year matches (handle financial year format like "2025-2026")
-          let yearMatches = false;
-          if (scheduleYear) {
-            if (typeof scheduleYear === 'string' && scheduleYear.includes('-')) {
-              // Financial year format: "2025-2026"
-              const [startYear, endYear] = scheduleYear.split('-').map(y => parseInt(y.trim()));
-              yearMatches = currentYear >= startYear && currentYear <= endYear;
-            } else {
-              yearMatches = parseInt(String(scheduleYear)) === currentYear;
-            }
-          } else {
-            yearMatches = true; // If no year specified, assume it matches
-          }
-          
-          return monthMatches && yearMatches;
-        });
-        
-        // If no exact match, use the first schedule entry (fallback)
-        if (!matchingSchedule && schedule.length > 0) {
-          matchingSchedule = schedule[0];
-        }
-        
-        if (matchingSchedule) {
-          setCurrentSchedule(matchingSchedule);
-          // Initialize selected quarter and month from schedule
-          const detectedQuarter =
-            typeof matchingSchedule.quater === 'string'
-              ? parseInt(String(matchingSchedule.quater).replace(/[^0-9]/g, ''), 10) || undefined
-              : undefined;
-          if (detectedQuarter) {
-            setSelectedQuarter(detectedQuarter);
-          }
-          if (matchingSchedule.month) {
-            setSelectedMonth(matchingSchedule.month);
-          }
-        } else {
-          setCurrentSchedule(null);
-        }
-      } catch (error: any) {
-        console.error('❌ [REPORTS] Error fetching monthly schedule:', error);
-        setMonthlySchedule([]);
+  // Helper: normalize month to number (1-12) whether API returns number or string (e.g. "January")
+  const normalizeMonthToNum = (val: any): number | null => {
+    if (val == null) return null;
+    if (typeof val === 'number' && val >= 1 && val <= 12) return val;
+    const str = String(val).trim();
+    const idx = MONTH_NAMES.findIndex((m) => m.toLowerCase() === str.toLowerCase());
+    return idx >= 0 ? idx + 1 : null;
+  };
+
+  // Fetch schedule (only when Filter is clicked – not on mount)
+  const fetchScheduleOnFilter = async () => {
+    const targetId = isMD ? scheduleUserId : userId;
+    if (!targetId || selectedQuarter == null || selectedMonth == null) return;
+
+    setIsLoadingSchedule(true);
+    if (isMD) setIsLoadingMDSchedule(true);
+    try {
+      const params = { quater: `Q${selectedQuarter}`, month: monthNumToName(selectedMonth) };
+      const schedule = await getMonthlySchedule(String(targetId), params);
+      const scheduleArray = Array.isArray(schedule) ? schedule : [];
+      if (isMD) {
+        setMdAttendeeSchedule(scheduleArray);
+      } else {
+        setMonthlySchedule(scheduleArray);
+      }
+      if (scheduleArray.length > 0) {
+        const qStr = `Q${selectedQuarter}`;
+        const match = scheduleArray.find((s: any) =>
+          normalizeMonthToNum(s.month) === selectedMonth &&
+          String(s.quater || s.quarter || '').toUpperCase() === qStr.toUpperCase()
+        );
+        const entry = match || scheduleArray[0];
+        setCurrentSchedule(entry);
+        // Keep user's selectedQuarter and selectedMonth – don't overwrite from API
+      } else {
         setCurrentSchedule(null);
-      } finally {
-        setIsLoadingSchedule(false);
       }
-    };
-    
-    fetchSchedule();
-  }, [userId, currentDate]);
-
-  // MD: fetch getMonthlySchedule for selected attendee; populate Month/Quarter from API
-  useEffect(() => {
-    if (!isMD || !scheduleUserId) {
-      setMdAttendeeSchedule([]);
-      return;
+    } catch (e) {
+      console.error('❌ [REPORTS] Error fetching schedule:', e);
+      if (isMD) setMdAttendeeSchedule([]);
+      else setMonthlySchedule([]);
+      setCurrentSchedule(null);
+    } finally {
+      setIsLoadingSchedule(false);
+      if (isMD) setIsLoadingMDSchedule(false);
     }
-    let isMounted = true;
-    const fetchMdSchedule = async () => {
-      setIsLoadingMDSchedule(true);
-      try {
-        const schedule = await getMonthlySchedule(scheduleUserId);
-        if (!isMounted) return;
-        setMdAttendeeSchedule(Array.isArray(schedule) ? schedule : []);
-        if (Array.isArray(schedule) && schedule.length > 0) {
-          const first = schedule[0];
-          // Only set quarter/month from first entry when user hasn't selected yet – don't overwrite Q4/January with first entry (e.g. Q1/April)
-          setSelectedQuarter((prev) => {
-            const qNum = typeof first.quater === 'string'
-              ? parseInt(String(first.quater).replace(/[^0-9]/g, ''), 10) || undefined
-              : undefined;
-            return prev != null ? prev : (qNum ?? null);
-          });
-          setSelectedMonth((prev) => (prev != null ? prev : (first.month ?? null)));
-          setCurrentSchedule(first);
-        } else {
-          setCurrentSchedule(null);
-        }
-      } catch (e) {
-        if (isMounted) {
-          setMdAttendeeSchedule([]);
-          setCurrentSchedule(null);
-        }
-      } finally {
-        if (isMounted) setIsLoadingMDSchedule(false);
-      }
-    };
-    fetchMdSchedule();
-    return () => { isMounted = false; };
-  }, [isMD, scheduleUserId]);
+  };
+
+  const handleFilterClick = () => {
+    fetchScheduleOnFilter().then(() => {
+      setRefreshEntriesKey((k) => k + 1);
+    });
+  };
 
   // Schedule source: for MD use attendee's schedule, else logged-in user's monthly schedule
   const scheduleSource = useMemo(() => {
@@ -324,25 +278,35 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     return monthlySchedule;
   }, [isMD, mdAttendeeSchedule, monthlySchedule]);
 
-  // When user changes quarter or month, update currentSchedule accordingly
-  useEffect(() => {
-    if (!scheduleSource || scheduleSource.length === 0) return;
-    if (!selectedQuarter && !selectedMonth) return;
-
-    const targetQuarterStr = selectedQuarter ? `Q${selectedQuarter}` : undefined;
-
-    const candidate = scheduleSource.find((s: any) => {
-      const monthMatches = selectedMonth ? s.month === selectedMonth : true;
-      const quarterMatches = targetQuarterStr
-        ? String(s.quater || s.quarter || '').toUpperCase() === targetQuarterStr.toUpperCase()
-        : true;
-      return monthMatches && quarterMatches;
+  // All schedule entries for selected month (check month, month_number, actual_month – API formats vary)
+  const scheduleEntriesForView = useMemo(() => {
+    if (!scheduleSource || scheduleSource.length === 0) return [];
+    const targetMonthNum = selectedMonth != null ? selectedMonth : null;
+    if (targetMonthNum == null) return scheduleSource;
+    const filtered = scheduleSource.filter((s: any) => {
+      const m = normalizeMonthToNum(s.month ?? s.month_number ?? s.actual_month);
+      return m === targetMonthNum;
     });
+    return filtered.length > 0 ? filtered : scheduleSource;
+  }, [scheduleSource, selectedMonth]);
 
-    if (candidate) {
-      setCurrentSchedule(candidate);
+  // When user changes quarter or month, update currentSchedule and reset dropdown selection
+  useEffect(() => {
+    if (scheduleEntriesForView.length > 0) {
+      setSelectedScheduleIndex(0);
+      setCurrentSchedule(scheduleEntriesForView[0]);
+    } else {
+      setCurrentSchedule(null);
+      setSelectedScheduleIndex(0);
     }
-  }, [scheduleSource, selectedQuarter, selectedMonth]);
+  }, [scheduleEntriesForView]);
+
+  // When user selects from Meeting Strategic Title dropdown, update currentSchedule
+  useEffect(() => {
+    if (scheduleEntriesForView.length > 0 && selectedScheduleIndex >= 0 && selectedScheduleIndex < scheduleEntriesForView.length) {
+      setCurrentSchedule(scheduleEntriesForView[selectedScheduleIndex]);
+    }
+  }, [selectedScheduleIndex, scheduleEntriesForView]);
 
   // Map GET getUserEntries response to Review table rows. Response: [{ id, note, meeting_head, meeting_sub_head, username, date, status, month_quater_id }]. note → col2 (or col2|col3|col4 if note contains " | ").
   const entriesToReviewRows = (entries: any[]): ReviewRow[] => {
@@ -393,73 +357,14 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     return allRows;
   };
 
-  // Fetch entries via GET getUserEntries – depends on selected user, quarter, month, department. User = own entries; MD = selected attendee's entries.
+  // getUserEntries API disabled – clear table when MD has no attendee
   useEffect(() => {
-    let isMounted = true;
-
-    // MD without attendee: clear table
     if (isMD && !attendee) {
       setReviewRows([]);
       hasFetchedEntries.current = false;
       lastFetchKey.current = '';
-      return () => { isMounted = false; };
     }
-
-    // Who to fetch: MD with attendee → selected user (scheduleUserId); else current user (userId). MD entries only when attendee schedule is loaded so quarter/month are correct.
-    if (isMD && scheduleUserId && isLoadingMDSchedule) {
-      return () => { isMounted = false; };
-    }
-    const targetUsername = isMD && attendee ? scheduleUserId : userId;
-    if (!targetUsername) {
-      return () => { isMounted = false; };
-    }
-
-    const currentMonthNum = new Date().getMonth() + 1;
-    // Use selected dropdown values so Q4 + January sends quater=Q4&month=January (not currentSchedule Q1/April)
-    const q = selectedQuarter != null ? selectedQuarter : (currentSchedule?.quater ? parseInt(String(currentSchedule.quater).replace(/[^0-9]/g, ''), 10) : (currentMonthNum >= 4 && currentMonthNum <= 6 ? 1 : currentMonthNum >= 7 && currentMonthNum <= 9 ? 2 : currentMonthNum >= 10 ? 3 : 4));
-    const m = selectedMonth != null ? selectedMonth : (currentSchedule?.month ?? currentMonthNum);
-    const fetchKey = `${targetUsername}-Q${q}-${m}-${selectedDept}-${refreshEntriesKey}`;
-    if (hasFetchedEntries.current && lastFetchKey.current === fetchKey) return () => { isMounted = false; };
-    if (lastFetchKey.current !== '' && lastFetchKey.current !== fetchKey) hasFetchedEntries.current = false;
-    hasFetchedEntries.current = true;
-    lastFetchKey.current = fetchKey;
-
-    const quaterStr = `Q${q}`;
-    const monthStr = MONTH_NAMES[m - 1] ?? MONTH_NAMES[0];
-    // Resolve month_quater_id from schedule so backend gets correct month id (fixes Q4/January sending wrong id)
-    const matchingSchedule = scheduleSource?.find((s: any) =>
-      s.month === m && String(s.quater || s.quarter || '').toUpperCase() === quaterStr
-    );
-    const monthQuaterId = matchingSchedule
-      ? (matchingSchedule.month_quater_id ?? matchingSchedule.id)
-      : (currentSchedule && currentSchedule.month === m && String(currentSchedule.quater || '').toUpperCase() === quaterStr ? (currentSchedule.month_quater_id ?? currentSchedule.id) : undefined);
-
-    // GET {{baseurl}}/getUserEntries/?quater=Q4&month=January&department=Sales&username=20011&month_quater_id=... – use selected Q/M and month_quater_id when available
-    getUserEntriesByFilters({
-      quater: quaterStr,
-      month: monthStr,
-      department: selectedDept,
-      username: targetUsername,
-      ...(monthQuaterId != null && monthQuaterId !== '' ? { month_quater_id: monthQuaterId } : {}),
-    })
-      .then((entries) => {
-        if (!isMounted) return;
-        const rows = entriesToReviewRows(entries || []);
-        setReviewRows(rows);
-        // Mark as "already saved" so auto-save doesn't fire right after load
-        const sig = JSON.stringify(
-          rows.filter(r => (r.col2 || '').trim() || (r.col3 || '').trim() || (r.col4 || '').trim()).map(r => ({ date: r.col1, col2: r.col2, col3: r.col3, col4: r.col4 })).sort((a, b) => a.date.localeCompare(b.date))
-        );
-        lastAutoSaveContentRef.current = sig;
-      })
-      .catch((err) => {
-        if (isMounted) {
-          console.error('❌ [REPORTS] Error fetching entries:', err);
-          setReviewRows([]);
-        }
-      });
-    return () => { isMounted = false; };
-  }, [userId, isMD, attendee, scheduleUserId, selectedQuarter, selectedMonth, selectedDept, currentSchedule, scheduleSource, refreshEntriesKey, isLoadingMDSchedule]);
+  }, [isMD, attendee]);
 
 
   // Derive Quarter from schedule or calculate
@@ -503,7 +408,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   }, [isMD, mdAttendeeSchedule]);
 
   // MD: Quarter options from getMonthlySchedule response (unique quarters, label with month range)
-  const quarterLabelMap: Record<number, string> = { 1: 'Q1 (Apr–Jun)', 2: 'Q2 (Jul–Sep)', 3: 'Q3 (Oct–Dec)', 4: 'Q4 (Jan–Mar)' };
+  const quarterLabelMap: Record<number, string> = { 1: 'Q1 (Apr-Jun)', 2: 'Q2 (Jul-Sep)', 3: 'Q3 (Oct-Dec)', 4: 'Q4 (Jan-Mar)' };
   const mdQuarterOptions = useMemo(() => {
     if (!isMD || !mdAttendeeSchedule?.length) return [];
     const seen = new Set<number>();
@@ -1087,7 +992,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
             </div>
 
             {/* Meta Info Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-left border-t border-b border-gray-100 py-6 text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-left border-t border-b border-gray-100 py-6 text-sm">
               <div className="flex flex-col">
                 <span className="text-gray-400 text-[10px] font-black uppercase tracking-tighter flex items-center">
                   <Building2 className="w-3 h-3 mr-1" />
@@ -1127,7 +1032,11 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                 </span>
                 <select
                   value={selectedMonth || currentSchedule?.month || new Date().getMonth() + 1}
-                  onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+                  onChange={(e) => {
+                    const m = parseInt(e.target.value, 10);
+                    setSelectedMonth(m);
+                    setSelectedQuarter(getQuarterForMonth(m));
+                  }}
                   className="mt-1 bg-white border border-slate-200 rounded-md px-3 py-1.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
                 >
                   {monthNames.map((label, i) => (
@@ -1151,10 +1060,10 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                   }}
                   className="mt-1 bg-white border border-slate-200 rounded-md px-3 py-1.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
                 >
-                  <option value={1}>Q1 (Apr–Jun)</option>
-                  <option value={2}>Q2 (Jul–Sep)</option>
-                  <option value={3}>Q3 (Oct–Dec)</option>
-                  <option value={4}>Q4 (Jan–Mar)</option>
+                  <option value={1}>Q1 (Apr-Jun)</option>
+                  <option value={2}>Q2 (Jul-Sep)</option>
+                  <option value={3}>Q3 (Oct-Dec)</option>
+                  <option value={4}>Q4 (Jan-Mar)</option>
                 </select>
               </div>
               <div className="flex flex-col">
@@ -1163,19 +1072,58 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                   {currentSchedule?.financial_year || year}
                 </span>
               </div>
+              <div className="flex flex-col justify-end">
+                <button
+                  type="button"
+                  onClick={handleFilterClick}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors no-print"
+                >
+                  <Filter className="w-4 h-4" />
+                  Filter
+                </button>
+              </div>
             </div>
 
             <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-8 text-left text-sm">
               <div className="flex flex-col">
                 <span className="text-gray-400 text-[10px] font-black uppercase tracking-tighter mb-1">Meeting Strategic Title</span>
-                <span className="text-slate-800 font-semibold bg-brand-50/50 p-3 rounded border-l-4 border-brand-600 shadow-sm">
-                  {config.head}
-                  {config.subMeetingHead && (
-                    <span className="block text-xs text-slate-600 mt-1 font-normal">
-                      {config.subMeetingHead}
-                    </span>
-                  )}
-                </span>
+                {scheduleEntriesForView.length >= 1 ? (
+                  <>
+                    <select
+                      value={selectedScheduleIndex}
+                      onChange={(e) => setSelectedScheduleIndex(parseInt(e.target.value, 10))}
+                      className="mb-2 bg-white border border-slate-200 rounded-md px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
+                    >
+                      {scheduleEntriesForView.map((entry: any, idx: number) => {
+                        const meetingHead = entry['Meeting-head'] || 'General Review';
+                        const subHead = entry['Sub-Meeting-head'] || '';
+                        const label = subHead ? `${meetingHead} — ${subHead}` : meetingHead;
+                        return (
+                          <option key={entry.id ?? idx} value={idx}>
+                            {label}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <div className="text-slate-800 font-semibold bg-brand-50/50 p-3 rounded border-l-4 border-brand-600 shadow-sm">
+                      <span className="font-bold">{currentSchedule?.['Meeting-head'] || config.head}</span>
+                      {(currentSchedule?.['Sub-Meeting-head'] || config.subMeetingHead) && (
+                        <span className="block text-xs text-slate-600 mt-1 font-normal">
+                          {currentSchedule?.['Sub-Meeting-head'] || config.subMeetingHead}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-slate-800 font-semibold bg-brand-50/50 p-3 rounded border-l-4 border-brand-600 shadow-sm">
+                    {config.head}
+                    {config.subMeetingHead && (
+                      <span className="block text-xs text-slate-600 mt-1 font-normal">
+                        {config.subMeetingHead}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex flex-col">
                 <span className="text-gray-400 text-[10px] font-black uppercase tracking-tighter mb-1 flex items-center">
@@ -1206,27 +1154,28 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
           {/* Dynamic Content */}
           <div className="p-4 sm:p-6 lg:p-8 bg-gray-50">
             {view === 'Review' && (
-              <ReviewTable 
-                config={config} 
-                rows={reviewRows} 
-                setRows={setReviewRows} 
+              <ReviewTable
+                config={config}
+                rows={reviewRows}
+                setRows={setReviewRows}
                 onStatusChange={handleReviewStatusChange}
                 onAddRow={(tableType) => {
                   const todayStr = new Date().toISOString().split('T')[0];
                   setReviewRows(prev => [
                     ...prev,
-                    { 
-                      id: Math.random().toString(36), 
-                      col1: todayStr, 
-                      col2: '', 
-                      col3: '', 
-                      col4: '', 
+                    {
+                      id: Math.random().toString(36),
+                      col1: todayStr,
+                      col2: '',
+                      col3: '',
+                      col4: '',
                       status: 'PENDING',
                       tableType: tableType
                     }
                   ]);
                 }}
                 onRemoveRow={removeReviewRow}
+                viewerIsMD={isMD}
               />
             )}
             {view === 'Implementation' && (

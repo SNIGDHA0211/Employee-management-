@@ -1,26 +1,40 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
+import React, { useState, useMemo } from 'react';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell, ComposedChart, Line
 } from 'recharts';
-import { Sparkles, Filter, Download, BrainCircuit, History, X, User as UserIcon, Check, Calendar } from 'lucide-react';
+import { Filter, Download, History, User as UserIcon, Check, Calendar, ChartPie, X as XIcon } from 'lucide-react';
+import type { DefaultizedPieValueType } from '@mui/x-charts/models';
+import { PieChart as MuiPieChart, pieArcLabelClasses } from '@mui/x-charts/PieChart';
 import StatCard from './components/StatCard';
-import { AIInsight, ProjectData, WorkforceData } from './types';
+import { ProjectData, WorkforceData } from './types';
 import { KPI_DATA, REVENUE_CHART_DATA, WORKFORCE_DATA, PROJECTS, ASSETS_DATA } from './constants';
-import { getDashboardInsights } from './services/geminiService';
 import type { User } from '../../types';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-interface MDDashboardPageProps {
+export interface ReportingTaskCounts {
+  completed: number;
+  pending: number;
+  inProgress: number;
+}
+
+export interface MDDashboardPageProps {
   userName?: string;
   userAvatar?: string;
   employees?: User[];
+  reportingTaskCounts?: ReportingTaskCounts;
+  /** Today's meeting count for current user (from Schedule Hub / getBookSlotsToday) */
+  todayMeetCount?: number;
 }
 
-const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User', userAvatar, employees: employeesProp = [] }) => {
-  const [insights, setInsights] = useState<AIInsight[]>([]);
-  const [loadingInsights, setLoadingInsights] = useState(false);
+const MDDashboardPage: React.FC<MDDashboardPageProps> = ({
+  userName = 'MD User',
+  userAvatar,
+  employees: employeesProp = [],
+  reportingTaskCounts = { completed: 0, pending: 0, inProgress: 0 },
+  todayMeetCount = 0,
+}) => {
   const [selectedProject, setSelectedProject] = useState<ProjectData | null>(null);
   // Use shared employees from App (mapped to API-like shape for workforce charts)
   const employees = employeesProp.map((u) => ({
@@ -94,29 +108,32 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User',
           : workforceByDesignation;
   const totalStaffCount = useMemo(() => workforceByDesignation.reduce((s, w) => s + w.value, 0), [workforceByDesignation]);
 
+  const allKpis = useMemo(() => [...KPI_DATA.Overview, ...KPI_DATA.Sales, ...KPI_DATA.Marketing], []);
+  // First row: Total Revenue, Active Projects, Workforce (same count as Workforce section), Today Meet schedule
+  const kpisRow1 = useMemo(
+    () => [
+      KPI_DATA.Overview[0],
+      KPI_DATA.Overview[1],
+      { title: 'Workforce', value: String(totalStaffCount), change: '', trend: 'up' as const },
+      { title: 'Today Meet schedule', value: String(todayMeetCount), change: '', trend: 'up' as const },
+    ],
+    [totalStaffCount, todayMeetCount]
+  );
 
-  // Consolidated data for all sections
-  const allKpis = [
-    ...KPI_DATA.Overview,
-    ...KPI_DATA.Sales,
-    ...KPI_DATA.Marketing
-  ];
-
-  const fetchInsights = async () => {
-    setLoadingInsights(true);
-    const result = await getDashboardInsights({
-      kpis: allKpis,
-      projects: PROJECTS,
-      workforce: workforceByDesignation.length > 0 ? workforceByDesignation : WORKFORCE_DATA,
-      assets: ASSETS_DATA
-    });
-    setInsights(result);
-    setLoadingInsights(false);
+  // Task status pie data (same counts as Reporting Task page)
+  const taskPieData = useMemo(() => {
+    const { completed, pending, inProgress } = reportingTaskCounts;
+    return [
+      { label: 'Completed', value: completed, color: '#00C49F' },
+      { label: 'Pending', value: pending, color: '#FFBB28' },
+      { label: 'In Process', value: inProgress, color: '#0088FE' },
+    ].filter((d) => d.value > 0);
+  }, [reportingTaskCounts]);
+  const taskPieTotal = taskPieData.reduce((a, b) => a + b.value, 0);
+  const getArcLabel = (params: DefaultizedPieValueType) => {
+    const percent = taskPieTotal > 0 ? params.value / taskPieTotal : 0;
+    return `${(percent * 100).toFixed(0)}%`;
   };
-
-  useEffect(() => {
-    fetchInsights();
-  }, []);
 
   // Helper to get the most recent non-upcoming milestone
   const getRecentTrack = (project: ProjectData) => {
@@ -148,7 +165,7 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User',
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 md:gap-6">
-            {allKpis.slice(0, 4).map((kpi, idx) => (
+            {kpisRow1.map((kpi, idx) => (
               <StatCard key={idx} {...kpi} />
             ))}
           </div>
@@ -190,56 +207,54 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User',
             </div>
           </div>
 
-          <div className="bg-slate-900 p-4 sm:p-6 md:p-8 rounded-2xl sm:rounded-3xl shadow-2xl shadow-slate-200 text-white flex flex-col relative overflow-hidden min-h-[280px] sm:min-h-[320px]">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-[100px] rounded-full"></div>
-            <div className="relative z-10 flex flex-col h-full">
-              <div className="flex items-center gap-3 mb-4 sm:mb-6">
-                <div className="p-2 bg-indigo-500/20 rounded-xl">
-                  <Sparkles className="text-indigo-400" size={20} />
-                </div>
-                <div>
-                  <h3 className="text-lg sm:text-xl font-bold">Strategic AI Insights</h3>
-                  <p className="text-xs text-indigo-300 font-medium">Analyzed by AI</p>
-                </div>
+          <div className="bg-white p-4 sm:p-6 md:p-8 rounded-2xl sm:rounded-3xl border border-slate-100 shadow-sm flex flex-col min-h-[280px] sm:min-h-[320px]">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-indigo-100 rounded-xl">
+                <ChartPie className="text-indigo-600" size={20} />
               </div>
-
-              <div className="flex-1 space-y-3 sm:space-y-5 overflow-y-auto max-h-[200px] sm:max-h-none">
-                {loadingInsights ? (
-                  Array(3).fill(0).map((_, i) => (
-                    <div key={i} className="space-y-2 py-2">
-                      <div className="h-3 bg-white/5 rounded-full animate-pulse w-1/3"></div>
-                      <div className="h-2 bg-white/5 rounded-full animate-pulse w-full"></div>
-                      <div className="h-2 bg-white/5 rounded-full animate-pulse w-5/6"></div>
-                    </div>
-                  ))
-                ) : insights.length > 0 ? (
-                  insights.map((insight, idx) => (
-                    <div key={idx} className="group p-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all hover:-translate-y-1">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400">{insight.category}</span>
-                        <div className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${insight.impact === 'High' ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
-                          {insight.impact}
-                        </div>
-                      </div>
-                      <p className="text-sm text-slate-300 leading-relaxed font-medium">{insight.message}</p>
-                    </div>
-                  ))
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-center opacity-40">
-                    <BrainCircuit size={48} className="mb-4" />
-                    <p className="text-sm">Run analysis to generate insights</p>
-                  </div>
-                )}
+              <div>
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900">Reporting Task Status</h3>
+                <p className="text-xs text-slate-500">Same counts as Reporting Task page</p>
               </div>
-
-              <button 
-                onClick={fetchInsights}
-                disabled={loadingInsights}
-                className="w-full mt-4 sm:mt-8 py-3 sm:py-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold transition-all shadow-xl shadow-indigo-900/40 flex items-center justify-center gap-2"
-              >
-                {loadingInsights ? 'Analyzing Data...' : <><Sparkles size={16} /> Generate New Insights</>}
-              </button>
             </div>
+            <div className="flex-1 flex items-center justify-center min-h-[280px]">
+              {taskPieData.length > 0 ? (
+                <MuiPieChart
+                  series={[
+                    {
+                      outerRadius: 120,
+                      data: taskPieData,
+                      arcLabel: getArcLabel,
+                    },
+                  ]}
+                  sx={{
+                    [`& .${pieArcLabelClasses.root}`]: {
+                      fill: 'white',
+                      fontSize: 14,
+                    },
+                  }}
+                  margin={{ right: 5 }}
+                  width={280}
+                  height={280}
+                  hideLegend
+                />
+              ) : (
+                <p className="text-slate-500 text-sm">No reporting tasks yet.</p>
+              )}
+            </div>
+            {taskPieData.length > 0 && (
+              <div className="flex flex-wrap justify-center gap-4 pt-4 border-t border-slate-100 text-sm">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-[#00C49F]" /> Completed: {reportingTaskCounts.completed}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-[#FFBB28]" /> Pending: {reportingTaskCounts.pending}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-[#0088FE]" /> In Process: {reportingTaskCounts.inProgress}
+                </span>
+              </div>
+            )}
           </div>
         </section>
 
@@ -481,7 +496,7 @@ const MDDashboardPage: React.FC<MDDashboardPageProps> = ({ userName = 'MD User',
                 onClick={() => setSelectedProject(null)}
                 className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors shrink-0"
               >
-                <X size={20} />
+                <XIcon size={20} />
               </button>
             </div>
             <div className="p-4 sm:p-6 md:p-8 max-h-[60vh] sm:max-h-[65vh] overflow-y-auto bg-slate-50/30 flex-1 min-h-0">

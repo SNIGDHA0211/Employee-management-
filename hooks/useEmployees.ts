@@ -54,7 +54,7 @@ const mapEmployeeToUser = (emp: any): User => {
     name: emp['Name'] || emp['Full Name'] || emp.name || 'Unknown',
     email: emp['Email_id'] || emp['Email Address'] || emp.email || '',
     role: mapApiRoleToUserRole(role),
-    designation: emp['Designation'] || emp.designation || 'Employee',
+    designation: (emp['Designation'] || emp.designation || 'Employee').trim() === 'None' ? 'Employee' : (emp['Designation'] || emp.designation || 'Employee'),
     birthDate: fromApiDateFormat(emp['Date_of_birth'] || emp['Date of Birth'] || emp.birthDate || '') || '1995-01-01',
     joinDate: fromApiDateFormat(emp['Date_of_join'] || emp['Joining Date'] || emp.joinDate || '') || new Date().toISOString().split('T')[0],
     avatar: convertPhotoLinkToUrl(emp['Photo_link'] || emp['Profile Picture'] || emp.avatar, emp['Name'] || emp.name || '') || `https://ui-avatars.com/api/?name=${encodeURIComponent(emp['Name'] || emp.name || '')}&background=random`,
@@ -66,8 +66,8 @@ const mapEmployeeToUser = (emp: any): User => {
     numberOfDaysFromJoining: emp['Number_of_days_from_joining'] != null ? String(emp['Number_of_days_from_joining']).trim() : undefined,
     ...(emp['Employee_id'] != null && { Employee_id: String(emp['Employee_id']).trim() }),
     department: emp['Department'] || emp.department || '',
-    function: emp['Function'] || emp.function || emp.Function || '',
-    teamLead: emp['Team_Lead'] || emp['Teamlead'] || emp.teamLead || '',
+    function: (Array.isArray(emp['Functions']) ? emp['Functions'].filter((f: string) => f && f !== 'None').join(', ') : null) || emp['Function'] || emp.function || emp.Function || '',
+    teamLead: emp['Teamleader'] || emp['Team_Lead'] || emp['Teamlead'] || emp.teamLead || '',
   };
 };
 
