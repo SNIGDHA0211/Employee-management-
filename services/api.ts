@@ -11,7 +11,7 @@ import {
 // Production backend URL
 const PRODUCTION_BACKEND_URL = 'https://employee-management-system-1-jwyn.onrender.com';
 
-/** WebSocket URL for audio/video calls - ws://192.168.42.103:8000/ws/calls/ */
+/** WebSocket URL for audio/video calls */
 export const getCallsWebSocketUrl = (): string => {
   if (typeof window === 'undefined') return 'wss://employee-management-system-1-jwyn.onrender.com/ws/calls/';
   const envUrl = (import.meta as any).env?.VITE_CALLS_WS_URL;
@@ -19,7 +19,8 @@ export const getCallsWebSocketUrl = (): string => {
   const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ||
     window.location.hostname.startsWith('192.168.') || window.location.hostname.startsWith('10.') || window.location.hostname.startsWith('172.');
   if (isDev) return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/calls/`;
-  return 'ws://192.168.42.103:8000/ws/calls/';
+  // Production: always use wss:// to match the HTTPS hosted frontend
+  return 'wss://employee-management-system-1-jwyn.onrender.com/ws/calls/';
 };
 
 //https://employee-management-system-tmrl.onrender.com
