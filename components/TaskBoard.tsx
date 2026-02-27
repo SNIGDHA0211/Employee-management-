@@ -7,6 +7,7 @@ import api, {
   createTask as apiCreateTask,
   getTaskTypes as apiGetTaskTypes,
   getNamesFromRoleAndDesignation as apiGetNamesFromRoleAndDesignation,
+  getDesignations as apiGetDesignations,
   sendTaskMessage as apiSendTaskMessage,
   getTaskMessages as apiGetTaskMessages,
   changeTaskStatus as apiChangeTaskStatus
@@ -71,6 +72,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
   const [isLoadingAssigneeNames, setIsLoadingAssigneeNames] = useState<Record<number, boolean>>({});
   // Store designations for each assignee (filtered by role)
   const [assigneeDesignations, setAssigneeDesignations] = useState<Record<number, string[]>>({});
+  // API fallback for TeamLead when employees list is empty (designations from getDesignations, names from getNamesFromRoleAndDesignation)
+  const [assigneeDesignationsFromApi, setAssigneeDesignationsFromApi] = useState<Record<number, string[]>>({});
+  const [assigneeNamesFromApi, setAssigneeNamesFromApi] = useState<Record<number, any[]>>({});
+  const [isLoadingAssigneeFromApi, setIsLoadingAssigneeFromApi] = useState<Record<number, boolean>>({});
   // Reporting By / Reporting To (for role-based Create Task form)
   const [reportingById, setReportingById] = useState<string>('');
   const [reportingToId, setReportingToId] = useState<string>('');
@@ -86,6 +91,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
   const [reportingByNamesByIndex, setReportingByNamesByIndex] = useState<Record<number, any[]>>({});
   const [reportingByDesignationsByIndex, setReportingByDesignationsByIndex] = useState<Record<number, string[]>>({});
   const [isLoadingReportingByByIndex, setIsLoadingReportingByByIndex] = useState<Record<number, boolean>>({});
+  // API fallback for Reporting To/By when employees list is empty (designations + names from API)
+  const [reportingByDesignationsFromApi, setReportingByDesignationsFromApi] = useState<Record<number, string[]>>({});
+  const [reportingByNamesFromApi, setReportingByNamesFromApi] = useState<Record<number, any[]>>({});
+  const [isLoadingReportingByFromApi, setIsLoadingReportingByFromApi] = useState<Record<number, boolean>>({});
   
   // Role and Designation Filter State (for both modal and main view filters)
   const [selectedRole, setSelectedRole] = useState<string>('');
@@ -197,6 +206,80 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
     fetchFilteredNames();
   }, [selectedRole, selectedDesignation, showAddModal]);
 
+  // API fallback for TeamLead: fetch designations and names when usersForDropdown is empty
+  const needsApiFallback = showAddModal && currentUser.role === UserRole.TEAM_LEADER;
+  useEffect(() => {
+    if (!needsApiFallback || (availableUsers.length > 0 || users.length > 0)) return;
+    const fetchForAssignees = async () => {
+      const designationsMap: Record<number, string[]> = {};
+      const namesMap: Record<number, any[]> = {};
+      const loadingMap: Record<number, boolean> = {};
+      for (let i = 0; i < multipleAssignees.length; i++) {
+        const a = multipleAssignees[i];
+        const role = (a.role || '').trim();
+        const designation = (a.designation || '').trim();
+        if (role) {
+          loadingMap[i] = true;
+          setIsLoadingAssigneeFromApi(prev => ({ ...prev, [i]: true }));
+          try {
+            const [designations, names] = await Promise.all([
+              apiGetDesignations(role),
+              apiGetNamesFromRoleAndDesignation(role, designation),
+            ]);
+            designationsMap[i] = Array.isArray(designations) ? designations.filter((d: any) => d != null && String(d).trim() !== '') : [];
+            namesMap[i] = Array.isArray(names) ? names : [];
+          } catch {
+            designationsMap[i] = [];
+            namesMap[i] = [];
+          }
+          loadingMap[i] = false;
+        }
+      }
+      setAssigneeDesignationsFromApi(prev => ({ ...prev, ...designationsMap }));
+      setAssigneeNamesFromApi(prev => ({ ...prev, ...namesMap }));
+      setIsLoadingAssigneeFromApi(prev => ({ ...prev, ...loadingMap }));
+    };
+    fetchForAssignees();
+  }, [needsApiFallback, availableUsers.length, users.length, multipleAssignees]);
+
+  // API fallback for Employee/Intern Reporting To/By: fetch designations and names when employees-derived data is empty for selected role
+  const needsReportingByApiFallback = showAddModal && (currentUser.role === UserRole.EMPLOYEE || currentUser.role === UserRole.INTERN);
+  useEffect(() => {
+    if (!needsReportingByApiFallback) return;
+    const hasRowWithRole = multipleReportingBy.some(r => (r.role || '').trim() !== '');
+    if (!hasRowWithRole) return;
+    const fetchForReportingBy = async () => {
+      const designationsMap: Record<number, string[]> = {};
+      const namesMap: Record<number, any[]> = {};
+      const loadingMap: Record<number, boolean> = {};
+      for (let i = 0; i < multipleReportingBy.length; i++) {
+        const row = multipleReportingBy[i];
+        const role = (row.role || '').trim();
+        const designation = (row.designation || '').trim();
+        if (role) {
+          loadingMap[i] = true;
+          setIsLoadingReportingByFromApi(prev => ({ ...prev, [i]: true }));
+          try {
+            const [designations, names] = await Promise.all([
+              apiGetDesignations(role),
+              apiGetNamesFromRoleAndDesignation(role, designation),
+            ]);
+            designationsMap[i] = Array.isArray(designations) ? designations.filter((d: any) => d != null && String(d).trim() !== '') : [];
+            namesMap[i] = Array.isArray(names) ? names : [];
+          } catch {
+            designationsMap[i] = [];
+            namesMap[i] = [];
+          }
+          loadingMap[i] = false;
+        }
+      }
+      setReportingByDesignationsFromApi(prev => ({ ...prev, ...designationsMap }));
+      setReportingByNamesFromApi(prev => ({ ...prev, ...namesMap }));
+      setIsLoadingReportingByFromApi(prev => ({ ...prev, ...loadingMap }));
+    };
+    fetchForReportingBy();
+  }, [needsReportingByApiFallback, multipleReportingBy]);
+
   // Reset role and designation when modal closes
   useEffect(() => {
     if (!showAddModal) {
@@ -207,6 +290,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
       setAssigneeFilteredNames({});
       setIsLoadingAssigneeNames({});
       setAssigneeDesignations({});
+      setAssigneeDesignationsFromApi({});
+      setAssigneeNamesFromApi({});
+      setIsLoadingAssigneeFromApi({});
       setReportingById('');
       setReportingToId('');
       setReportingByRole('');
@@ -214,6 +300,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
       setReportingByUserId('');
       setReportingByNames([]);
       setReportingByDesignations([]);
+      setReportingByDesignationsFromApi({});
+      setReportingByNamesFromApi({});
+      setIsLoadingReportingByFromApi({});
     }
   }, [showAddModal, currentUser.id]);
 
@@ -667,8 +756,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
   const canAssignTask = currentUser.role === UserRole.MD || ((currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.HR) && viewMode === 'reporting');
   const isIntern = currentUser.role === UserRole.INTERN;
 
-  // Use only API users for dropdown (no dummy users)
-  const usersForDropdown = availableUsers; // Only use API users, no fallback to dummy users
+  // Use availableUsers; fallback to users from App when empty (e.g. TeamLead with restricted employees)
+  const usersForDropdown = availableUsers.length > 0 ? availableUsers : users;
   
   // Get unique designations dynamically from API users
   const uniqueDesignations = ['All', ...Array.from(new Set(usersForDropdown.map(u => u.designation).filter(Boolean)))];
@@ -1337,10 +1426,17 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                         <div className="space-y-3">
                             <label className="block text-xs font-bold text-gray-500 mb-2 uppercase">Assign To</label>
                             {multipleAssignees.map((assignee, index) => {
-                              const assigneeNames = assigneeFilteredNamesFromEmployees[index] ?? [];
-                              const isLoading = isLoadingEmployees && usersForDropdown.length === 0;
+                              const useApiFallback = usersForDropdown.length === 0 && currentUser.role === UserRole.TEAM_LEADER;
+                              const assigneeNames = useApiFallback
+                                ? (assigneeNamesFromApi[index] ?? [])
+                                : (assigneeFilteredNamesFromEmployees[index] ?? []);
+                              const isLoading = useApiFallback
+                                ? (isLoadingAssigneeFromApi[index] ?? false)
+                                : (isLoadingEmployees && usersForDropdown.length === 0);
                               
-                              const assigneeDesignationsList = assigneeDesignationsFromEmployees[index] ?? [];
+                              const assigneeDesignationsList = useApiFallback
+                                ? (assigneeDesignationsFromApi[index] ?? [])
+                                : (assigneeDesignationsFromEmployees[index] ?? []);
                               
                               return (
                                 <div key={index} className="space-y-2">
@@ -1485,9 +1581,18 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                         {multipleReportingBy.length > 1 && <div className="w-10" />}
                       </div>
                       {multipleReportingBy.map((row, index) => {
-                        const names = reportingByNamesFromEmployees[index] ?? [];
-                        const designations = reportingByDesignationsFromEmployees[index] ?? [];
-                        const loading = isLoadingEmployees && usersForDropdown.length === 0;
+                        const empDesignations = reportingByDesignationsFromEmployees[index] ?? [];
+                        const empNames = reportingByNamesFromEmployees[index] ?? [];
+                        const useReportingByApiFallback = row.role && empDesignations.length === 0 && empNames.length === 0;
+                        const designations = useReportingByApiFallback
+                          ? (reportingByDesignationsFromApi[index] ?? [])
+                          : empDesignations;
+                        const names = useReportingByApiFallback
+                          ? (reportingByNamesFromApi[index] ?? [])
+                          : empNames;
+                        const loading = useReportingByApiFallback
+                          ? (isLoadingReportingByFromApi[index] ?? false)
+                          : (isLoadingEmployees && usersForDropdown.length === 0);
                         const isEmployee = currentUser.role === UserRole.EMPLOYEE;
                         return (
                           <div key={`reporting-by-row-${index}`} className="flex items-start gap-2">

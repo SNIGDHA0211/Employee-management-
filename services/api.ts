@@ -9,7 +9,19 @@ import {
 } from "./utils/auth";
 
 // Production backend URL
-const PRODUCTION_BACKEND_URL = 'https://employee-management-system-1-jwyn.onrender.com';
+const PRODUCTION_BACKEND_URL = 'http://192.168.42.111:8002';
+
+/** WebSocket URL for audio/video calls - ws://192.168.42.103:8000/ws/calls/ */
+export const getCallsWebSocketUrl = (): string => {
+  if (typeof window === 'undefined') return 'ws://192.168.42.111:8002/ws/calls/';
+  const envUrl = (import.meta as any).env?.VITE_CALLS_WS_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
+  const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ||
+    window.location.hostname.startsWith('192.168.') || window.location.hostname.startsWith('10.') || window.location.hostname.startsWith('172.');
+  if (isDev) return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/calls/`;
+  return 'ws://192.168.42.103:8000/ws/calls/';
+};
+
 //https://employee-management-system-tmrl.onrender.com
 //http://192.168.42.111:8000
 // Use proxy in development to bypass CORS, direct URL in production
@@ -3516,6 +3528,188 @@ export const getMessages = async (
   }
 };
 
+/**
+ * Get users available for calls
+ * @endpoint GET /messaging/callableUsers/
+ */
+export const getCallableUsers = async (): Promise<any[]> => {
+  const response = await api.get('/messaging/callableUsers/');
+  const data = response.data;
+  if (Array.isArray(data)) return data;
+  if (data?.users && Array.isArray(data.users)) return data.users;
+  if (data?.data && Array.isArray(data.data)) return data.data;
+  return [];
+};
+
+/**
+ * Get pending calls (incoming/outgoing)
+ * @endpoint GET /messaging/pendingCalls/
+ */
+export const getPendingCalls = async (): Promise<any[]> => {
+  const response = await api.get('/messaging/pendingCalls/');
+  const data = response.data;
+  if (Array.isArray(data)) return data;
+  if (data?.calls && Array.isArray(data.calls)) return data.calls;
+  if (data?.pending && Array.isArray(data.pending)) return data.pending;
+  if (data?.data && Array.isArray(data.data)) return data.data;
+  return [];
+};
+
+/**
+ * Initiate audio or video call
+ * @endpoint POST /messaging/initiateCall/
+ * @body { user_id: string, call_type: "audio" | "video" }
+ * @returns Response may include call_id
+ * @throws On 409: call already in progress, user busy, or other conflict
+ */
+export const initiateCall = async (userId: string, callType: 'audio' | 'video'): Promise<any> => {
+  try {
+    const response = await api.post('/messaging/initiateCall/', {
+      user_id: String(userId).trim(),
+      call_type: callType,
+    });
+    return response.data;
+  } catch (error: any) {
+    const status = error?.response?.status;
+    const data = error?.response?.data;
+    const msg = typeof data === 'string' ? data : (data?.message || data?.detail || data?.error);
+    if (status === 409) {
+      throw new Error(msg || 'Call conflict: A call may already be in progress, or the user is busy. Try ending any active call first.');
+    }
+    throw error;
+  }
+};
+
+/**
+ * Accept incoming call
+ * @endpoint POST /messaging/acceptCall/
+ * @body { call_id: string | number }
+ */
+export const acceptCall = async (callId: string | number): Promise<any> => {
+  const response = await api.post('/messaging/acceptCall/', {
+    call_id: callId,
+  });
+  return response.data;
+};
+
+/**
+ * Decline incoming call
+ * @endpoint POST /messaging/declineCall/
+ * @body { call_id: string | number }
+ */
+export const declineCall = async (callId: string | number): Promise<any> => {
+  console.log('[DeclineCall] Sending POST /messaging/declineCall/', { call_id: callId });
+  try {
+    const response = await api.post('/messaging/declineCall/', {
+      call_id: callId,
+    });
+    console.log('[DeclineCall] Success', response.data);
+    return response.data;
+  } catch (err: any) {
+    console.error('[DeclineCall] Failed', err?.response?.status, err?.response?.data, err?.message);
+    throw err;
+  }
+};
+
+/**
+ * End active call
+ * @endpoint POST /messaging/endCall/
+ * @body { call_id: number } (integer)
+ */
+export const endCall = async (callId: string | number): Promise<any> => {
+  const response = await api.post('/messaging/endCall/', {
+    call_id: typeof callId === 'string' && /^\d+$/.test(callId) ? parseInt(callId, 10) : callId,
+  });
+  return response.data;
+};
+
+/**
+ * End all my calls
+ * @endpoint POST /messaging/endAllMyCalls/
+ * @body {}
+ */
+export const endAllMyCalls = async (): Promise<any> => {
+  const response = await api.post('/messaging/endAllMyCalls/', {});
+  return response.data;
+};
+
+/**
+ * Get active calls
+ * @endpoint GET /messaging/activeCalls/
+ * @returns [{ call_id, sender, receiver, call_type, status, timestamp }, ...]
+ */
+export const getActiveCalls = async (): Promise<any[]> => {
+  const response = await api.get('/messaging/activeCalls/');
+  const data = response.data;
+  if (Array.isArray(data)) return data;
+  if (data?.calls && Array.isArray(data.calls)) return data.calls;
+  if (data?.active && Array.isArray(data.active)) return data.active;
+  if (data?.data && Array.isArray(data.data)) return data.data;
+  return [];
+};
+
+/**
+ * Start a group call
+ * @endpoint POST /messaging/initiateGroupCall/
+ * @body { user_ids: string[], call_type: "audio" | "video" }
+ */
+export const initiateGroupCall = async (userIds: string[], callType: 'audio' | 'video'): Promise<any> => {
+  const response = await api.post('/messaging/initiateGroupCall/', {
+    user_ids: userIds.map((id) => String(id).trim()),
+    call_type: callType,
+  });
+  return response.data;
+};
+
+/**
+ * Join a group call
+ * @endpoint POST /messaging/joinGroupCall/
+ * @body { call_id: number }
+ */
+export const joinGroupCall = async (callId: string | number): Promise<any> => {
+  const response = await api.post('/messaging/joinGroupCall/', {
+    call_id: typeof callId === 'string' && /^\d+$/.test(callId) ? parseInt(callId, 10) : callId,
+  });
+  return response.data;
+};
+
+/**
+ * Leave a group call
+ * @endpoint POST /messaging/leaveGroupCall/
+ * @body { call_id: number }
+ */
+export const leaveGroupCall = async (callId: string | number): Promise<any> => {
+  const response = await api.post('/messaging/leaveGroupCall/', {
+    call_id: typeof callId === 'string' && /^\d+$/.test(callId) ? parseInt(callId, 10) : callId,
+  });
+  return response.data;
+};
+
+/**
+ * End group call (creator only)
+ * @endpoint POST /messaging/endGroupCall/
+ * @body { call_id: number }
+ */
+export const endGroupCall = async (callId: string | number): Promise<any> => {
+  const response = await api.post('/messaging/endGroupCall/', {
+    call_id: typeof callId === 'string' && /^\d+$/.test(callId) ? parseInt(callId, 10) : callId,
+  });
+  return response.data;
+};
+
+/**
+ * List active group calls for current user
+ * @endpoint GET /messaging/activeGroupCalls/
+ */
+export const getActiveGroupCalls = async (): Promise<any[]> => {
+  const response = await api.get('/messaging/activeGroupCalls/');
+  const data = response.data;
+  if (Array.isArray(data)) return data;
+  if (data?.calls && Array.isArray(data.calls)) return data.calls;
+  if (data?.data && Array.isArray(data.data)) return data.data;
+  return [];
+};
+
 /** Fetch functional goals and actionable goals. GET /get_functions_and_actionable_goals/?function_name=NPD|MMR|RG|HC|IP */
 export const getFunctionsAndActionableGoals = async (functionName: string) => {
   const response = await api.get('/get_functions_and_actionable_goals/', {
@@ -3638,6 +3832,19 @@ export const apiFunctions = {
   deleteGroup,
   postMessages,
   getMessages,
+  getCallableUsers,
+  getPendingCalls,
+  initiateCall,
+  acceptCall,
+  declineCall,
+  endCall,
+  endAllMyCalls,
+  getActiveCalls,
+  initiateGroupCall,
+  joinGroupCall,
+  leaveGroupCall,
+  endGroupCall,
+  getActiveGroupCalls,
   getMonthlySchedule,
   addDayEntries,
   changeEntryStatus,
