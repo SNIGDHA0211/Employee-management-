@@ -194,6 +194,16 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         groupCalleeStreamRef.current = null;
       }
     },
+    onScreenShareStarted: (data) => {
+      if (activeGroupCallRef.current?.callId === data.call_id) {
+        (groupWebRtcHandlersRef.current as any)?.handleRemoteScreenShareStarted?.(data.from_user);
+      }
+    },
+    onScreenShareStopped: (data) => {
+      if (activeGroupCallRef.current?.callId === data.call_id) {
+        (groupWebRtcHandlersRef.current as any)?.handleRemoteScreenShareStopped?.();
+      }
+    },
   });
 
   const webrtc = useWebRTC({
@@ -226,8 +236,10 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       createOfferForPeer: groupWebRtc.createOfferForPeer,
       removePeer: groupWebRtc.removePeer,
       cleanup: groupWebRtc.cleanup,
-    };
-  }, [groupWebRtc.handleOffer, groupWebRtc.handleAnswer, groupWebRtc.handleIceCandidate, groupWebRtc.createOfferForPeer, groupWebRtc.removePeer, groupWebRtc.cleanup]);
+      handleRemoteScreenShareStarted: groupWebRtc.handleRemoteScreenShareStarted,
+      handleRemoteScreenShareStopped: groupWebRtc.handleRemoteScreenShareStopped,
+    } as any;
+  }, [groupWebRtc.handleOffer, groupWebRtc.handleAnswer, groupWebRtc.handleIceCandidate, groupWebRtc.createOfferForPeer, groupWebRtc.removePeer, groupWebRtc.cleanup, groupWebRtc.handleRemoteScreenShareStarted, groupWebRtc.handleRemoteScreenShareStopped]);
 
   useEffect(() => {
     webrtcHandlersRef.current = {
@@ -2550,6 +2562,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             onShareScreen={groupWebRtc.startScreenShare}
             onStopShareScreen={groupWebRtc.stopScreenShare}
             isSharingScreen={groupWebRtc.isSharingScreen}
+            screenSharingParticipant={groupWebRtc.screenSharingParticipant}
             onAccept={async () => {
               const stream = await requestAndGetCallMediaStream('video');
               if (!stream) {

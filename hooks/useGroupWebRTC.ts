@@ -29,6 +29,8 @@ export function useGroupWebRTC(options: UseGroupWebRTCOptions) {
   const [localDisplayStream, setLocalDisplayStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
   const [isSharingScreen, setIsSharingScreen] = useState(false);
+  // username of whoever is currently sharing their screen (null = nobody)
+  const [screenSharingParticipant, setScreenSharingParticipant] = useState<string | null>(null);
 
   const pcMapRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const streamRef = useRef<MediaStream | null>(null);
@@ -52,6 +54,7 @@ export function useGroupWebRTC(options: UseGroupWebRTCOptions) {
     setLocalDisplayStream(null);
     setRemoteStreams(new Map());
     setIsSharingScreen(false);
+    setScreenSharingParticipant(null);
     pendingIceRef.current.clear();
     hasCreatedOfferRef.current.clear();
     hasCreatedAnswerRef.current.clear();
@@ -257,8 +260,11 @@ export function useGroupWebRTC(options: UseGroupWebRTCOptions) {
     const displayStream = new MediaStream([...stream.getAudioTracks(), screenTrack]);
     setLocalDisplayStream(displayStream);
     setIsSharingScreen(true);
+    setScreenSharingParticipant(currentUsername);
+    // Broadcast to all other participants so they switch to presenter layout
+    send({ type: 'screen_share_started', call_id: callId });
     return true;
-  }, [callType]);
+  }, [callType, callId, currentUsername, send]);
 
   const stopScreenShare = useCallback(() => {
     const stream = streamRef.current;
@@ -278,14 +284,29 @@ export function useGroupWebRTC(options: UseGroupWebRTCOptions) {
     }
     setLocalDisplayStream(stream ?? null);
     setIsSharingScreen(false);
+    setScreenSharingParticipant(null);
+    // Broadcast stop so all participants revert to grid layout
+    send({ type: 'screen_share_stopped', call_id: callId });
+  }, [callId, send]);
+
+  /** Called by ChatSystem when a remote screen_share_started/stopped WS message arrives */
+  const handleRemoteScreenShareStarted = useCallback((username: string) => {
+    setScreenSharingParticipant(username);
+  }, []);
+
+  const handleRemoteScreenShareStopped = useCallback(() => {
+    setScreenSharingParticipant(null);
   }, []);
 
   return {
     localStream: localDisplayStream ?? localStream,
     remoteStreams,
     isSharingScreen,
+    screenSharingParticipant,
     startScreenShare,
     stopScreenShare,
+    handleRemoteScreenShareStarted,
+    handleRemoteScreenShareStopped,
     addPeer,
     removePeer,
     handleOffer,

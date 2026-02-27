@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { PhoneOff, PhoneIncoming, Users, Mic, MicOff, Monitor, MonitorOff, Video, VideoOff } from 'lucide-react';
 import { useCallRingtone } from '../../hooks/useCallRingtone';
 
@@ -27,9 +27,63 @@ interface GroupVideoCallProps {
   onShareScreen?: () => Promise<boolean>;
   onStopShareScreen?: () => void;
   isSharingScreen?: boolean;
+  /** Username of whoever is currently sharing their screen. null = no one. */
+  screenSharingParticipant?: string | null;
   isEndingCall?: boolean;
 }
 
+// ─── Avatar placeholder ──────────────────────────────────────────────────────
+const AvatarPlaceholder: React.FC<{ name: string; avatar?: string; label?: string; size?: 'sm' | 'md' }> = ({
+  name, avatar, label, size = 'md',
+}) => {
+  const dim = size === 'sm' ? 'w-8 h-8 text-base' : 'w-14 h-14 text-2xl';
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center bg-slate-700 gap-1">
+      {avatar ? (
+        <img src={avatar} alt={name} className={`${dim} rounded-full object-cover`} />
+      ) : (
+        <span className={`${dim} rounded-full bg-brand-500/40 flex items-center justify-center font-bold text-brand-200`}>
+          {name.charAt(0).toUpperCase()}
+        </span>
+      )}
+      {label && <span className="text-xs text-slate-400 mt-0.5">{label}</span>}
+    </div>
+  );
+};
+
+// ─── Single video tile ───────────────────────────────────────────────────────
+interface TileProps {
+  id: string;
+  stream?: MediaStream | null;
+  name: string;
+  avatar?: string;
+  muted?: boolean;
+  isCameraOff?: boolean;
+  className?: string;
+  videoRefs: React.MutableRefObject<Map<string, HTMLVideoElement>>;
+}
+const VideoTile: React.FC<TileProps> = ({ id, stream, name, avatar, muted = false, isCameraOff = false, className = '', videoRefs }) => {
+  return (
+    <div className={`relative rounded-xl overflow-hidden bg-slate-800 border border-white/10 ${className}`}>
+      {isCameraOff || !stream ? (
+        <AvatarPlaceholder name={name} avatar={avatar} label={isCameraOff ? 'Camera off' : undefined} />
+      ) : (
+        <video
+          ref={(el) => { if (el) videoRefs.current.set(id, el); }}
+          autoPlay
+          playsInline
+          muted={muted}
+          className="w-full h-full object-cover"
+        />
+      )}
+      <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 rounded text-xs truncate max-w-[80%] leading-4">
+        {name}
+      </span>
+    </div>
+  );
+};
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
   participants,
   localStream,
@@ -45,6 +99,7 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
   onShareScreen,
   onStopShareScreen,
   isSharingScreen = false,
+  screenSharingParticipant = null,
   isEndingCall = false,
 }) => {
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
@@ -67,137 +122,175 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
     setIsCameraOff((c) => !c);
   };
 
+  // Attach streams to video elements whenever participants or streams change
   useEffect(() => {
-    if (isCameraOff) return;
     videoRefs.current.forEach((el, key) => {
       if (!el) return;
-      const p = participants.find((x) => (x.isLocal ? 'local' : x.username) === key);
-      const stream = key === 'local' ? localStream : p?.stream;
-      if (stream) el.srcObject = stream;
+      const isLocal = key === 'local';
+      if (isLocal) {
+        if (!isCameraOff && localStream) el.srcObject = localStream;
+        return;
+      }
+      const p = participants.find((x) => x.username === key);
+      if (p?.stream) el.srcObject = p.stream;
     });
   }, [participants, localStream, isCameraOff]);
 
   const remoteParticipants = participants.filter((p) => !p.isLocal);
-  const gridCount = Math.max(1, remoteParticipants.length + 1);
+
+  // ── Determine presenter layout ──────────────────────────────────────────
+  // Someone is sharing if: local user is sharing OR a remote participant is sharing
+  const presenterUsername = isSharingScreen ? 'local' : screenSharingParticipant;
+  const isPresenterMode = !!presenterUsername;
+
+  // Tile order for strip: locals first, then remotes — excluding the presenter tile
+  const allTiles: Array<{ id: string; name: string; avatar?: string; stream?: MediaStream | null; muted?: boolean }> = [
+    { id: 'local', name: localUserName, avatar: localUserAvatar, stream: localStream, muted: true },
+    ...remoteParticipants.map((p) => ({
+      id: p.username,
+      name: p.name || p.username,
+      avatar: p.avatar,
+      stream: p.stream,
+    })),
+  ];
+  const stripTiles = allTiles.filter((t) => t.id !== presenterUsername);
+
+  // The presenter tile data
+  const presenterTile = allTiles.find((t) => t.id === presenterUsername);
+
+  // Grid columns for equal layout (no screen share)
+  const gridCount = Math.max(1, allTiles.length);
+  const gridCols = gridCount <= 1 ? 1 : gridCount <= 4 ? 2 : 3;
 
   return (
     <div className="fixed inset-0 z-[99999] flex flex-col bg-slate-900 text-white">
-      <div className="flex-1 p-4 overflow-auto">
-        {status === 'incoming' ? (
-          <div className="flex flex-col items-center justify-center h-full gap-6">
-            <div className="w-24 h-24 rounded-full bg-brand-500/30 flex items-center justify-center">
-              <Users size={48} />
-            </div>
-            <h2 className="text-2xl font-bold">Incoming group video call</h2>
-            <p className="text-slate-400">
-              {creatorName ? `${creatorName} is inviting you` : 'You are invited to a group call'}
-            </p>
-            <div className="flex gap-4 mt-4">
-              <button
-                onClick={onDecline}
-                className="flex flex-col items-center gap-2 px-6 py-3 rounded-full bg-red-600 hover:bg-red-500 transition-colors"
-              >
-                <PhoneOff size={24} />
-                <span className="text-xs font-medium">Decline</span>
-              </button>
-              <button
-                onClick={onAccept}
-                className="flex flex-col items-center gap-2 px-6 py-3 rounded-full bg-green-600 hover:bg-green-500 transition-colors"
-              >
-                <PhoneIncoming size={24} />
-                <span className="text-xs font-medium">Accept</span>
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div
-            className="grid gap-2 h-full w-full"
-            style={{
-              gridTemplateColumns: gridCount <= 2 ? '1fr 1fr' : 'repeat(2, 1fr)',
-              gridTemplateRows: gridCount <= 2 ? '1fr' : 'repeat(2, 1fr)',
-            }}
-          >
-            {localStream && (
-              <div className="relative rounded-lg overflow-hidden bg-slate-800 border-2 border-white/20">
-                {isCameraOff ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center bg-slate-700">
-                    {localUserAvatar ? (
-                      <img src={localUserAvatar} alt={localUserName} className="w-16 h-16 rounded-full object-cover" />
-                    ) : (
-                      <span className="text-3xl font-bold text-brand-300">
-                        {localUserName.charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                    <span className="text-xs mt-1 text-slate-400">Camera off</span>
-                  </div>
-                ) : (
-                  <video
-                    ref={(el) => {
-                      if (el) videoRefs.current.set('local', el);
-                    }}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover"
-                  />
-                )}
-                <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 rounded text-xs">You</span>
-              </div>
-            )}
-            {remoteParticipants.map((p) => (
-              <div key={p.username} className="relative rounded-lg overflow-hidden bg-slate-800 border-2 border-white/20">
-                {p.stream ? (
-                  <video
-                    ref={(el) => {
-                      if (el) videoRefs.current.set(p.username, el);
-                    }}
-                    autoPlay
-                    playsInline
-                    muted={false}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-slate-700">
-                    {p.avatar ? (
-                      <img src={p.avatar} alt={p.name || p.username} className="w-16 h-16 rounded-full object-cover" />
-                    ) : (
-                      <span className="text-3xl font-bold text-brand-300">
-                        {(p.name || p.username).charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                )}
-                <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 rounded text-xs truncate max-w-[80%]">
-                  {p.name || p.username}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
 
+      {/* ── Incoming state ── */}
+      {status === 'incoming' ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
+          <div className="w-24 h-24 rounded-full bg-brand-500/30 flex items-center justify-center">
+            <Users size={48} />
+          </div>
+          <h2 className="text-2xl font-bold">Incoming group video call</h2>
+          <p className="text-slate-400">
+            {creatorName ? `${creatorName} is inviting you` : 'You are invited to a group call'}
+          </p>
+          <div className="flex gap-4 mt-4">
+            <button
+              onClick={onDecline}
+              className="flex flex-col items-center gap-2 px-6 py-3 rounded-full bg-red-600 hover:bg-red-500 transition-colors"
+            >
+              <PhoneOff size={24} />
+              <span className="text-xs font-medium">Decline</span>
+            </button>
+            <button
+              onClick={onAccept}
+              className="flex flex-col items-center gap-2 px-6 py-3 rounded-full bg-green-600 hover:bg-green-500 transition-colors"
+            >
+              <PhoneIncoming size={24} />
+              <span className="text-xs font-medium">Accept</span>
+            </button>
+          </div>
+        </div>
+      ) : isPresenterMode ? (
+        /* ── Presenter / screen-share layout ── */
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Screen share banner */}
+          <div className="flex items-center gap-2 px-4 py-1.5 bg-amber-600/90 text-sm font-medium">
+            <Monitor size={15} />
+            <span>
+              {presenterUsername === 'local'
+                ? 'You are sharing your screen'
+                : `${presenterTile?.name ?? presenterUsername} is sharing their screen`}
+            </span>
+          </div>
+
+          {/* Large presenter area */}
+          <div className="flex-1 relative bg-black overflow-hidden">
+            {presenterTile ? (
+              presenterTile.id === 'local' && isCameraOff ? (
+                <AvatarPlaceholder name={localUserName} avatar={localUserAvatar} label="Camera off" />
+              ) : presenterTile.stream ? (
+                <video
+                  ref={(el) => { if (el) videoRefs.current.set(presenterTile.id, el); }}
+                  autoPlay
+                  playsInline
+                  muted={presenterTile.muted}
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <AvatarPlaceholder name={presenterTile.name} avatar={presenterTile.avatar} />
+              )
+            ) : null}
+            <span className="absolute bottom-3 left-3 px-2 py-0.5 bg-black/60 rounded text-xs">
+              {presenterTile?.name ?? presenterUsername}
+              {presenterUsername === 'local' && ' (You)'}
+            </span>
+          </div>
+
+          {/* Bottom strip of other participants */}
+          {stripTiles.length > 0 && (
+            <div className="h-28 flex gap-2 px-3 py-2 bg-slate-800/80 overflow-x-auto">
+              {stripTiles.map((t) => (
+                <div key={t.id} className="h-full aspect-video flex-shrink-0">
+                  <VideoTile
+                    id={t.id}
+                    stream={t.stream}
+                    name={t.name}
+                    avatar={t.avatar}
+                    muted={t.muted}
+                    isCameraOff={t.id === 'local' && isCameraOff}
+                    videoRefs={videoRefs}
+                    className="h-full"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* ── Default equal grid layout ── */
+        <div
+          className="flex-1 p-3 grid gap-2 overflow-hidden"
+          style={{ gridTemplateColumns: `repeat(${gridCols}, 1fr)` }}
+        >
+          {allTiles.map((t) => (
+            <VideoTile
+              key={t.id}
+              id={t.id}
+              stream={t.stream}
+              name={t.id === 'local' ? `${t.name} (You)` : t.name}
+              avatar={t.avatar}
+              muted={t.muted}
+              isCameraOff={t.id === 'local' && isCameraOff}
+              videoRefs={videoRefs}
+              className="h-full"
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ── Controls bar ── */}
       {status === 'active' && (
-        <div className="p-4 bg-slate-900/95 flex justify-center gap-4">
+        <div className="p-4 bg-slate-900/95 flex justify-center gap-3 flex-wrap">
           {localStream && (
             <>
               <button
                 onClick={toggleMute}
-                className={`flex flex-col items-center gap-2 px-6 py-3 rounded-full transition-colors ${isMuted ? 'bg-slate-600 hover:bg-slate-500' : 'bg-slate-700 hover:bg-slate-600'}`}
+                className={`flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-full transition-colors ${isMuted ? 'bg-slate-600 hover:bg-slate-500' : 'bg-slate-700 hover:bg-slate-600'}`}
                 title={isMuted ? 'Unmute' : 'Mute'}
-                aria-label={isMuted ? 'Unmute' : 'Mute'}
               >
-                {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
-                <span className="text-xs font-medium">{isMuted ? 'Unmute' : 'Mute'}</span>
+                {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+                <span className="text-[10px] font-medium">{isMuted ? 'Unmute' : 'Mute'}</span>
               </button>
               {!isSharingScreen && localStream.getVideoTracks().length > 0 && (
                 <button
                   onClick={toggleCamera}
-                  className={`flex flex-col items-center gap-2 px-6 py-3 rounded-full transition-colors ${isCameraOff ? 'bg-slate-600 hover:bg-slate-500' : 'bg-slate-700 hover:bg-slate-600'}`}
+                  className={`flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-full transition-colors ${isCameraOff ? 'bg-slate-600 hover:bg-slate-500' : 'bg-slate-700 hover:bg-slate-600'}`}
                   title={isCameraOff ? 'Start camera' : 'Stop camera'}
-                  aria-label={isCameraOff ? 'Start camera' : 'Stop camera'}
                 >
-                  {isCameraOff ? <VideoOff size={24} /> : <Video size={24} />}
-                  <span className="text-xs font-medium">{isCameraOff ? 'Start camera' : 'Stop camera'}</span>
+                  {isCameraOff ? <VideoOff size={22} /> : <Video size={22} />}
+                  <span className="text-[10px] font-medium">{isCameraOff ? 'Start camera' : 'Stop camera'}</span>
                 </button>
               )}
             </>
@@ -205,31 +298,30 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
           {onShareScreen && onStopShareScreen && (
             <button
               onClick={isSharingScreen ? onStopShareScreen : () => onShareScreen()}
-              className={`flex flex-col items-center gap-2 px-6 py-3 rounded-full transition-colors ${isSharingScreen ? 'bg-amber-600 hover:bg-amber-500' : 'bg-slate-700 hover:bg-slate-600'}`}
+              className={`flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-full transition-colors ${isSharingScreen ? 'bg-amber-600 hover:bg-amber-500' : 'bg-slate-700 hover:bg-slate-600'}`}
               title={isSharingScreen ? 'Stop sharing' : 'Share screen'}
-              aria-label={isSharingScreen ? 'Stop sharing' : 'Share screen'}
             >
-              {isSharingScreen ? <MonitorOff size={24} /> : <Monitor size={24} />}
-              <span className="text-xs font-medium">{isSharingScreen ? 'Stop share' : 'Share screen'}</span>
+              {isSharingScreen ? <MonitorOff size={22} /> : <Monitor size={22} />}
+              <span className="text-[10px] font-medium">{isSharingScreen ? 'Stop share' : 'Share screen'}</span>
             </button>
           )}
-          {isCreator ? (
+          {isCreator && (
             <button
               onClick={onEndCall}
               disabled={isEndingCall}
-              className="flex flex-col items-center gap-2 px-6 py-3 rounded-full bg-red-600 hover:bg-red-500 transition-colors disabled:opacity-70"
+              className="flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-full bg-red-600 hover:bg-red-500 transition-colors disabled:opacity-70"
             >
-              <PhoneOff size={24} />
-              <span className="text-xs font-medium">{isEndingCall ? 'Ending...' : 'End call for everyone'}</span>
+              <PhoneOff size={22} />
+              <span className="text-[10px] font-medium">{isEndingCall ? 'Ending…' : 'End for everyone'}</span>
             </button>
-          ) : null}
+          )}
           <button
             onClick={onLeave}
             disabled={isEndingCall}
-            className="flex flex-col items-center gap-2 px-6 py-3 rounded-full bg-slate-600 hover:bg-slate-500 transition-colors disabled:opacity-70"
+            className="flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-full bg-slate-600 hover:bg-slate-500 transition-colors disabled:opacity-70"
           >
-            <PhoneOff size={24} />
-            <span className="text-xs font-medium">{isEndingCall ? 'Leaving...' : 'Leave'}</span>
+            <PhoneOff size={22} />
+            <span className="text-[10px] font-medium">{isEndingCall ? 'Leaving…' : 'Leave'}</span>
           </button>
         </div>
       )}
