@@ -405,9 +405,9 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             if (chatWith && chatId) {
               chatMap[chatWith] = chatId;
               unseenMap[chatWith] = unseen;
+              // Exact-match only — partial matching causes wrong chat_id to be mapped to wrong user
               const matchingUser = users.find((u: User) =>
-                u.name === chatWith || u.id === chatWith || String(u.id).includes(chatWith) ||
-                chatWith.includes(u.name) || chatWith.includes(String(u.id))
+                u.name === chatWith || u.id === chatWith || String(u.id) === chatWith
               );
               if (matchingUser) {
                 chatMap[matchingUser.name] = chatId;
@@ -833,44 +833,36 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     return null;
   };
 
-  // Helper function to find chat_id for a user
+  // Helper function to find chat_id for a user — exact matches only to avoid wrong chat being loaded
   const findChatIdForUser = (user: User): string | null => {
-    // Try multiple lookup keys
-    const possibleKeys: (string | number)[] = [
+    // Build a set of exact keys to look up
+    const exactKeys: string[] = [
       user.name,
-      user.id,
       String(user.id),
-      (user as any).Employee_id,
-      (user as any)['Employee ID'],
-    ].filter((key): key is string | number => key != null && key !== '');
-    
-    for (const key of possibleKeys) {
-      const keyStr = String(key);
-      const chatId = directChats[keyStr];
+      (user as any).Employee_id != null ? String((user as any).Employee_id) : null,
+      (user as any)['Employee ID'] != null ? String((user as any)['Employee ID']) : null,
+    ].filter((k): k is string => k != null && k.trim() !== '');
+
+    for (const key of exactKeys) {
+      const chatId = directChats[key];
       if (chatId && typeof chatId === 'string' && chatId.trim() !== '') {
         return chatId;
       }
     }
-    
-    // Also try to find by partial match in directChats keys
+
+    // Secondary pass: exact match against every directChats key
     for (const [chatKey, chatId] of Object.entries(directChats)) {
       if (chatId && typeof chatId === 'string' && chatId.trim() !== '') {
         if (
           chatKey === user.name ||
           chatKey === String(user.id) ||
-          (typeof user.id === 'string' && chatKey === user.id) ||
-          (typeof user.name === 'string' && chatKey.includes(user.name)) ||
-          (typeof user.name === 'string' && user.name.includes(chatKey)) ||
-          (typeof user.id === 'string' && chatKey.includes(user.id)) ||
-          (typeof user.id === 'string' && user.id.includes(chatKey)) ||
-          chatKey.includes(String(user.id)) ||
-          String(user.id).includes(chatKey)
+          ((user as any).Employee_id != null && chatKey === String((user as any).Employee_id))
         ) {
           return chatId;
         }
       }
     }
-    
+
     return null;
   };
 
@@ -1007,23 +999,17 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               
               if (chatWith && chatId) {
                 chatMap[chatWith] = chatId;
-                
-                // Also map to user if we can match it - try multiple matching strategies
-                const matchesUser = 
-                  chatWith === user.name || 
-                  chatWith === user.id || 
-                  chatWith === String(user.id) || 
-                  chatWith === employeeId ||
-                  (typeof user.name === 'string' && chatWith.includes(user.name)) ||
-                  (typeof user.name === 'string' && user.name.includes(chatWith)) ||
-                  (typeof employeeId === 'string' && chatWith.includes(employeeId)) ||
-                  (typeof employeeId === 'string' && employeeId.includes(chatWith));
-                
+
+                // Exact-match only to avoid cross-user contamination
+                const matchesUser =
+                  chatWith === user.name ||
+                  chatWith === String(user.id) ||
+                  (employeeId != null && chatWith === employeeId);
+
                 if (matchesUser) {
                   chatMap[user.name] = chatId;
-                  chatMap[user.id] = chatId;
+                  chatMap[String(user.id)] = chatId;
                   if (employeeId) chatMap[employeeId] = chatId;
-                  // Also try with Employee_id variations
                   if ((user as any).Employee_id) {
                     chatMap[String((user as any).Employee_id)] = chatId;
                   }
@@ -1146,9 +1132,12 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
   // Fetch messages from API when active group or user changes
   useEffect(() => {
+    // Clear stale messages immediately so the previous chat's messages never
+    // flash while the new chat's messages are loading.
+    setApiMessages([]);
+
     const fetchMessages = async () => {
       if (!activeGroup && !activeUser) {
-        setApiMessages([]);
         return;
       }
 
@@ -1171,11 +1160,13 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               chats.forEach((chat: any) => {
                 if (chat.with && chat.chat_id) {
                   chatMap[chat.with] = chat.chat_id;
-                  // Try to match with active user
-                  if (chat.with === activeUser.name || chat.with === activeUser.id || 
-                      chat.with === String(activeUser.id) || chat.with.includes(activeUser.name)) {
+                  // Exact-match only
+                  if (
+                    chat.with === activeUser.name ||
+                    chat.with === String(activeUser.id)
+                  ) {
                     chatMap[activeUser.name] = chat.chat_id;
-                    chatMap[activeUser.id] = chat.chat_id;
+                    chatMap[String(activeUser.id)] = chat.chat_id;
                   }
                 }
               });
@@ -1280,25 +1271,24 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             chats.forEach((chat: any) => {
               const chatWith = chat.with || '';
               const chatIdValue = chat.chat_id || '';
-              
+
               if (chatWith && chatIdValue) {
                 chatMap[chatWith] = chatIdValue;
-                
-                // Try multiple matching strategies
-                if (chatWith === activeUser.name || chatWith === activeUser.id || 
-                    chatWith === String(activeUser.id) || 
-                    (typeof activeUser.name === 'string' && chatWith.includes(activeUser.name)) ||
-                    (typeof activeUser.name === 'string' && activeUser.name.includes(chatWith))) {
+
+                // Exact-match only
+                if (
+                  chatWith === activeUser.name ||
+                  chatWith === String(activeUser.id)
+                ) {
                   chatMap[activeUser.name] = chatIdValue;
-                  chatMap[activeUser.id] = chatIdValue;
-                  // Also try Employee_id if available
+                  chatMap[String(activeUser.id)] = chatIdValue;
                   if ((activeUser as any).Employee_id) {
                     chatMap[String((activeUser as any).Employee_id)] = chatIdValue;
                   }
                 }
               }
             });
-            
+
             setDirectChats(prev => ({ ...prev, ...chatMap }));
             
             // Try to find chat_id again
@@ -1345,10 +1335,10 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           chats.forEach((chat: any) => {
             if (chat.with && chat.chat_id) {
               chatMap[chat.with] = chat.chat_id;
-              if (chat.with === activeUser.name || chat.with === activeUser.id || 
-                  chat.with === String(activeUser.id) || chat.with.includes(activeUser.name)) {
+              // Exact-match only
+              if (chat.with === activeUser.name || chat.with === String(activeUser.id)) {
                 chatMap[activeUser.name] = chat.chat_id;
-                chatMap[activeUser.id] = chat.chat_id;
+                chatMap[String(activeUser.id)] = chat.chat_id;
               }
             }
           });
@@ -1392,12 +1382,10 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           if (chatWith && chatId) {
             chatMap[chatWith] = chatId;
             
-            // Also map to active user if we can match it
-            if (chatWith === activeUser.name || chatWith === activeUser.id || 
-                chatWith === String(activeUser.id) || chatWith.includes(activeUser.name) ||
-                activeUser.name.includes(chatWith)) {
+            // Exact-match only
+            if (chatWith === activeUser.name || chatWith === String(activeUser.id)) {
               chatMap[activeUser.name] = chatId;
-              chatMap[activeUser.id] = chatId;
+              chatMap[String(activeUser.id)] = chatId;
             }
           }
         });
