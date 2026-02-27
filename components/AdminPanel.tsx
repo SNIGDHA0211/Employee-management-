@@ -1267,6 +1267,17 @@ const AdminPanelInner: React.FC<AdminPanelProps> = ({ users, onAddUser, onDelete
                       <p className="text-xs text-gray-500">Loading functions...</p>
                     ) : Array.isArray(functions) && functions.length > 0 ? (
                       <div className="flex flex-col gap-2">
+                        <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1.5 rounded">
+                          <input
+                            type="checkbox"
+                            checked={formData.functions.length === 0}
+                            onChange={(e) => {
+                              if (e.target.checked) setFormData(prev => ({ ...prev, functions: [] }));
+                            }}
+                            className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                          />
+                          <span className="text-sm">None</span>
+                        </label>
                         {functions
                           .filter(f => f != null && typeof f === 'string' && f.trim() !== '' && f !== 'None')
                           .map((func) => (

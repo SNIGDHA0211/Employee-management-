@@ -1,7 +1,7 @@
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-
+//https://employee-management-system-1-jwyn.onrender.com
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     const apiTarget = env.VITE_API_TARGET || 'https://employee-management-system-1-jwyn.onrender.com';

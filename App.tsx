@@ -709,6 +709,7 @@ export default function App() {
   const [todayMeetCountForMD, setTodayMeetCountForMD] = useState<number>(0);
   const currentUserRef = useRef<User | null>(null);
   currentUserRef.current = currentUser;
+  const refetchNotificationsRef = useRef<(() => void) | null>(null);
   const [notificationMeetings, setNotificationMeetings] = useState<any[]>([]);
   const [notificationsToday, setNotificationsToday] = useState<Array<{ id: number; type_of_notification: number; from_user: string; receipient: string; message: string; is_read: boolean; created_at: string }>>([]);
   const [toastNotifications, setToastNotifications] = useState<Array<{ id: string; title: string; message: string; extra?: { time?: string } }>>([]);
@@ -774,6 +775,7 @@ export default function App() {
           const data = JSON.parse(event.data);
           console.log('[WebSocket] Response:', data);
           if (data.type === 'pong') return;
+          refetchNotificationsRef.current?.(); // Reload /notifications/today/ on any WebSocket notification
           const payload = parseNotificationPayload(data);
           if (payload) {
             playNotificationSound();
@@ -937,7 +939,7 @@ export default function App() {
     if (meetingRefreshTrigger > 0 && currentUser?.id) invalidateMeetingPush();
   }, [meetingRefreshTrigger, currentUser?.id, invalidateMeetingPush]);
 
-  // Fetch today's notifications for the bell panel
+  // Fetch today's notifications for the bell panel (also refetched when WebSocket receives notification)
   useEffect(() => {
     if (!currentUser?.id) return;
     const fetchNotifications = async () => {
@@ -948,9 +950,13 @@ export default function App() {
         setNotificationsToday([]);
       }
     };
+    refetchNotificationsRef.current = () => { fetchNotifications(); };
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 60000); // Refresh every 60s
-    return () => clearInterval(interval);
+    return () => {
+      refetchNotificationsRef.current = null;
+      clearInterval(interval);
+    };
   }, [currentUser?.id]);
 
   // Branches - cached via React Query, only when dashboard active
