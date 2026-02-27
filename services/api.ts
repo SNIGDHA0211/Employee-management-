@@ -13,7 +13,7 @@ const PRODUCTION_BACKEND_URL = 'https://employee-management-system-1-jwyn.onrend
 
 /** WebSocket URL for audio/video calls - ws://192.168.42.103:8000/ws/calls/ */
 export const getCallsWebSocketUrl = (): string => {
-  if (typeof window === 'undefined') return 'ws://192.168.42.111:8002/ws/calls/';
+  if (typeof window === 'undefined') return 'wss://employee-management-system-1-jwyn.onrender.com/ws/calls/';
   const envUrl = (import.meta as any).env?.VITE_CALLS_WS_URL;
   if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
   const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ||
