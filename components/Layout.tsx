@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart, Phone, VideoIcon, Search, Check, PhoneCall, Mic } from 'lucide-react';
 import { getMotivationalQuote } from '../services/gemini';
 import { getPermission, requestPermission, isNotificationSupported } from '../utils/browserNotifications';
-import { getBirthdayCounter, postBirthdayCounter } from '../services/api';
+import { getBirthdayCounter, postBirthdayCounter, initiateCall, initiateGroupCall } from '../services/api';
 
 const formatBookingTime = (val: string): string => {
   if (!val) return '';
@@ -291,9 +291,265 @@ const NotificationEntry: React.FC<{
   );
 };
 
+// ─── HeaderCallModal ────────────────────────────────────────────────────────
+
+interface HeaderCallModalProps {
+  users: User[];
+  currentUser: User;
+  onClose: () => void;
+}
+
+const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, onClose }) => {
+  const [step, setStep] = useState<'type' | 'select'>('type');
+  const [callType, setCallType] = useState<'audio' | 'video'>('audio');
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [isStarting, setIsStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Exclude self from the list
+  const candidates = users.filter(
+    (u) => u.id !== currentUser.id && u.name !== currentUser.name
+  );
+
+  const filtered = search.trim()
+    ? candidates.filter(
+        (u) =>
+          u.name.toLowerCase().includes(search.toLowerCase()) ||
+          (u.designation || '').toLowerCase().includes(search.toLowerCase()) ||
+          (u.email || '').toLowerCase().includes(search.toLowerCase())
+      )
+    : candidates;
+
+  const toggleUser = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Focus search field when entering select step
+  useEffect(() => {
+    if (step === 'select') setTimeout(() => searchRef.current?.focus(), 80);
+  }, [step]);
+
+  const handleStart = async () => {
+    if (selected.size === 0) return;
+    setIsStarting(true);
+    setError(null);
+    try {
+      const ids = Array.from(selected);
+      if (ids.length === 1) {
+        await initiateCall(ids[0], callType);
+      } else {
+        await initiateGroupCall(ids, callType);
+      }
+      onClose();
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.detail ||
+        err?.message ||
+        'Failed to start call. Please try again.';
+      setError(msg);
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[99998] flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,23,42,0.55)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col" style={{ maxHeight: '90vh' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            {step === 'select' && (
+              <button
+                onClick={() => { setStep('type'); setSelected(new Set()); setError(null); }}
+                className="p-1 rounded-lg hover:bg-gray-100 transition-colors mr-1"
+                aria-label="Back"
+              >
+                <ChevronRight size={16} className="rotate-180 text-gray-500" />
+              </button>
+            )}
+            <PhoneCall size={18} className="text-brand-600" />
+            <h2 className="font-semibold text-gray-800 text-base">
+              {step === 'type' ? 'Start a Call' : `${callType === 'audio' ? 'Voice' : 'Video'} Call — Select People`}
+            </h2>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" aria-label="Close">
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+
+        {/* Step 1 — Choose call type */}
+        {step === 'type' && (
+          <div className="p-6 flex flex-col gap-4">
+            <p className="text-sm text-gray-500 mb-1">Choose how you'd like to connect</p>
+            <button
+              onClick={() => { setCallType('audio'); setStep('select'); }}
+              className="flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 hover:border-brand-500 hover:bg-brand-50 transition-all group"
+            >
+              <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center group-hover:bg-green-200 transition-colors">
+                <Mic size={20} className="text-green-600" />
+              </div>
+              <div className="text-left">
+                <p className="font-semibold text-gray-800">Voice Call</p>
+                <p className="text-xs text-gray-500">Audio only call</p>
+              </div>
+              <ChevronRight size={16} className="text-gray-400 ml-auto" />
+            </button>
+            <button
+              onClick={() => { setCallType('video'); setStep('select'); }}
+              className="flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 hover:border-brand-500 hover:bg-brand-50 transition-all group"
+            >
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+                <VideoIcon size={20} className="text-blue-600" />
+              </div>
+              <div className="text-left">
+                <p className="font-semibold text-gray-800">Video Call</p>
+                <p className="text-xs text-gray-500">Audio & video call</p>
+              </div>
+              <ChevronRight size={16} className="text-gray-400 ml-auto" />
+            </button>
+          </div>
+        )}
+
+        {/* Step 2 — Select employees */}
+        {step === 'select' && (
+          <>
+            {/* Search */}
+            <div className="px-4 pt-4 pb-2">
+              <div className="flex items-center gap-2 bg-gray-100 rounded-xl px-3 py-2.5">
+                <Search size={15} className="text-gray-400 flex-shrink-0" />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by name or role…"
+                  className="flex-1 bg-transparent text-sm outline-none placeholder-gray-400"
+                />
+                {search && (
+                  <button onClick={() => setSearch('')} className="text-gray-400 hover:text-gray-600">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Selection badge */}
+            {selected.size > 0 && (
+              <div className="px-4 pb-1 flex items-center gap-1.5 flex-wrap">
+                {Array.from(selected).map((id) => {
+                  const u = users.find((x) => x.id === id);
+                  return (
+                    <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-brand-100 text-brand-700 rounded-full text-xs font-medium">
+                      {u?.name ?? id}
+                      <button onClick={() => toggleUser(id)} className="hover:text-brand-900">
+                        <X size={11} />
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* User list */}
+            <div className="flex-1 overflow-y-auto px-3 pb-3" style={{ maxHeight: '300px' }}>
+              {filtered.length === 0 ? (
+                <p className="text-center text-sm text-gray-400 py-6">No employees found</p>
+              ) : (
+                filtered.map((u) => {
+                  const isSelected = selected.has(u.id);
+                  return (
+                    <button
+                      key={u.id}
+                      onClick={() => toggleUser(u.id)}
+                      className={`w-full flex items-center gap-3 px-2 py-2.5 rounded-xl transition-colors mb-0.5 ${isSelected ? 'bg-brand-50 border border-brand-200' : 'hover:bg-gray-50'}`}
+                    >
+                      <div className="relative flex-shrink-0">
+                        <img
+                          src={u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=random`}
+                          alt={u.name}
+                          className="w-9 h-9 rounded-full object-cover border border-gray-200"
+                          onError={(e) => {
+                            const t = e.target as HTMLImageElement;
+                            if (!t.src.includes('ui-avatars.com'))
+                              t.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=random`;
+                          }}
+                        />
+                        {isSelected && (
+                          <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-brand-600 flex items-center justify-center border-2 border-white">
+                            <Check size={9} className="text-white" />
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex-1 text-left min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{u.name}</p>
+                        <p className="text-xs text-gray-400 truncate">{u.designation || u.role}</p>
+                      </div>
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${isSelected ? 'border-brand-600 bg-brand-600' : 'border-gray-300'}`}>
+                        {isSelected && <Check size={11} className="text-white" />}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Error */}
+            {error && (
+              <div className="mx-4 mb-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600">
+                {error}
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between gap-3 bg-gray-50">
+              <p className="text-xs text-gray-500">
+                {selected.size === 0
+                  ? 'Select at least one person'
+                  : selected.size === 1
+                  ? '1 person selected — 1-to-1 call'
+                  : `${selected.size} people selected — Group call`}
+              </p>
+              <button
+                onClick={handleStart}
+                disabled={selected.size === 0 || isStarting}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isStarting ? (
+                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                ) : callType === 'audio' ? (
+                  <Phone size={14} />
+                ) : (
+                  <VideoIcon size={14} />
+                )}
+                {isStarting ? 'Starting…' : 'Start Call'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+// ─── Header ────────────────────────────────────────────────────────────────
+
 export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number; notificationMeetings?: any[]; notificationsToday?: NotificationItem[]; onMarkNotificationRead?: (id: number) => void | Promise<void> }> = ({ user, users = [], toggleSidebar, onMeetClick, notificationMeetings = [], notificationsToday = [], onMarkNotificationRead }) => {
   const [quote, setQuote] = useState("Loading thought...");
   const [showMeetingDropdown, setShowMeetingDropdown] = useState(false);
+  const [showCallModal, setShowCallModal] = useState(false);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | null>(null);
   const meetings = notificationMeetings ?? [];
   const notifications = notificationsToday ?? [];
@@ -450,6 +706,25 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
             <span>Meet</span>
           </button>
         )}
+        {/* Call button */}
+        <button
+          type="button"
+          onClick={() => setShowCallModal(true)}
+          className="relative p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+          aria-label="Start a call"
+          title="Start a call"
+        >
+          <Phone size={20} className="text-gray-600 hover:text-brand-600" />
+        </button>
+
+        {showCallModal && typeof document !== 'undefined' && (
+          <HeaderCallModal
+            users={users}
+            currentUser={user}
+            onClose={() => setShowCallModal(false)}
+          />
+        )}
+
         <div className="relative meeting-dropdown-trigger">
           <button
             ref={bellTriggerRef}
