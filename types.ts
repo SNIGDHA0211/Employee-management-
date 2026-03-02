@@ -199,3 +199,68 @@ export interface Tour {
   purpose: string;
   location: string;
 }
+
+// ===== Leave Management =====
+
+export type LeaveDay = 'Full Day' | 'Half Day';
+export type HalfDaySlot = 'First Half' | 'Second Half';
+export type LeaveStatus = 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
+
+export interface LeaveRequest {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  leave_title?: string;      // e.g. "Casual Leave", "Medical Leave", or custom
+  leave_day: LeaveDay;
+  start_date: string;        // YYYY-MM-DD
+  end_date: string;          // YYYY-MM-DD (same as start_date for Half Day)
+  duration: number;          // 1+ for Full Day, 0.5 for Half Day
+  half_day_slot?: HalfDaySlot;
+  description: string;
+  status: LeaveStatus;
+  applied_on: string;        // ISO datetime string
+  hr_comment?: string;
+  reviewed_by?: string;
+  reviewed_on?: string;
+}
+
+export interface LeaveBalance {
+  employee_id: string;
+  employee_name: string;
+  total_credit: number;
+  used_leaves: number;
+  remaining_balance: number;
+  pending_requests: number;
+}
+
+export interface ApplyLeavePayload {
+  leave_title?: string;
+  leave_day: LeaveDay;
+  start_date: string;
+  end_date: string;
+  duration: number;
+  half_day_slot?: HalfDaySlot;
+  description: string;
+}
+
+export interface ReviewLeavePayload {
+  status: 'Approved' | 'Rejected';
+  hr_comment?: string;
+}
+
+export interface AdjustLeaveBalancePayload {
+  employee_id: string;
+  total_credit: number;
+}
+
+export interface EmergencyLeavePayload {
+  employee_id: string;
+  leave_title?: string;
+  leave_day: LeaveDay;
+  start_date: string;
+  end_date: string;
+  duration: number;
+  half_day_slot?: HalfDaySlot;
+  description: string;
+  hr_note?: string;
+}

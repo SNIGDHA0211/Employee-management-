@@ -34,6 +34,7 @@ import { MeetingStatus, MeetingType } from './components/calendars/types';
 import { addDays, format } from 'date-fns';
 import MDDashboardPage from './components/MDDashboard/MDDashboardPage';
 import { NMRHIPage } from './components/NMRHI';
+import { EmployeeLeavePage, HRLeavePage } from './components/leave';
 import AdminDashboard from './components/AdminOps/AdminDashboard';
 import AssetManager from './components/AdminOps/AssetManager';
 import VendorManager from './components/AdminOps/VendorManager';
@@ -837,7 +838,7 @@ export default function App() {
         const parsedUser: User = JSON.parse(storedUser);
         setCurrentUser(parsedUser);
 
-        const hrAllowedTabs = ['dashboard', 'schedule-hub', 'assignTask', 'reportingTask', 'messages'];
+        const hrAllowedTabs = ['dashboard', 'schedule-hub', 'assignTask', 'reportingTask', 'messages', 'leave'];
         if (storedTab && storedTab !== 'team') {
           if (parsedUser.role === UserRole.HR && !hrAllowedTabs.includes(storedTab)) {
             setActiveTab('dashboard');
@@ -1442,10 +1443,10 @@ export default function App() {
     }
   }, [activeTab]);
 
-  // HR can only access dashboard, schedule-hub, tasks, messages – redirect if on invalid tab
+  // HR can only access dashboard, schedule-hub, tasks, messages, leave – redirect if on invalid tab
   useEffect(() => {
     if (!currentUser || currentUser.role !== UserRole.HR) return;
-    const hrAllowedTabs = ['dashboard', 'schedule-hub', 'assignTask', 'reportingTask', 'messages'];
+    const hrAllowedTabs = ['dashboard', 'schedule-hub', 'assignTask', 'reportingTask', 'messages', 'leave'];
     if (!hrAllowedTabs.includes(activeTab)) {
       setActiveTab('dashboard');
       if (typeof window !== 'undefined') window.localStorage.setItem('active_tab', 'dashboard');
@@ -1891,6 +1892,12 @@ export default function App() {
         //       </div>
         //   </div>
         // );
+
+      case 'leave':
+        if (currentUser.role === UserRole.HR || currentUser.role === UserRole.MD || currentUser.role === UserRole.ADMIN) {
+          return <HRLeavePage currentUser={currentUser} />;
+        }
+        return <EmployeeLeavePage currentUser={currentUser} />;
 
       case 'admin':
          if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;

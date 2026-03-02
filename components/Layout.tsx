@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart, Phone, VideoIcon, Search, Check, PhoneCall, Mic } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart, Phone, VideoIcon, Search, Check, PhoneCall, Mic, ClipboardList } from 'lucide-react';
 import { getMotivationalQuote } from '../services/gemini';
 import { getPermission, requestPermission, isNotificationSupported } from '../utils/browserNotifications';
 import { getBirthdayCounter, postBirthdayCounter, initiateCall, initiateGroupCall } from '../services/api';
@@ -67,6 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
     { id: 'reports', label: 'Reports', icon: FileText, roles: [UserRole.MD, UserRole.ADMIN, UserRole.TEAM_LEADER, UserRole.EMPLOYEE] },
     { id: 'projects', label: 'Projects', icon: Briefcase, roles: [UserRole.MD, UserRole.TEAM_LEADER] },
     { id: 'messages', label: 'Messages', icon: MessageSquare, roles: [UserRole.MD, UserRole.ADMIN, UserRole.HR, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
+    { id: 'leave', label: 'Leave', icon: ClipboardList, roles: [UserRole.MD, UserRole.HR, UserRole.ADMIN, UserRole.TEAM_LEADER, UserRole.EMPLOYEE, UserRole.INTERN] },
     { id: 'admin', label: 'Admin Panel', icon: Users, roles: [UserRole.ADMIN] },
   ];
 

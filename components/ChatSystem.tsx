@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Message, ChatGroup, User, UserRole } from '../types';
-import { Send, Image, Smile, Paperclip, PlusCircle, Users, Hash, X, Check, UserPlus, Trash2, Search, Phone, Video } from 'lucide-react';
+import { Send, Image, Smile, Paperclip, Link2, PlusCircle, Users, Hash, X, Check, UserPlus, Trash2, Search, Phone, Video, FileText, FileImage, Film, Music, Archive, File as FileIcon, AlertCircle, ExternalLink, Forward, CheckCircle2, Loader2, Download } from 'lucide-react';
 import { 
   createGroup as apiCreateGroup, 
   showCreatedGroups as apiShowCreatedGroups,
@@ -23,6 +23,11 @@ import {
   joinGroupCall as apiJoinGroupCall,
   leaveGroupCall as apiLeaveGroupCall,
   endGroupCall as apiEndGroupCall,
+  uploadFile as apiUploadFile,
+  addLink as apiAddLink,
+  deleteAttachment as apiDeleteAttachment,
+  UploadedFileAttachment,
+  LinkAttachment,
 } from '../services/api';
 import { AudioCall } from './calls/AudioCall';
 import { VideoCall } from './calls/VideoCall';
@@ -41,6 +46,222 @@ interface ChatSystemProps {
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setGroups: React.Dispatch<React.SetStateAction<ChatGroup[]>>;
 }
+
+// ─── ForwardModal ─────────────────────────────────────────────────────────────
+interface ForwardModalProps {
+  message:      string;
+  groups:       Array<{ group_id: number | string; name: string }>;
+  users:        User[];
+  currentUser:  User;
+  directChats:  Record<string, string>;
+  onClose:      () => void;
+  onSendToChat: (chatId: string) => Promise<void>;
+}
+
+const ForwardModal: React.FC<ForwardModalProps> = ({
+  message, groups, users, currentUser, directChats, onClose, onSendToChat,
+}) => {
+  const [search, setSearch]               = useState('');
+  const [selected, setSelected]           = useState<Set<string>>(new Set()); // chatIds
+  const [sending, setSending]             = useState(false);
+  const [sentIds, setSentIds]             = useState<Set<string>>(new Set());
+  const [error, setError]                 = useState<string | null>(null);
+
+  // Derive a display label for the message
+  const fileMatch = message.match(/^\[FILE:([^|]+)\|([^|]+)\|(.+)\]$/);
+  const linkMatch = !fileMatch && message.match(/^\[LINK:([^|]*)\|(.+)\]$/);
+  const previewLabel =
+    fileMatch ? `📎 ${fileMatch[2]}` :
+    linkMatch ? `🔗 ${linkMatch[1] || linkMatch[2]}` :
+    message.length > 60 ? message.slice(0, 60) + '…' : message;
+
+  const lc = search.toLowerCase().trim();
+
+  // Build a flat list: groups + direct-message peers
+  type Dest = { id: string; label: string; sub: string; kind: 'group' | 'dm' };
+  const destinations: Dest[] = [
+    ...groups.map((g) => ({
+      id:    `G:${g.group_id}`,
+      label: g.name,
+      sub:   'Group',
+      kind:  'group' as const,
+    })),
+    ...users
+      .filter((u) => u.id !== currentUser.id && u.name !== currentUser.name)
+      .map((u) => {
+        // look up the chatId for this user
+        const chatId =
+          directChats[u.name] ||
+          directChats[String(u.id)] ||
+          (u as any).Employee_id ? directChats[String((u as any).Employee_id)] : undefined;
+        return {
+          id:    `D:${u.id}:${chatId ?? ''}`,
+          label: u.name,
+          sub:   (u as any).designation || (u as any).role || 'Direct message',
+          kind:  'dm' as const,
+          chatId,
+        };
+      }),
+  ].filter((d) =>
+    !lc ||
+    d.label.toLowerCase().includes(lc) ||
+    d.sub.toLowerCase().includes(lc),
+  ) as (Dest & { chatId?: string })[];
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const handleSend = async () => {
+    if (selected.size === 0) return;
+    setSending(true);
+    setError(null);
+    const errors: string[] = [];
+
+    for (const destId of selected) {
+      if (sentIds.has(destId)) continue;
+      try {
+        let chatId: string | undefined;
+        if (destId.startsWith('G:')) {
+          chatId = destId.slice(2); // group_id
+        } else {
+          // D:userId:chatId
+          const parts = destId.split(':');
+          chatId = parts[2] || undefined;
+        }
+        if (!chatId) { errors.push(`No chat ID for ${destId}`); continue; }
+        await onSendToChat(chatId);
+        setSentIds((prev) => new Set(prev).add(destId));
+      } catch (e: any) {
+        errors.push(e?.message || 'Failed');
+      }
+    }
+
+    setSending(false);
+    if (errors.length === 0) {
+      // short delay so user sees the green ticks, then auto-close
+      setTimeout(onClose, 800);
+    } else {
+      setError(errors.join('; '));
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[200000] flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="font-bold text-gray-800 text-base">Forward message</h2>
+            <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[280px]">{previewLabel}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="px-4 pt-3 pb-2">
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search groups or people…"
+              className="w-full pl-9 pr-4 py-2 rounded-xl border border-gray-200 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-400"
+              autoFocus
+            />
+          </div>
+        </div>
+
+        {/* Destination list */}
+        <div className="flex-1 overflow-y-auto px-2 py-1">
+          {destinations.length === 0 ? (
+            <p className="text-center text-gray-400 text-sm py-8">No chats found</p>
+          ) : (
+            destinations.map((dest) => {
+              const isSelected = selected.has(dest.id);
+              const isSent     = sentIds.has(dest.id);
+              return (
+                <button
+                  key={dest.id}
+                  type="button"
+                  onClick={() => !isSent && toggle(dest.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors mb-0.5 text-left ${
+                    isSent     ? 'bg-green-50 cursor-default' :
+                    isSelected ? 'bg-brand-50 hover:bg-brand-100' :
+                    'hover:bg-gray-100'
+                  }`}
+                >
+                  {/* Avatar */}
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold ${dest.kind === 'group' ? 'bg-brand-100 text-brand-700' : 'bg-slate-100 text-slate-600'}`}>
+                    {dest.kind === 'group' ? <Users size={16} /> : dest.label.charAt(0).toUpperCase()}
+                  </div>
+                  {/* Label */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{dest.label}</p>
+                    <p className="text-[10px] text-gray-400">{dest.sub}</p>
+                  </div>
+                  {/* Tick */}
+                  <div className="flex-shrink-0">
+                    {isSent ? (
+                      <CheckCircle2 size={18} className="text-green-500" />
+                    ) : isSelected ? (
+                      <div className="w-5 h-5 rounded-full bg-brand-600 flex items-center justify-center">
+                        <Check size={12} className="text-white" />
+                      </div>
+                    ) : (
+                      <div className="w-5 h-5 rounded-full border-2 border-gray-300" />
+                    )}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        {/* Error */}
+        {error && (
+          <p className="mx-4 mb-1 text-xs text-red-600 flex items-center gap-1">
+            <AlertCircle size={12} /> {error}
+          </p>
+        )}
+
+        {/* Footer */}
+        <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between gap-3">
+          <span className="text-xs text-gray-400">
+            {selected.size > 0 ? `${selected.size} selected` : 'Select recipients'}
+          </span>
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={selected.size === 0 || sending}
+            className="flex items-center gap-2 px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {sending ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <Forward size={15} />
+            )}
+            {sending ? 'Sending…' : 'Send'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, messages, users, setMessages, setGroups }) => {
   const [activeGroup, setActiveGroup] = useState<ChatGroup | null>(null);
@@ -62,14 +283,49 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [selectedUserToAdd, setSelectedUserToAdd] = useState<string>('');
   const [isAddingUser, setIsAddingUser] = useState(false);
-  const [apiMessages, setApiMessages] = useState<Array<{sender: string; message: string; date: string; time: string}>>([]);
+  const [apiMessages, setApiMessages] = useState<Array<{
+    sender: string;
+    message: string;
+    date: string;
+    time: string;
+    attachment_id?: number;
+    attachment?: { id: number; type: string; file_name: string; url: string };
+  }>>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+
+  // ── Message delete state ───────────────────────────────────────────────────
+  // Messages with an attachment_id are deleted via DELETE /messaging/attachments/{id}/.
+  // Messages without one are removed from local state only (no server ID available).
+  // We track which rows to hide using a composite key for both cases.
+  const [deletedMsgKeys, setDeletedMsgKeys] = useState<Set<string>>(new Set());
+  const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
+  const [deletingMsgKey, setDeletingMsgKey] = useState<string | null>(null);
+
+  // ── Forward / Share state ─────────────────────────────────────────────────
+  const [forwardMsg, setForwardMsg] = useState<string | null>(null); // message text/payload to forward
+  const [showForwardModal, setShowForwardModal] = useState(false);
+
+  // ── Attachment state ───────────────────────────────────────────────────────
+  // A staged attachment lives here after the user picks it but before they hit Send.
+  // On Send we POST the message text; the attachment data travels as a tagged payload.
+  type StagedAttachment =
+    | { kind: 'file'; file: File; preview: string | null; uploaded: UploadedFileAttachment | null; error: string | null }
+    | { kind: 'link'; url: string; title: string; saved: LinkAttachment | null; error: string | null };
+
+  const [stagedAttachment, setStagedAttachment] = useState<StagedAttachment | null>(null);
+  const [isProcessingAttachment, setIsProcessingAttachment] = useState(false);
+  const [showLinkInput, setShowLinkInput] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkTitle, setLinkTitle] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [directChats, setDirectChats] = useState<Record<string, string>>({}); // Map user ID/name to chat_id
   const [directChatUnseenCounts, setDirectChatUnseenCounts] = useState<Record<string, number>>({}); // Map user name (from "with") to unseen_count
+  const [directChatLastMessageAt, setDirectChatLastMessageAt] = useState<Record<string, string>>({}); // Map user name (from "with") to last_message_at
   const [isStartingChat, setIsStartingChat] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [createGroupSearchQuery, setCreateGroupSearchQuery] = useState('');
@@ -194,16 +450,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         groupCalleeStreamRef.current = null;
       }
     },
-    onScreenShareStarted: (data) => {
-      if (activeGroupCallRef.current?.callId === data.call_id) {
-        (groupWebRtcHandlersRef.current as any)?.handleRemoteScreenShareStarted?.(data.from_user);
-      }
-    },
-    onScreenShareStopped: (data) => {
-      if (activeGroupCallRef.current?.callId === data.call_id) {
-        (groupWebRtcHandlersRef.current as any)?.handleRemoteScreenShareStopped?.();
-      }
-    },
   });
 
   const webrtc = useWebRTC({
@@ -236,10 +482,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       createOfferForPeer: groupWebRtc.createOfferForPeer,
       removePeer: groupWebRtc.removePeer,
       cleanup: groupWebRtc.cleanup,
-      handleRemoteScreenShareStarted: groupWebRtc.handleRemoteScreenShareStarted,
-      handleRemoteScreenShareStopped: groupWebRtc.handleRemoteScreenShareStopped,
-    } as any;
-  }, [groupWebRtc.handleOffer, groupWebRtc.handleAnswer, groupWebRtc.handleIceCandidate, groupWebRtc.createOfferForPeer, groupWebRtc.removePeer, groupWebRtc.cleanup, groupWebRtc.handleRemoteScreenShareStarted, groupWebRtc.handleRemoteScreenShareStopped]);
+    };
+  }, [groupWebRtc.handleOffer, groupWebRtc.handleAnswer, groupWebRtc.handleIceCandidate, groupWebRtc.createOfferForPeer, groupWebRtc.removePeer, groupWebRtc.cleanup]);
 
   useEffect(() => {
     webrtcHandlersRef.current = {
@@ -410,13 +654,16 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           const chats = chatResult.chats_info || [];
           const chatMap: Record<string, string> = {};
           const unseenMap: Record<string, number> = {};
+          const lastMsgMap: Record<string, string> = {};
           chats.forEach((chat: any) => {
             const chatWith = chat.with || '';
             let chatId = chat.chat_id ? String(chat.chat_id).trim() : '';
             const unseen = typeof chat.unseen_count === 'number' ? chat.unseen_count : (chat.unseen_count != null ? Number(chat.unseen_count) : 0);
+            const lastMsgAt = chat.last_message_at || '';
             if (chatWith && chatId) {
               chatMap[chatWith] = chatId;
               unseenMap[chatWith] = unseen;
+              if (lastMsgAt) lastMsgMap[chatWith] = lastMsgAt;
               // Exact-match only — partial matching causes wrong chat_id to be mapped to wrong user
               const matchingUser = users.find((u: User) =>
                 u.name === chatWith || u.id === chatWith || String(u.id) === chatWith
@@ -425,12 +672,14 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                 chatMap[matchingUser.name] = chatId;
                 chatMap[matchingUser.id] = chatId;
                 unseenMap[matchingUser.name] = unseen;
+                if (lastMsgAt) lastMsgMap[matchingUser.name] = lastMsgAt;
                 if ((matchingUser as any).Employee_id) chatMap[(matchingUser as any).Employee_id] = chatId;
               }
             }
           });
           setDirectChats(prev => ({ ...prev, ...chatMap }));
           setDirectChatUnseenCounts(prev => ({ ...prev, ...unseenMap }));
+          setDirectChatLastMessageAt(prev => ({ ...prev, ...lastMsgMap }));
           setApiGroups(groups.map((g: any) => ({
             group_id: g.group_id,
             name: g.group_name || g.name || '',
@@ -622,10 +871,15 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       // Update direct chats
       const chats = chatData.chats_info || [];
       const chatMap: Record<string, string> = {};
+      const lastMsgMap: Record<string, string> = {};
       chats.forEach((chat: any) => {
-        chatMap[chat.with] = chat.chat_id;
+        if (chat.with) {
+          chatMap[chat.with] = chat.chat_id;
+          if (chat.last_message_at) lastMsgMap[chat.with] = chat.last_message_at;
+        }
       });
       setDirectChats(prev => ({ ...prev, ...chatMap }));
+      setDirectChatLastMessageAt(prev => ({ ...prev, ...lastMsgMap }));
       
       setGroups(convertedGroups);
     } catch (err: any) {
@@ -791,6 +1045,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         const chats = chatData.chats_info || [];
         const chatMap: Record<string, string> = {};
         const unseenMap: Record<string, number> = {};
+        const lastMsgMap: Record<string, string> = {};
         chats.forEach((chat: any) => {
           const chatWith = chat.with || '';
           const chatId = chat.chat_id ? String(chat.chat_id).trim() : '';
@@ -798,10 +1053,12 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           if (chatWith && chatId) {
             chatMap[chatWith] = chatId;
             unseenMap[chatWith] = unseen;
+            if (chat.last_message_at) lastMsgMap[chatWith] = chat.last_message_at;
           }
         });
         setDirectChats(prev => ({ ...prev, ...chatMap }));
         setDirectChatUnseenCounts(prev => ({ ...prev, ...unseenMap }));
+        setDirectChatLastMessageAt(prev => ({ ...prev, ...lastMsgMap }));
         
         // Also update apiGroups for compatibility
         const apiGroupsFormat = groups.map((g: any) => ({
@@ -1004,6 +1261,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             const chatData = await apiLoadChats();
             const chats = chatData.chats_info || [];
             const chatMap: Record<string, string> = {};
+            const lastMsgMap: Record<string, string> = {};
             
             chats.forEach((chat: any) => {
               const chatWith = chat.with || '';
@@ -1011,6 +1269,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               
               if (chatWith && chatId) {
                 chatMap[chatWith] = chatId;
+                if (chat.last_message_at) lastMsgMap[chatWith] = chat.last_message_at;
 
                 // Exact-match only to avoid cross-user contamination
                 const matchesUser =
@@ -1025,11 +1284,15 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                   if ((user as any).Employee_id) {
                     chatMap[String((user as any).Employee_id)] = chatId;
                   }
+                  if (chat.last_message_at) {
+                    lastMsgMap[user.name] = chat.last_message_at;
+                  }
                 }
               }
             });
             
             setDirectChats(prev => ({ ...prev, ...chatMap }));
+            setDirectChatLastMessageAt(prev => ({ ...prev, ...lastMsgMap }));
             
             // Verify we now have a chat_id for this user
             const newChatId = findChatIdForUser(user);
@@ -1147,6 +1410,9 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     // Clear stale messages immediately so the previous chat's messages never
     // flash while the new chat's messages are loading.
     setApiMessages([]);
+    setDeletedMsgKeys(new Set());
+    setConfirmDeleteKey(null);
+    setDeletingMsgKey(null);
 
     const fetchMessages = async () => {
       if (!activeGroup && !activeUser) {
@@ -1169,9 +1435,11 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               const chatData = await apiLoadChats();
               const chats = chatData.chats_info || [];
               const chatMap: Record<string, string> = {};
+              const lastMsgMap: Record<string, string> = {};
               chats.forEach((chat: any) => {
                 if (chat.with && chat.chat_id) {
                   chatMap[chat.with] = chat.chat_id;
+                  if (chat.last_message_at) lastMsgMap[chat.with] = chat.last_message_at;
                   // Exact-match only
                   if (
                     chat.with === activeUser.name ||
@@ -1179,10 +1447,12 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                   ) {
                     chatMap[activeUser.name] = chat.chat_id;
                     chatMap[String(activeUser.id)] = chat.chat_id;
+                    if (chat.last_message_at) lastMsgMap[activeUser.name] = chat.last_message_at;
                   }
                 }
               });
               setDirectChats(prev => ({ ...prev, ...chatMap }));
+              setDirectChatLastMessageAt(prev => ({ ...prev, ...lastMsgMap }));
               
               // Try lookup again
               chatId = findChatIdForUser(activeUser) || '';
@@ -1257,8 +1527,142 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   }, [showEmojiPicker]);
 
   // Update handleSend to use API
+  // ── Attachment helpers ─────────────────────────────────────────────────────
+
+  // ── Forward / Share helpers ────────────────────────────────────────────────
+  const openForwardModal = (msgText: string) => {
+    setForwardMsg(msgText);
+    setShowForwardModal(true);
+  };
+  const closeForwardModal = () => {
+    setForwardMsg(null);
+    setShowForwardModal(false);
+  };
+
+  const clearAttachment = () => {
+    setStagedAttachment(null);
+    setShowLinkInput(false);
+    setLinkUrl('');
+    setLinkTitle('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    if (file.size > MAX_FILE_BYTES) {
+      setStagedAttachment({
+        kind: 'file',
+        file,
+        preview: null,
+        uploaded: null,
+        error: `File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum allowed size is 10 MB.`,
+      });
+      return;
+    }
+
+    const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+    setStagedAttachment({ kind: 'file', file, preview, uploaded: null, error: null });
+    setIsProcessingAttachment(true);
+
+    try {
+      const uploaded = await apiUploadFile(file);
+      setStagedAttachment((prev) =>
+        prev?.kind === 'file' ? { ...prev, uploaded, error: null } : prev,
+      );
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Upload failed';
+      setStagedAttachment((prev) =>
+        prev?.kind === 'file' ? { ...prev, error: msg } : prev,
+      );
+    } finally {
+      setIsProcessingAttachment(false);
+    }
+  };
+
+  const handleAddLink = async () => {
+    const trimUrl = linkUrl.trim();
+    if (!trimUrl) return;
+    // basic URL guard
+    if (!/^https?:\/\//i.test(trimUrl)) {
+      setStagedAttachment({ kind: 'link', url: trimUrl, title: linkTitle.trim(), saved: null, error: 'URL must start with http:// or https://' });
+      return;
+    }
+    setStagedAttachment({ kind: 'link', url: trimUrl, title: linkTitle.trim(), saved: null, error: null });
+    setIsProcessingAttachment(true);
+    setShowLinkInput(false);
+    try {
+      const saved = await apiAddLink(trimUrl, linkTitle.trim() || undefined);
+      setStagedAttachment((prev) =>
+        prev?.kind === 'link' ? { ...prev, saved, error: null } : prev,
+      );
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to save link';
+      setStagedAttachment((prev) =>
+        prev?.kind === 'link' ? { ...prev, error: msg } : prev,
+      );
+    } finally {
+      setIsProcessingAttachment(false);
+    }
+  };
+
+  const handleDeleteStagedAttachment = async () => {
+    if (!stagedAttachment) return;
+
+    const id =
+      stagedAttachment.kind === 'file' ? stagedAttachment.uploaded?.id :
+      stagedAttachment.kind === 'link' ? stagedAttachment.saved?.id : undefined;
+
+    if (id) {
+      try {
+        await apiDeleteAttachment(id);
+      } catch (err: any) {
+        const msg: string = err?.message || 'Failed to delete attachment.';
+
+        // 400 – already sent: clear locally, warn user
+        if (msg.includes('already sent')) {
+          if (stagedAttachment.kind === 'file' && stagedAttachment.preview) {
+            URL.revokeObjectURL(stagedAttachment.preview);
+          }
+          clearAttachment();
+          return;
+        }
+
+        // 403 – not allowed: show error in tray, don't clear
+        if (msg.includes('not allowed') || msg.includes('Not allowed')) {
+          setStagedAttachment((prev) => prev ? { ...prev, error: msg } : prev);
+          return;
+        }
+
+        // 404 – already gone: clear locally, no complaint needed
+        if (msg.includes('not found') || msg.includes('Not found')) {
+          if (stagedAttachment.kind === 'file' && stagedAttachment.preview) {
+            URL.revokeObjectURL(stagedAttachment.preview);
+          }
+          clearAttachment();
+          return;
+        }
+
+        // Unknown error: show in tray
+        setStagedAttachment((prev) => prev ? { ...prev, error: msg } : prev);
+        return;
+      }
+    }
+
+    // Revoke object URL if image preview exists
+    if (stagedAttachment.kind === 'file' && stagedAttachment.preview) {
+      URL.revokeObjectURL(stagedAttachment.preview);
+    }
+    clearAttachment();
+  };
+
   const handleSend = async () => {
-    if (!input.trim() || isSendingMessage) return;
+    if (!input.trim() && !stagedAttachment) return;
+    if (isSendingMessage || isProcessingAttachment) return;
     
     let chatId: number | string;
     
@@ -1279,6 +1683,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             const chatData = await apiLoadChats();
             const chats = chatData.chats_info || [];
             const chatMap: Record<string, string> = {};
+            const lastMsgMap: Record<string, string> = {};
             
             chats.forEach((chat: any) => {
               const chatWith = chat.with || '';
@@ -1286,6 +1691,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
               if (chatWith && chatIdValue) {
                 chatMap[chatWith] = chatIdValue;
+                if (chat.last_message_at) lastMsgMap[chatWith] = chat.last_message_at;
 
                 // Exact-match only
                 if (
@@ -1294,6 +1700,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                 ) {
                   chatMap[activeUser.name] = chatIdValue;
                   chatMap[String(activeUser.id)] = chatIdValue;
+                  if (chat.last_message_at) lastMsgMap[activeUser.name] = chat.last_message_at;
                   if ((activeUser as any).Employee_id) {
                     chatMap[String((activeUser as any).Employee_id)] = chatIdValue;
                   }
@@ -1302,6 +1709,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             });
 
             setDirectChats(prev => ({ ...prev, ...chatMap }));
+            setDirectChatLastMessageAt(prev => ({ ...prev, ...lastMsgMap }));
             
             // Try to find chat_id again
             chatId = findChatIdForUser(activeUser) || '';
@@ -1344,17 +1752,21 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           const chatData = await apiLoadChats();
           const chats = chatData.chats_info || [];
           const chatMap: Record<string, string> = {};
+          const lastMsgMap: Record<string, string> = {};
           chats.forEach((chat: any) => {
             if (chat.with && chat.chat_id) {
               chatMap[chat.with] = chat.chat_id;
+              if (chat.last_message_at) lastMsgMap[chat.with] = chat.last_message_at;
               // Exact-match only
               if (chat.with === activeUser.name || chat.with === String(activeUser.id)) {
                 chatMap[activeUser.name] = chat.chat_id;
                 chatMap[String(activeUser.id)] = chat.chat_id;
+                if (chat.last_message_at) lastMsgMap[activeUser.name] = chat.last_message_at;
               }
             }
           });
           setDirectChats(prev => ({ ...prev, ...chatMap }));
+          setDirectChatLastMessageAt(prev => ({ ...prev, ...lastMsgMap }));
           chatId = findChatIdForUser(activeUser) || chatId;
           
           if (!chatId || (typeof chatId === 'string' && chatId.trim() === '')) {
@@ -1364,9 +1776,27 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         }
       }
       
-      // Send message - backend expects array format: ["Message"]
-      await apiPostMessages(chatId, messageText);
-      
+      // ── Send message (with optional attachment) ───────────────────────────
+      if (stagedAttachment) {
+        if (stagedAttachment.kind === 'file' && stagedAttachment.uploaded) {
+          // Use the proper API format: { Message, attachment_ids: [id] }
+          const attachmentId = stagedAttachment.uploaded.id;
+          const text = messageText || stagedAttachment.uploaded.file_name;
+          await apiPostMessages(chatId, text, [attachmentId]);
+        } else if (stagedAttachment.kind === 'link' && (stagedAttachment.saved || stagedAttachment.url)) {
+          // Links are sent as a tagged string (no attachment_id from the API)
+          const url   = stagedAttachment.saved?.url   ?? stagedAttachment.url;
+          const title = stagedAttachment.saved?.title ?? stagedAttachment.title ?? url;
+          await apiPostMessages(chatId, `[LINK:${title}|${url}]`);
+          // Also send text if the user typed something alongside the link
+          if (messageText) await apiPostMessages(chatId, messageText);
+        }
+        clearAttachment();
+      } else if (messageText) {
+        // ── Plain text message ──────────────────────────────────────────────
+        await apiPostMessages(chatId, messageText);
+      }
+
       // Clear input immediately for better UX
       setInput('');
       
@@ -1387,21 +1817,25 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         const chatData = await apiLoadChats();
         const chats = chatData.chats_info || [];
         const chatMap: Record<string, string> = {};
+        const lastMsgMap: Record<string, string> = {};
         chats.forEach((chat: any) => {
           const chatWith = chat.with || '';
           const chatId = chat.chat_id || '';
           
           if (chatWith && chatId) {
             chatMap[chatWith] = chatId;
+            if (chat.last_message_at) lastMsgMap[chatWith] = chat.last_message_at;
             
             // Exact-match only
             if (chatWith === activeUser.name || chatWith === String(activeUser.id)) {
               chatMap[activeUser.name] = chatId;
               chatMap[String(activeUser.id)] = chatId;
+              if (chat.last_message_at) lastMsgMap[activeUser.name] = chat.last_message_at;
             }
           }
         });
         setDirectChats(prev => ({ ...prev, ...chatMap }));
+        setDirectChatLastMessageAt(prev => ({ ...prev, ...lastMsgMap }));
       }
     } catch (error: any) {
       console.error('Error sending message:', error);
@@ -1413,19 +1847,42 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
   const hasActiveChat = !!(activeGroup || activeUser);
 
-  // Filter groups and users by search query
+  // Parse API date format "DD/MM/YY HH:MM:SS" into a numeric timestamp for sorting
+  const parseApiDate = (dateStr: string | undefined): number => {
+    if (!dateStr) return 0;
+    try {
+      // Format: "02/03/26 11:06:20" → DD/MM/YY HH:MM:SS
+      const [datePart, timePart] = dateStr.trim().split(' ');
+      if (!datePart) return 0;
+      const [dd, mm, yy] = datePart.split('/');
+      const [hh, min, ss] = (timePart || '00:00:00').split(':');
+      const fullYear = 2000 + parseInt(yy, 10);
+      return new Date(fullYear, parseInt(mm, 10) - 1, parseInt(dd, 10), parseInt(hh, 10), parseInt(min, 10), parseInt(ss, 10)).getTime();
+    } catch {
+      return 0;
+    }
+  };
+
+  // Filter groups and users by search query, then sort by latest message first
   const searchLower = searchQuery.trim().toLowerCase();
-  const filteredGroups = searchLower
+  const filteredGroups = (searchLower
     ? groups.filter((g) => (g.name || '').toLowerCase().includes(searchLower))
-    : groups;
-  const filteredUsers = searchLower
+    : groups
+  ).slice().sort((a, b) => parseApiDate(b.last_message_at) - parseApiDate(a.last_message_at));
+
+  const filteredUsers = (searchLower
     ? users.filter(
         (u) =>
           (u.name || '').toLowerCase().includes(searchLower) ||
           (u.email || '').toLowerCase().includes(searchLower) ||
           (u.id || '').toLowerCase().includes(searchLower)
       )
-    : users;
+    : users
+  ).slice().sort((a, b) => {
+    const aTime = parseApiDate(directChatLastMessageAt[a.name] || directChatLastMessageAt[String(a.id)]);
+    const bTime = parseApiDate(directChatLastMessageAt[b.name] || directChatLastMessageAt[String(b.id)]);
+    return bTime - aTime;
+  });
 
   return (
     <div className="flex h-[calc(100vh-140px)] sm:h-[calc(100vh-140px)] min-h-[400px] bg-white rounded-xl sm:rounded-2xl shadow-sm overflow-hidden border border-gray-200">
@@ -1898,18 +2355,272 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             }).map((msg, index) => {
               const isMe = msg.sender === currentUser.name || msg.sender === currentUser.id;
               const sender = users.find(u => u.name === msg.sender || u.id === msg.sender);
+
+              // Unique key for this message to track deletion
+              const msgKey = `${index}::${msg.sender}::${msg.date}::${msg.time}`;
+
+              // Skip messages the user has locally deleted
+              if (deletedMsgKeys.has(msgKey)) return null;
+
+              // ── Parse attachment tags ─────────────────────────────────────
+              // New API format: msg.attachment = { id, type, file_name, url }
+              // Legacy tag format: [FILE:contentType|fileName|url]
+              const fileMatch = !msg.attachment && msg.message?.match(/^\[FILE:([^|]+)\|([^|]+)\|(.+)\]$/);
+              // [LINK:title|url]
+              const linkMatch = !msg.attachment && !fileMatch && msg.message?.match(/^\[LINK:([^|]*)\|(.+)\]$/);
+
+              // Unified attachment info (new API shape takes priority over legacy tags)
+              const attUrl      = msg.attachment?.url      ?? (fileMatch ? fileMatch[3] : null);
+              const attFileName = msg.attachment?.file_name ?? (fileMatch ? fileMatch[2] : null);
+              // Determine MIME type: new API doesn't give MIME so infer from file name
+              const inferMime = (name: string): string => {
+                const ext = name.split('.').pop()?.toLowerCase() ?? '';
+                if (['jpg','jpeg','png','gif','webp','bmp','svg'].includes(ext)) return 'image/' + (ext === 'jpg' ? 'jpeg' : ext);
+                if (['mp4','webm','ogg','mov','mkv'].includes(ext))              return 'video/' + ext;
+                if (['mp3','wav','ogg','aac','flac'].includes(ext))              return 'audio/' + ext;
+                if (ext === 'pdf')                                               return 'application/pdf';
+                if (['zip','rar','7z','tar','gz'].includes(ext))                return 'application/zip';
+                return 'application/octet-stream';
+              };
+              const attMime = msg.attachment
+                ? inferMime(msg.attachment.file_name)
+                : (fileMatch ? fileMatch[1] : null);
+
+              const hasAttachment = !!(attUrl && attFileName);
+              const isImageFile = hasAttachment && (attMime?.startsWith('image/') ?? false);
+              const isVideoFile = hasAttachment && (attMime?.startsWith('video/') ?? false);
+              const isAudioFile = hasAttachment && (attMime?.startsWith('audio/') ?? false);
+
+              const getFileIcon = (ct: string) => {
+                if (ct.startsWith('image/'))                          return <FileImage size={16} />;
+                if (ct.startsWith('video/'))                          return <Film size={16} />;
+                if (ct.startsWith('audio/'))                          return <Music size={16} />;
+                if (ct.includes('pdf'))                               return <FileText size={16} />;
+                if (ct.includes('zip') || ct.includes('rar') || ct.includes('7z')) return <Archive size={16} />;
+                return <FileIcon size={16} />;
+              };
+
+              const bubbleBase = `max-w-[85%] sm:max-w-[70%] rounded-2xl shadow-sm overflow-hidden ${isMe ? 'bg-brand-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'}`;
+              const metaClass  = `text-[10px] pb-2 pr-3 text-right ${isMe ? 'text-brand-200' : 'text-gray-400'}`;
+              const isConfirming = confirmDeleteKey === msgKey;
+
               return (
-                <div key={index} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  key={index}
+                  className={`flex items-end gap-1 group ${isMe ? 'justify-end' : 'justify-start'}`}
+                >
                   {!isMe && (
-                    <img src={sender?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(msg.sender)}&background=random`} className="w-8 h-8 rounded-full mr-2 self-end mb-1" alt="" onError={(e) => { const t = e.target as HTMLImageElement; if (!t.src.includes('ui-avatars.com')) t.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(msg.sender)}&background=random`; }} />
+                    <img
+                      src={sender?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(msg.sender)}&background=random`}
+                      className="w-8 h-8 rounded-full mr-1 self-end mb-1 flex-shrink-0"
+                      alt=""
+                      onError={(e) => { const t = e.target as HTMLImageElement; if (!t.src.includes('ui-avatars.com')) t.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(msg.sender)}&background=random`; }}
+                    />
                   )}
-                  <div className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 sm:p-4 shadow-sm ${isMe ? 'bg-brand-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'}`}>
-                    {!isMe && <p className="text-xs font-bold text-brand-600 mb-1">{msg.sender}</p>}
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</p>
-                    <p className={`text-[10px] mt-2 text-right ${isMe ? 'text-brand-200' : 'text-gray-400'}`}>
-                      {msg.date} {msg.time}
-                    </p>
-                  </div>
+
+                  {/* ── Forward button — left of bubble for others' messages ── */}
+                  {!isMe && (
+                    <button
+                      type="button"
+                      onClick={() => openForwardModal(msg.message)}
+                      className="flex-shrink-0 mb-1 w-7 h-7 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:bg-brand-50 hover:border-brand-300 text-gray-400 hover:text-brand-600 shadow-sm transition-colors opacity-0 group-hover:opacity-100"
+                      title="Forward message"
+                    >
+                      <Forward size={13} />
+                    </button>
+                  )}
+
+                  {/* ── Delete button — left of bubble for own messages ── */}
+                  {isMe && (
+                    <div className={`flex-shrink-0 mb-1 transition-opacity duration-150 ${isConfirming || deletingMsgKey === msgKey ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                      {deletingMsgKey === msgKey ? (
+                        /* ── Deleting spinner ── */
+                        <div className="flex items-center gap-1 bg-white border border-red-200 rounded-xl shadow-md px-2 py-1">
+                          <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                          <span className="text-[10px] text-red-500">Deleting…</span>
+                        </div>
+                      ) : isConfirming ? (
+                        /* ── Confirm popup ── */
+                        <div className="flex items-center gap-1 bg-white border border-red-200 rounded-xl shadow-md px-2 py-1">
+                          <span className="text-[10px] text-red-600 font-medium whitespace-nowrap">Delete?</span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setConfirmDeleteKey(null);
+                              // If the message has an attachment_id, delete it via the API
+                              if (msg.attachment_id != null) {
+                                setDeletingMsgKey(msgKey);
+                                try {
+                                  await apiDeleteAttachment(msg.attachment_id);
+                                  // On success: hide the message row
+                                  setDeletedMsgKeys((prev) => new Set(prev).add(msgKey));
+                                } catch (err: any) {
+                                  const errMsg: string = err?.message ?? 'Failed to delete';
+                                  // 400 "already sent" – hide locally anyway
+                                  if (errMsg.includes('already sent')) {
+                                    setDeletedMsgKeys((prev) => new Set(prev).add(msgKey));
+                                  } else {
+                                    // Show a brief inline error by re-setting confirmDeleteKey
+                                    // so the user can see something went wrong
+                                    alert(errMsg);
+                                  }
+                                } finally {
+                                  setDeletingMsgKey(null);
+                                }
+                              } else {
+                                // No attachment_id – local removal only
+                                setDeletedMsgKeys((prev) => new Set(prev).add(msgKey));
+                              }
+                            }}
+                            className="text-[10px] font-semibold text-white bg-red-500 hover:bg-red-600 px-2 py-0.5 rounded-lg transition-colors"
+                          >
+                            Yes
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteKey(null)}
+                            className="text-[10px] font-semibold text-gray-500 hover:text-gray-700 px-1.5 py-0.5 rounded-lg hover:bg-gray-100 transition-colors"
+                          >
+                            No
+                          </button>
+                        </div>
+                      ) : (
+                        /* ── Trash icon (hover-reveal) ── */
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteKey(msgKey)}
+                          className="w-7 h-7 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:bg-red-50 hover:border-red-300 text-gray-400 hover:text-red-500 shadow-sm transition-colors"
+                          title="Delete message"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── FILE attachment bubble ── */}
+                  {hasAttachment ? (
+                    <div className={bubbleBase}>
+                      {!isMe && <p className="text-xs font-bold text-brand-600 px-3 pt-2 mb-1">{msg.sender}</p>}
+                      <div className="px-2 pt-1 pb-0">
+                        {isImageFile && (
+                          <div className="relative group/img">
+                            <img
+                              src={attUrl!}
+                              alt={attFileName!}
+                              className="max-w-full max-h-60 rounded-xl object-cover"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                            {/* Download + open overlay on image */}
+                            <div className="absolute inset-0 rounded-xl bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                              <a
+                                href={attUrl!}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-8 h-8 rounded-full bg-white/90 hover:bg-white flex items-center justify-center text-gray-700 shadow"
+                                title="Open in new tab"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <ExternalLink size={14} />
+                              </a>
+                              <a
+                                href={attUrl!}
+                                download={attFileName!}
+                                className="w-8 h-8 rounded-full bg-white/90 hover:bg-white flex items-center justify-center text-gray-700 shadow"
+                                title="Download"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Download size={14} />
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                        {isVideoFile && (
+                          <video src={attUrl!} controls className="max-w-full max-h-52 rounded-xl" />
+                        )}
+                        {isAudioFile && (
+                          <audio src={attUrl!} controls className="w-full mt-1 rounded-lg" />
+                        )}
+                        {!isImageFile && !isVideoFile && !isAudioFile && (
+                          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium ${isMe ? 'bg-brand-500/30 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                            <span className={isMe ? 'text-brand-200' : 'text-brand-600'}>{getFileIcon(attMime ?? '')}</span>
+                            <span className="truncate max-w-[160px] flex-1">{attFileName}</span>
+                            <a
+                              href={attUrl!}
+                              download={attFileName!}
+                              className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isMe ? 'bg-white/20 hover:bg-white/40 text-white' : 'bg-brand-100 hover:bg-brand-200 text-brand-700'}`}
+                              title="Download"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Download size={13} />
+                            </a>
+                          </div>
+                        )}
+                        {(isImageFile || isVideoFile || isAudioFile) && (
+                          <div className={`flex items-center gap-1 mt-0.5 px-1 ${isMe ? 'text-brand-200' : 'text-gray-400'}`}>
+                            <p className="text-[10px] truncate max-w-[180px] flex-1">{attFileName}</p>
+                            {!isVideoFile && !isAudioFile && (
+                              <a
+                                href={attUrl!}
+                                download={attFileName!}
+                                className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center transition-colors ${isMe ? 'hover:bg-white/20' : 'hover:bg-gray-200'}`}
+                                title="Download"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Download size={11} />
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {/* Caption text (message text alongside the attachment) */}
+                        {msg.message && msg.message !== attFileName && (
+                          <p className={`text-sm px-1 mt-1 whitespace-pre-wrap ${isMe ? 'text-white' : 'text-gray-800'}`}>{msg.message}</p>
+                        )}
+                      </div>
+                      <p className={metaClass}>{msg.date} {msg.time}</p>
+                    </div>
+
+                  /* ── LINK attachment bubble ── */
+                  ) : linkMatch ? (
+                    <div className={bubbleBase}>
+                      {!isMe && <p className="text-xs font-bold text-brand-600 px-3 pt-2 mb-1">{msg.sender}</p>}
+                      <div className="px-2 pt-1 pb-0">
+                        <a
+                          href={linkMatch[2]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${isMe ? 'bg-brand-500/30 hover:bg-brand-500/50 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'}`}
+                        >
+                          <ExternalLink size={16} className={isMe ? 'text-brand-200 flex-shrink-0' : 'text-brand-600 flex-shrink-0'} />
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-xs">{linkMatch[1] || linkMatch[2]}</p>
+                            <p className={`truncate text-[10px] ${isMe ? 'text-brand-200' : 'text-gray-400'}`}>{linkMatch[2]}</p>
+                          </div>
+                        </a>
+                      </div>
+                      <p className={metaClass}>{msg.date} {msg.time}</p>
+                    </div>
+
+                  /* ── Plain text bubble ── */
+                  ) : (
+                    <div className={`${bubbleBase} p-3 sm:p-4`}>
+                      {!isMe && <p className="text-xs font-bold text-brand-600 mb-1">{msg.sender}</p>}
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</p>
+                      <p className={`text-[10px] mt-2 text-right ${isMe ? 'text-brand-200' : 'text-gray-400'}`}>{msg.date} {msg.time}</p>
+                    </div>
+                  )}
+
+                  {/* ── Forward button — right of bubble for own messages ── */}
+                  {isMe && (
+                    <button
+                      type="button"
+                      onClick={() => openForwardModal(msg.message)}
+                      className="flex-shrink-0 mb-1 w-7 h-7 flex items-center justify-center rounded-full bg-white border border-gray-200 hover:bg-brand-50 hover:border-brand-300 text-gray-400 hover:text-brand-600 shadow-sm transition-colors opacity-0 group-hover:opacity-100"
+                      title="Forward message"
+                    >
+                      <Forward size={13} />
+                    </button>
+                  )}
                 </div>
               );
             })
@@ -1919,7 +2630,121 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
         {/* Input */}
         <div className="p-3 sm:p-4 bg-white border-t border-gray-200 relative">
+
+          {/* ── Attachment preview tray ── */}
+          {stagedAttachment && (
+            <div className="mb-2 rounded-xl border border-brand-200 bg-brand-50 p-2 flex items-start gap-3">
+              {/* File preview */}
+              {stagedAttachment.kind === 'file' && (
+                <>
+                  {stagedAttachment.preview ? (
+                    <img src={stagedAttachment.preview} alt="preview" className="w-14 h-14 rounded-lg object-cover flex-shrink-0 border border-brand-200" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-lg bg-brand-100 flex items-center justify-center flex-shrink-0">
+                      <FileIcon size={24} className="text-brand-500" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-brand-800 truncate">{stagedAttachment.file.name}</p>
+                    <p className="text-[10px] text-brand-500 mt-0.5">
+                      {stagedAttachment.file.type || 'file'} · {(stagedAttachment.file.size / 1024).toFixed(1)} KB
+                    </p>
+                    {stagedAttachment.error && (
+                      <p className="text-[10px] text-red-600 flex items-center gap-1 mt-0.5">
+                        <AlertCircle size={10} /> {stagedAttachment.error}
+                      </p>
+                    )}
+                    {!stagedAttachment.uploaded && !stagedAttachment.error && (
+                      <p className="text-[10px] text-brand-400 mt-0.5 animate-pulse">Uploading…</p>
+                    )}
+                    {stagedAttachment.uploaded && !stagedAttachment.error && (
+                      <p className="text-[10px] text-green-600 mt-0.5">Ready to send</p>
+                    )}
+                  </div>
+                </>
+              )}
+              {/* Link preview */}
+              {stagedAttachment.kind === 'link' && (
+                <>
+                  <div className="w-14 h-14 rounded-lg bg-brand-100 flex items-center justify-center flex-shrink-0">
+                    <ExternalLink size={24} className="text-brand-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-brand-800 truncate">{stagedAttachment.title || stagedAttachment.url}</p>
+                    <p className="text-[10px] text-brand-400 truncate">{stagedAttachment.url}</p>
+                    {stagedAttachment.error && (
+                      <p className="text-[10px] text-red-600 flex items-center gap-1 mt-0.5">
+                        <AlertCircle size={10} /> {stagedAttachment.error}
+                      </p>
+                    )}
+                    {!stagedAttachment.saved && !stagedAttachment.error && (
+                      <p className="text-[10px] text-brand-400 mt-0.5 animate-pulse">Saving link…</p>
+                    )}
+                    {stagedAttachment.saved && !stagedAttachment.error && (
+                      <p className="text-[10px] text-green-600 mt-0.5">Ready to send</p>
+                    )}
+                  </div>
+                </>
+              )}
+              {/* Remove / delete button – always visible */}
+              <button
+                type="button"
+                onClick={handleDeleteStagedAttachment}
+                className="flex-shrink-0 ml-1 w-7 h-7 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-200 text-red-500 hover:text-red-700 transition-colors shadow-sm"
+                title="Remove attachment"
+              >
+                <X size={15} strokeWidth={2.5} />
+              </button>
+            </div>
+          )}
+
+          {/* ── Link input panel ── */}
+          {showLinkInput && (
+            <div className="mb-2 rounded-xl border border-gray-200 bg-gray-50 p-3 flex flex-col gap-2">
+              <p className="text-xs font-semibold text-gray-700">Attach a link</p>
+              <input
+                type="url"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddLink(); } }}
+                placeholder="https://example.com"
+                className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-400"
+                autoFocus
+              />
+              <input
+                type="text"
+                value={linkTitle}
+                onChange={(e) => setLinkTitle(e.target.value)}
+                placeholder="Display title (optional)"
+                className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-400"
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setShowLinkInput(false); setLinkUrl(''); setLinkTitle(''); }}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 transition-colors"
+                >Cancel</button>
+                <button
+                  type="button"
+                  onClick={handleAddLink}
+                  disabled={!linkUrl.trim()}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-50"
+                >Attach</button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Main input row ── */}
           <div className="flex items-center space-x-2 bg-gray-100 rounded-xl px-3 sm:px-4 py-2 border border-gray-200">
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+
             {/* Emoji Picker Button */}
             <button
               type="button"
@@ -1928,6 +2753,28 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               title="Add emoji"
             >
               <Smile size={20} />
+            </button>
+
+            {/* Attach file button */}
+            <button
+              type="button"
+              onClick={() => { setShowLinkInput(false); fileInputRef.current?.click(); }}
+              disabled={!!stagedAttachment || isProcessingAttachment}
+              className="text-gray-500 hover:text-brand-600 p-1.5 rounded-lg hover:bg-gray-200 transition-colors flex-shrink-0 disabled:opacity-40"
+              title="Attach file"
+            >
+              <Paperclip size={20} />
+            </button>
+
+            {/* Attach link button */}
+            <button
+              type="button"
+              onClick={() => { if (!stagedAttachment) setShowLinkInput((v) => !v); }}
+              disabled={!!stagedAttachment || isProcessingAttachment}
+              className={`p-1.5 rounded-lg transition-colors flex-shrink-0 disabled:opacity-40 ${showLinkInput ? 'text-brand-600 bg-brand-100' : 'text-gray-500 hover:text-brand-600 hover:bg-gray-200'}`}
+              title="Attach link"
+            >
+              <Link2 size={20} />
             </button>
 
             {/* Emoji Picker */}
@@ -1962,16 +2809,16 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                   handleSend();
                 }
               }}
-              placeholder="Type a message..."
+              placeholder={stagedAttachment ? 'Add a caption (optional)…' : 'Type a message…'}
               className="flex-1 bg-transparent focus:outline-none text-sm text-gray-700 min-w-0"
             />
             <button 
               onClick={handleSend} 
-              disabled={!input.trim() || isSendingMessage}
+              disabled={(!input.trim() && !stagedAttachment) || isSendingMessage || isProcessingAttachment}
               className="bg-brand-600 text-white p-2 rounded-lg hover:bg-brand-700 shadow-sm transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               title="Send message"
             >
-              {isSendingMessage ? (
+              {isSendingMessage || isProcessingAttachment ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
               ) : (
                 <Send size={18} />
@@ -2562,7 +3409,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             onShareScreen={groupWebRtc.startScreenShare}
             onStopShareScreen={groupWebRtc.stopScreenShare}
             isSharingScreen={groupWebRtc.isSharingScreen}
-            screenSharingParticipant={groupWebRtc.screenSharingParticipant}
             onAccept={async () => {
               const stream = await requestAndGetCallMediaStream('video');
               if (!stream) {
@@ -2611,6 +3457,23 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
             isEndingCall={isEndingGroupCall}
           />,
           document.body
+        )}
+
+      {/* ── Forward / Share Modal ──────────────────────────────────────── */}
+      {showForwardModal && forwardMsg !== null && typeof document !== 'undefined' &&
+        createPortal(
+          <ForwardModal
+            message={forwardMsg}
+            groups={apiGroups}
+            users={users}
+            currentUser={currentUser}
+            directChats={directChats}
+            onClose={closeForwardModal}
+            onSendToChat={async (chatId: string) => {
+              await apiPostMessages(chatId, forwardMsg);
+            }}
+          />,
+          document.body,
         )}
     </div>
   );

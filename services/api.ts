@@ -23,8 +23,9 @@ export const getCallsWebSocketUrl = (): string => {
   return 'wss://employee-management-system-1-jwyn.onrender.com/ws/calls/';
 };
 
-//https://employee-management-system-tmrl.onrender.com
+//https://employee-management-system-1-jwyn.onrender.com
 //http://192.168.42.111:8000
+//http://192.168.41.69:8000
 // Use proxy in development to bypass CORS, direct URL in production
 const isDevelopment = typeof window !== 'undefined' && 
   (window.location.hostname === 'localhost' || 
@@ -3274,7 +3275,8 @@ export const deleteGroup = async (
  */
 export const postMessages = async (
   chatId: string | number,
-  message: string
+  message: string,
+  attachmentIds?: number[]
 ): Promise<{ message: string }> => {
   // Extract numeric ID first (needed for both API call and error messages)
   let numericChatId: number | undefined;
@@ -3341,32 +3343,37 @@ export const postMessages = async (
       // Numeric ID - legacy format
       finalChatId = chatIdToUse;} else {
       finalChatId = chatIdToUse;
-    }// Backend expects: body_field-["Message"]
-    // Try object format first: {"Message": "text"} (backend uses .get() method)
-    // If that fails, we can try array format: ["text"]
+    }
+
     const messageString = String(message).trim();
-    const requestBody = { Message: messageString };let response;
+
+    // Build request body — always use object format.
+    // Include attachment_ids when provided (backend: { "Message": "...", "attachment_ids": [42] })
+    const requestBody: Record<string, any> = { Message: messageString };
+    if (attachmentIds && attachmentIds.length > 0) {
+      requestBody.attachment_ids = attachmentIds;
+    }
+
+    let response;
     try {
       response = await api.post(`/messaging/postMessages/${finalChatId}/`, requestBody, {
-        headers: {
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Content-Type': 'application/json' },
       });
     } catch (firstError: any) {
-      // If object format fails with 500, try array format as fallback
-      if (firstError.response?.status === 500) {const arrayBody = [messageString];try {
-          response = await api.post(`/messaging/postMessages/${finalChatId}/`, arrayBody, {
-            headers: {
-              'Content-Type': 'application/json'
-            }
-          });} catch (arrayError: any) {
-          // If both fail, throw the original error
+      // Fallback: if object format returns 500, try array format (legacy backend)
+      if (firstError.response?.status === 500 && !attachmentIds?.length) {
+        try {
+          response = await api.post(`/messaging/postMessages/${finalChatId}/`, [messageString], {
+            headers: { 'Content-Type': 'application/json' },
+          });
+        } catch {
           throw firstError;
         }
       } else {
         throw firstError;
       }
-    }return response.data;
+    }
+    return response.data;
   } catch (error: any) {
     console.error("❌ [POST MESSAGES API] Error:", error);
     console.error("❌ [POST MESSAGES API] Error Response:", error.response?.data);
@@ -3466,10 +3473,18 @@ export const getMessages = async (
   chatId: string | number
 ): Promise<
   Array<{
-    sender: string;
-    message: string;
-    date: string;
-    time: string;
+    sender:        string;
+    message:       string;
+    date:          string;
+    time:          string;
+    attachment_id?: number;
+    /** Attachment object returned by the new API format */
+    attachment?: {
+      id:        number;
+      type:      string;   // "file"
+      file_name: string;
+      url:       string;
+    };
   }>
 > => {
   const originalChatId = chatId;
@@ -3540,7 +3555,37 @@ export const getMessages = async (
     } else if (data.data && Array.isArray(data.data)) {
       messages = data.data;
     } else {return [];
-    }return messages;
+    }
+
+    // Normalise each message. The backend may return an inline attachment object:
+    // { id, type: "file", file_name, url }  — either as m.attachment or as the
+    // first element of m.attachments[].  Also keep attachment_id for the delete endpoint.
+    return messages.map((m: any) => {
+      // Resolve attachment from multiple possible shapes
+      const rawAtt = m.attachment ?? (Array.isArray(m.attachments) ? m.attachments[0] : null) ?? null;
+      const attachment = rawAtt && rawAtt.url
+        ? {
+            id:        Number(rawAtt.id ?? m.attachment_id ?? 0),
+            type:      String(rawAtt.type ?? 'file'),
+            file_name: String(rawAtt.file_name ?? rawAtt.name ?? ''),
+            url:       String(rawAtt.url),
+          }
+        : undefined;
+
+      // attachment_id: prefer explicit field, fall back to attachment.id
+      const attachmentId = m.attachment_id != null
+        ? Number(m.attachment_id)
+        : attachment?.id ?? undefined;
+
+      return {
+        sender:        String(m.sender ?? ''),
+        message:       String(m.message ?? ''),
+        date:          String(m.date ?? ''),
+        time:          String(m.time ?? ''),
+        ...(attachmentId != null ? { attachment_id: attachmentId } : {}),
+        ...(attachment      ? { attachment }                    : {}),
+      };
+    });
   } catch (error: any) {
     console.error("❌ [GET MESSAGES API] Error:", error);
     console.error("❌ [GET MESSAGES API] Error Response:", error.response?.data);
@@ -3897,4 +3942,166 @@ export const apiFunctions = {
   createActionableEntry,
   updateActionableEntry,
   deleteActionableEntry,
+  uploadFile,
+  addLink,
+  deleteAttachment,
 };
+
+// ─── Messaging Attachments ────────────────────────────────────────────────────
+
+/** Shape returned by POST /messaging/uploadFile/ (201) */
+export interface UploadedFileAttachment {
+  id:           number;
+  s3_key:       string;
+  file_name:    string;
+  content_type: string;
+  file_size:    number;
+  url:          string;
+}
+
+/** Shape returned by POST /messaging/addLink/ (201) */
+export interface LinkAttachment {
+  id:    number;
+  url:   string;
+  title: string;
+}
+
+/**
+ * Upload a file attachment.
+ * POST /messaging/uploadFile/
+ * body: multipart/form-data  field: file
+ */
+const UPLOAD_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+
+export async function uploadFile(file: File): Promise<UploadedFileAttachment> {
+  if (file.size > UPLOAD_MAX_BYTES) {
+    throw new Error(
+      `File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum allowed size is 10 MB.`,
+    );
+  }
+  const form = new FormData();
+  form.append('file', file);
+  const response = await api.post<UploadedFileAttachment>(
+    '/messaging/uploadFile/',
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120_000 },
+  );
+  return response.data;
+}
+
+/**
+ * Add a link attachment.
+ * POST /messaging/addLink/
+ * body: { url: string, title?: string }
+ */
+export async function addLink(url: string, title?: string): Promise<LinkAttachment> {
+  const response = await api.post<LinkAttachment>('/messaging/addLink/', {
+    url,
+    title: title || '',
+  });
+  return response.data;
+}
+
+/**
+ * Delete a pending (unsent) attachment.
+ * DELETE /messaging/attachments/{attachment_id}/
+ *
+ * Success  200 – { "message": "Attachment deleted" }
+ * Error    400 – { "error": "Cannot delete attachment that is already sent" }
+ * Error    403 – { "error": "Not allowed" }
+ * Error    404 – Attachment not found
+ */
+export async function deleteAttachment(attachmentId: number): Promise<{ message: string }> {
+  try {
+    const response = await api.delete<{ message: string }>(
+      `/messaging/attachments/${attachmentId}/`,
+    );
+    return response.data;
+  } catch (error: any) {
+    const status = error?.response?.status;
+    const serverMsg = error?.response?.data?.error || error?.response?.data?.message;
+
+    if (status === 400) {
+      throw new Error(serverMsg || 'Cannot delete attachment that is already sent.');
+    }
+    if (status === 403) {
+      throw new Error(serverMsg || 'You are not allowed to delete this attachment.');
+    }
+    if (status === 404) {
+      throw new Error(serverMsg || 'Attachment not found.');
+    }
+
+    throw new Error(serverMsg || error?.message || 'Failed to delete attachment.');
+  }
+}
+
+// ─── Leave Management ─────────────────────────────────────────────────────────
+
+import type {
+  LeaveRequest,
+  LeaveBalance,
+  ApplyLeavePayload,
+  ReviewLeavePayload,
+  AdjustLeaveBalancePayload,
+  EmergencyLeavePayload,
+} from '../types';
+
+/** GET /leave/my-requests/ — employee's own leave requests */
+export async function getMyLeaveRequests(): Promise<LeaveRequest[]> {
+  const res = await api.get<LeaveRequest[]>('/leave/my-requests/');
+  return res.data;
+}
+
+/** GET /leave/my-balance/ — employee's leave balance */
+export async function getMyLeaveBalance(): Promise<LeaveBalance> {
+  const res = await api.get<LeaveBalance>('/leave/my-balance/');
+  return res.data;
+}
+
+/** POST /leave/apply/ — employee applies for leave */
+export async function applyLeave(payload: ApplyLeavePayload): Promise<LeaveRequest> {
+  const res = await api.post<LeaveRequest>('/leave/apply/', payload);
+  return res.data;
+}
+
+/** PATCH /leave/cancel/{id}/ — employee cancels a pending request */
+export async function cancelLeaveRequest(id: string): Promise<LeaveRequest> {
+  const res = await api.patch<LeaveRequest>(`/leave/cancel/${id}/`);
+  return res.data;
+}
+
+/** GET /leave/hr/requests/ — HR sees all leave requests (optionally filtered) */
+export async function getAllLeaveRequests(params?: {
+  employee_id?: string;
+  status?: string;
+  leave_day?: string;
+  start_date?: string;
+  end_date?: string;
+}): Promise<LeaveRequest[]> {
+  const res = await api.get<LeaveRequest[]>('/leave/hr/requests/', { params });
+  return res.data;
+}
+
+/** PATCH /leave/hr/review/{id}/ — HR approves or rejects a request */
+export async function reviewLeaveRequest(id: string, payload: ReviewLeavePayload): Promise<LeaveRequest> {
+  const res = await api.patch<LeaveRequest>(`/leave/hr/review/${id}/`, payload);
+  return res.data;
+}
+
+/** GET /leave/hr/balances/ — HR views all employees' leave balances */
+export async function getAllLeaveBalances(): Promise<LeaveBalance[]> {
+  const res = await api.get<LeaveBalance[]>('/leave/hr/balances/');
+  return res.data;
+}
+
+/** PATCH /leave/hr/adjust-balance/ — HR manually adjusts an employee's leave credit */
+export async function adjustLeaveBalance(payload: AdjustLeaveBalancePayload): Promise<LeaveBalance> {
+  const res = await api.patch<LeaveBalance>('/leave/hr/adjust-balance/', payload);
+  return res.data;
+}
+
+/** POST /leave/hr/emergency/ — HR adds an emergency leave entry directly for an employee (auto-approved) */
+export async function addEmergencyLeave(payload: EmergencyLeavePayload): Promise<LeaveRequest> {
+  const res = await api.post<LeaveRequest>('/leave/hr/emergency/', payload);
+  return res.data;
+}
