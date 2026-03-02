@@ -263,6 +263,41 @@ const ForwardModal: React.FC<ForwardModalProps> = ({
   );
 };
 
+// Rewrites S3 URLs to go through the Vite /s3-proxy route so the request is
+// same-origin and the browser's CORS restriction does not apply.
+function toProxiedUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    // Match any *.s3.amazonaws.com or *.s3.<region>.amazonaws.com host
+    if (parsed.hostname.endsWith('.amazonaws.com')) {
+      // Keep path + query intact, prefix with /s3-proxy
+      return `/s3-proxy${parsed.pathname}${parsed.search}`;
+    }
+  } catch { /* not a valid URL, return as-is */ }
+  return url;
+}
+
+// Fetches the file as a blob (via same-origin proxy) and triggers a real download.
+async function triggerDownload(url: string, fileName: string): Promise<void> {
+  const fetchUrl = toProxiedUrl(url);
+  try {
+    const response = await fetch(fetchUrl);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 15_000);
+  } catch {
+    // Last-resort fallback: open the original URL in a new tab
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
 export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, messages, users, setMessages, setGroups }) => {
   const [activeGroup, setActiveGroup] = useState<ChatGroup | null>(null);
   const [activeUser, setActiveUser] = useState<User | null>(null); // For direct messaging
@@ -2523,15 +2558,14 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                               >
                                 <ExternalLink size={14} />
                               </a>
-                              <a
-                                href={attUrl!}
-                                download={attFileName!}
+                              <button
+                                type="button"
                                 className="w-8 h-8 rounded-full bg-white/90 hover:bg-white flex items-center justify-center text-gray-700 shadow"
                                 title="Download"
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!); }}
                               >
                                 <Download size={14} />
-                              </a>
+                              </button>
                             </div>
                           </div>
                         )}
@@ -2545,30 +2579,28 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                           <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium ${isMe ? 'bg-brand-500/30 text-white' : 'bg-gray-100 text-gray-800'}`}>
                             <span className={isMe ? 'text-brand-200' : 'text-brand-600'}>{getFileIcon(attMime ?? '')}</span>
                             <span className="truncate max-w-[160px] flex-1">{attFileName}</span>
-                            <a
-                              href={attUrl!}
-                              download={attFileName!}
+                            <button
+                              type="button"
                               className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isMe ? 'bg-white/20 hover:bg-white/40 text-white' : 'bg-brand-100 hover:bg-brand-200 text-brand-700'}`}
                               title="Download"
-                              onClick={(e) => e.stopPropagation()}
+                              onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!); }}
                             >
                               <Download size={13} />
-                            </a>
+                            </button>
                           </div>
                         )}
                         {(isImageFile || isVideoFile || isAudioFile) && (
                           <div className={`flex items-center gap-1 mt-0.5 px-1 ${isMe ? 'text-brand-200' : 'text-gray-400'}`}>
                             <p className="text-[10px] truncate max-w-[180px] flex-1">{attFileName}</p>
                             {!isVideoFile && !isAudioFile && (
-                              <a
-                                href={attUrl!}
-                                download={attFileName!}
+                              <button
+                                type="button"
                                 className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center transition-colors ${isMe ? 'hover:bg-white/20' : 'hover:bg-gray-200'}`}
                                 title="Download"
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!); }}
                               >
                                 <Download size={11} />
-                              </a>
+                              </button>
                             )}
                           </div>
                         )}

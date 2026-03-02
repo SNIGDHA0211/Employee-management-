@@ -28,6 +28,13 @@ export default defineConfig(({ mode }) => {
             target: mediaTarget,
             changeOrigin: true,
           },
+          // Proxy S3 file downloads so the browser sees them as same-origin,
+          // allowing the HTML download attribute / blob fetch to work without CORS errors.
+          '/s3-proxy': {
+            target: 'https://ems-storage-123.s3.amazonaws.com',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/s3-proxy/, ''),
+          },
           // Proxy WebSocket to backend (must match API target for session auth)
           '/ws': {
             target: wsTarget,
