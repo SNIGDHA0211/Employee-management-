@@ -263,22 +263,35 @@ const ForwardModal: React.FC<ForwardModalProps> = ({
   );
 };
 
-// Rewrites S3 URLs to go through the Vite /s3-proxy route so the request is
-// same-origin and the browser's CORS restriction does not apply.
+// In local dev, rewrite S3 URLs to go through the Vite /s3-proxy route (same-origin,
+// bypasses CORS). In production there is no Vite proxy, so the original URL is used
+// and the browser attempts a direct CORS fetch from S3.
 function toProxiedUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    // Match any *.s3.amazonaws.com or *.s3.<region>.amazonaws.com host
-    if (parsed.hostname.endsWith('.amazonaws.com')) {
-      // Keep path + query intact, prefix with /s3-proxy
-      return `/s3-proxy${parsed.pathname}${parsed.search}`;
-    }
-  } catch { /* not a valid URL, return as-is */ }
+  const isLocalDev =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname.startsWith('192.168.') ||
+      window.location.hostname.startsWith('10.') ||
+      window.location.hostname.startsWith('172.'));
+
+  if (isLocalDev) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname.endsWith('.amazonaws.com')) {
+        return `/s3-proxy${parsed.pathname}${parsed.search}`;
+      }
+    } catch { /* not a valid absolute URL */ }
+  }
   return url;
 }
 
-// Fetches the file as a blob (via same-origin proxy) and triggers a real download.
-async function triggerDownload(url: string, fileName: string): Promise<void> {
+// Fetches the file as a Blob and triggers a native browser download.
+// In local dev the request goes through the Vite /s3-proxy (no CORS issue).
+// In production the request goes directly to S3 (requires S3 CORS to allow the
+// production origin). If the fetch fails for any reason, falls back to opening
+// the file in a new tab.
+async function triggerDownload(url: string, fileName: string, _attachmentId?: number): Promise<void> {
   const fetchUrl = toProxiedUrl(url);
   try {
     const response = await fetch(fetchUrl);
@@ -287,13 +300,13 @@ async function triggerDownload(url: string, fileName: string): Promise<void> {
     const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = objectUrl;
-    link.download = fileName;
+    link.download = fileName || 'download';
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(objectUrl), 15_000);
   } catch {
-    // Last-resort fallback: open the original URL in a new tab
+    // Fallback: open in new tab (user can save manually)
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 }
@@ -2407,6 +2420,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               // Unified attachment info (new API shape takes priority over legacy tags)
               const attUrl      = msg.attachment?.url      ?? (fileMatch ? fileMatch[3] : null);
               const attFileName = msg.attachment?.file_name ?? (fileMatch ? fileMatch[2] : null);
+              // Attachment id — used to route download through the backend API (works in production).
+              const attId       = msg.attachment?.id ?? msg.attachment_id ?? undefined;
               // Determine MIME type: new API doesn't give MIME so infer from file name
               const inferMime = (name: string): string => {
                 const ext = name.split('.').pop()?.toLowerCase() ?? '';
@@ -2562,7 +2577,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                                 type="button"
                                 className="w-8 h-8 rounded-full bg-white/90 hover:bg-white flex items-center justify-center text-gray-700 shadow"
                                 title="Download"
-                                onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!); }}
+                                onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!, attId); }}
                               >
                                 <Download size={14} />
                               </button>
@@ -2583,7 +2598,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                               type="button"
                               className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isMe ? 'bg-white/20 hover:bg-white/40 text-white' : 'bg-brand-100 hover:bg-brand-200 text-brand-700'}`}
                               title="Download"
-                              onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!); }}
+                              onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!, attId); }}
                             >
                               <Download size={13} />
                             </button>
@@ -2597,7 +2612,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                                 type="button"
                                 className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center transition-colors ${isMe ? 'hover:bg-white/20' : 'hover:bg-gray-200'}`}
                                 title="Download"
-                                onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!); }}
+                                onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!, attId); }}
                               >
                                 <Download size={11} />
                               </button>
