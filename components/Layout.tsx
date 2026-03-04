@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart, Phone, VideoIcon, Search, Check, PhoneCall, Mic, ClipboardList } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart, Phone, VideoIcon, Search, Check, PhoneCall, Mic, ClipboardList, UserPlus } from 'lucide-react';
+import { canAccessCustomerLeads } from './customerLeads/CustomerLeadsPage';
 import { getMotivationalQuote } from '../services/gemini';
 import { getPermission, requestPermission, isNotificationSupported } from '../utils/browserNotifications';
 import { getBirthdayCounter, postBirthdayCounter, initiateCall, initiateGroupCall } from '../services/api';
@@ -206,6 +207,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Customer Leads - MD with MMR or RG function */}
+          {canAccessCustomerLeads(user) && (
+            <div className="mt-2">
+              <button
+                onClick={() => {
+                  setActiveTab('customer-leads');
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3 min-h-[44px] rounded-lg transition-all duration-200 ${
+                  activeTab === 'customer-leads'
+                    ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20'
+                    : 'text-gray-400 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center space-x-3 min-w-0">
+                  <UserPlus size={20} className="flex-shrink-0" />
+                  <span className="truncate">Customer Leads</span>
+                </div>
+                <ChevronRight size={16} className="text-gray-400" />
+              </button>
             </div>
           )}
 

@@ -35,6 +35,7 @@ import { addDays, format } from 'date-fns';
 import MDDashboardPage from './components/MDDashboard/MDDashboardPage';
 import { NMRHIPage } from './components/NMRHI';
 import { EmployeeLeavePage, HRLeavePage } from './components/leave';
+import { CustomerLeadsPage, canAccessCustomerLeads } from './components/customerLeads/CustomerLeadsPage';
 import AdminDashboard from './components/AdminOps/AdminDashboard';
 import AssetManager from './components/AdminOps/AssetManager';
 import VendorManager from './components/AdminOps/VendorManager';
@@ -1898,6 +1899,10 @@ export default function App() {
           return <HRLeavePage currentUser={currentUser} />;
         }
         return <EmployeeLeavePage currentUser={currentUser} />;
+
+      case 'customer-leads':
+        if (!canAccessCustomerLeads(currentUser)) return <div className="p-10 text-center text-gray-500">Access Denied</div>;
+        return <CustomerLeadsPage currentUser={currentUser} users={users} />;
 
       case 'admin':
          if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;
