@@ -2553,71 +2553,44 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                     <div className={bubbleBase}>
                       {!isMe && <p className="text-xs font-bold text-brand-600 px-3 pt-2 mb-1">{msg.sender}</p>}
                       <div className="px-2 pt-1 pb-0">
-                        {isImageFile && (
-                          <div className="relative group/img">
-                            <img
-                              src={attUrl!}
-                              alt={attFileName!}
-                              className="max-w-full max-h-60 rounded-xl object-cover"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                            />
-                            {/* Download + open overlay on image */}
-                            <div className="absolute inset-0 rounded-xl bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                              <a
-                                href={attUrl!}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="w-8 h-8 rounded-full bg-white/90 hover:bg-white flex items-center justify-center text-gray-700 shadow"
-                                title="Open in new tab"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <ExternalLink size={14} />
-                              </a>
-                              <button
-                                type="button"
-                                className="w-8 h-8 rounded-full bg-white/90 hover:bg-white flex items-center justify-center text-gray-700 shadow"
-                                title="Download"
-                                onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!, attId); }}
-                              >
-                                <Download size={14} />
-                              </button>
+                        {(isImageFile || (!isVideoFile && !isAudioFile)) && (
+                          <div className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium ${isMe ? 'bg-brand-500/30 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                            <span className={isMe ? 'text-brand-200' : 'text-brand-600'}>{getFileIcon(attMime ?? '')}</span>
+                            <div className="flex-1 min-w-0">
+                              <span className="truncate block">{attFileName}</span>
+                              <span className={`text-xs ${isMe ? 'text-brand-200/90' : 'text-gray-500'}`}>Click to download</span>
                             </div>
+                            <a
+                              href={attUrl!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${isMe ? 'hover:bg-white/20 text-white' : 'hover:bg-gray-200 text-gray-600'}`}
+                              title="Open in new tab"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <ExternalLink size={14} />
+                            </a>
+                            <button
+                              type="button"
+                              className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${isMe ? 'hover:bg-white/20 text-white' : 'hover:bg-gray-200 text-gray-600'}`}
+                              title="Download"
+                              onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!, attId); }}
+                            >
+                              <Download size={14} />
+                            </button>
                           </div>
                         )}
                         {isVideoFile && (
                           <video src={attUrl!} controls className="max-w-full max-h-52 rounded-xl" />
                         )}
                         {isAudioFile && (
-                          <audio src={attUrl!} controls className="w-full mt-1 rounded-lg" />
+                          <>
+                            <audio src={attUrl!} controls className="w-full mt-1 rounded-lg" />
+                            <p className={`text-[10px] truncate max-w-[180px] mt-0.5 px-1 ${isMe ? 'text-brand-200' : 'text-gray-400'}`}>{attFileName}</p>
+                          </>
                         )}
-                        {!isImageFile && !isVideoFile && !isAudioFile && (
-                          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium ${isMe ? 'bg-brand-500/30 text-white' : 'bg-gray-100 text-gray-800'}`}>
-                            <span className={isMe ? 'text-brand-200' : 'text-brand-600'}>{getFileIcon(attMime ?? '')}</span>
-                            <span className="truncate max-w-[160px] flex-1">{attFileName}</span>
-                            <button
-                              type="button"
-                              className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${isMe ? 'bg-white/20 hover:bg-white/40 text-white' : 'bg-brand-100 hover:bg-brand-200 text-brand-700'}`}
-                              title="Download"
-                              onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!, attId); }}
-                            >
-                              <Download size={13} />
-                            </button>
-                          </div>
-                        )}
-                        {(isImageFile || isVideoFile || isAudioFile) && (
-                          <div className={`flex items-center gap-1 mt-0.5 px-1 ${isMe ? 'text-brand-200' : 'text-gray-400'}`}>
-                            <p className="text-[10px] truncate max-w-[180px] flex-1">{attFileName}</p>
-                            {!isVideoFile && !isAudioFile && (
-                              <button
-                                type="button"
-                                className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center transition-colors ${isMe ? 'hover:bg-white/20' : 'hover:bg-gray-200'}`}
-                                title="Download"
-                                onClick={(e) => { e.stopPropagation(); triggerDownload(attUrl!, attFileName!, attId); }}
-                              >
-                                <Download size={11} />
-                              </button>
-                            )}
-                          </div>
+                        {isVideoFile && (
+                          <p className={`text-[10px] truncate max-w-[180px] mt-0.5 px-1 ${isMe ? 'text-brand-200' : 'text-gray-400'}`}>{attFileName}</p>
                         )}
                         {/* Caption text (message text alongside the attachment) */}
                         {msg.message && msg.message !== attFileName && (
