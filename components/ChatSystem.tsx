@@ -37,6 +37,8 @@ import { useCallsWebSocket } from '../hooks/useCallsWebSocket';
 import { useWebRTC } from '../hooks/useWebRTC';
 import { useGroupWebRTC } from '../hooks/useGroupWebRTC';
 import { requestCallMediaPermissions, requestAndGetCallMediaStream } from '../utils/callMedia';
+import EmojiPicker, { Theme } from 'emoji-picker-react';
+import { MessageContent } from './chat/MessageContent';
 
 interface ChatSystemProps {
   currentUser: User;
@@ -2594,7 +2596,9 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                         )}
                         {/* Caption text (message text alongside the attachment) */}
                         {msg.message && msg.message !== attFileName && (
-                          <p className={`text-sm px-1 mt-1 whitespace-pre-wrap ${isMe ? 'text-white' : 'text-gray-800'}`}>{msg.message}</p>
+                          <div className="px-1 mt-1">
+                            <MessageContent content={msg.message} isOwn={isMe} />
+                          </div>
                         )}
                       </div>
                       <p className={metaClass}>{msg.date} {msg.time}</p>
@@ -2625,7 +2629,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                   ) : (
                     <div className={`${bubbleBase} p-3 sm:p-4`}>
                       {!isMe && <p className="text-xs font-bold text-brand-600 mb-1">{msg.sender}</p>}
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</p>
+                      <MessageContent content={msg.message} isOwn={isMe} />
                       <p className={`text-[10px] mt-2 text-right ${isMe ? 'text-brand-200' : 'text-gray-400'}`}>{msg.date} {msg.time}</p>
                     </div>
                   )}
@@ -2799,23 +2803,17 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
             {/* Emoji Picker */}
             {showEmojiPicker && (
-              <div className="emoji-picker-container absolute bottom-full left-2 right-2 sm:left-4 sm:right-auto mb-2 bg-white border border-gray-200 rounded-lg shadow-xl p-3 z-50 max-w-xs sm:max-w-xs">
-                <div className="grid grid-cols-8 gap-1 max-h-48 overflow-y-auto">
-                  {['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑', '😬', '🙄', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤', '😪', '😵', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '😈', '👿', '👹', '👺', '🤡', '💩', '👻', '💀', '☠️', '👽', '👾', '🤖', '🎃', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾'].map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      onClick={() => {
-                        setInput(input + emoji);
-                        setShowEmojiPicker(false);
-                      }}
-                      className="text-2xl hover:bg-gray-100 rounded p-1 transition-colors"
-                      title={emoji}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
+              <div className="emoji-picker-container absolute bottom-full left-2 right-2 sm:left-4 sm:right-auto mb-2 z-50">
+                <EmojiPicker
+                  onEmojiClick={(emojiData) => {
+                    setInput((prev) => prev + emojiData.emoji);
+                    setShowEmojiPicker(false);
+                  }}
+                  theme={Theme.LIGHT}
+                  width={320}
+                  height={380}
+                  searchPlaceholder="Search emoji"
+                />
               </div>
             )}
 
