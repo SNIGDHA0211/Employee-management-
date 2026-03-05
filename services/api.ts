@@ -2093,7 +2093,7 @@ export const getHolidays = async (): Promise<Array<{ id: string; name: string; d
   try {
     const response = await api.get("/eventsapi/holidays/", { timeout: 60000 });
     const data = response.data;
-    const list = Array.isArray(data) ? data : data ? [data] : [];
+    const list = Array.isArray(data) ? data : data?.results ?? data?.data ?? (data ? [data] : []);
     return list.map((item: any) => ({
       id: String(item.id),
       name: String(item.name ?? ""),

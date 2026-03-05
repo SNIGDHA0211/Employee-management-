@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User } from '../../types';
-import { Plus, ChevronDown, ChevronUp, User as UserIcon, Package, Clock, ListPlus, StickyNote, UserPlus, Search } from 'lucide-react';
-import { format } from 'date-fns';
+import { Plus, ChevronDown, ChevronUp, User as UserIcon, Package, Clock, ListPlus, StickyNote, UserPlus, Search, BarChart2 } from 'lucide-react';
+import { format, startOfMonth, parseISO } from 'date-fns';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
 
 const STORAGE_KEY = 'customer_leads';
 
@@ -124,6 +125,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
   const [newNoteInput, setNewNoteInput] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [showGraphs, setShowGraphs] = useState(true);
 
   useEffect(() => {
     saveLeads(leads);
@@ -201,6 +203,45 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
     setStatusFilter('');
   };
 
+  const statusChartColors: Record<CustomerLeadStatus, string> = {
+    'Lead': '#64748b',
+    'Qualified Lead': '#3b82f6',
+    'Demo': '#f59e0b',
+    'Proposal': '#a855f7',
+    'Performa': '#6366f1',
+    'Invoice': '#10b981',
+    'Repeate': '#22c55e',
+  };
+
+  const statusChartData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    STATUS_OPTIONS.forEach((s) => { counts[s] = 0; });
+    filteredLeads.forEach((l) => { counts[l.status] = (counts[l.status] ?? 0) + 1; });
+    return STATUS_OPTIONS.map((status) => ({
+      name: status,
+      value: counts[status] ?? 0,
+      color: statusChartColors[status],
+    })).filter((d) => d.value > 0);
+  }, [filteredLeads]);
+
+  const leadsOverTimeData = useMemo(() => {
+    const byMonth: { key: string; ts: number; count: number }[] = [];
+    const map = new Map<string, { ts: number; count: number }>();
+    filteredLeads.forEach((l) => {
+      const d = l.createdAt ? parseISO(l.createdAt) : new Date();
+      const key = format(startOfMonth(d), 'MMM yyyy');
+      const ts = startOfMonth(d).getTime();
+      const existing = map.get(key);
+      if (existing) existing.count += 1;
+      else map.set(key, { ts, count: 1 });
+    });
+    return Array.from(map.entries())
+      .map(([name, { ts, count }]) => ({ name, count, ts }))
+      .sort((a, b) => a.ts - b.ts)
+      .slice(-6)
+      .map(({ name, count }) => ({ name, count }));
+  }, [filteredLeads]);
+
   return (
     <div className="w-full max-w-7xl mx-auto">
       {/* Under Development Banner */}
@@ -215,16 +256,27 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
         <h2 className="text-xl sm:text-2xl font-bold text-gray-800">Customer Leads</h2>
-        <button
-          onClick={() => {
-            resetForm();
-            setShowAddModal(true);
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 transition-colors"
-        >
-          <Plus size={20} />
-          <span>Add Lead</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowGraphs((v) => !v)}
+            className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border font-medium transition-colors ${
+              showGraphs ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+            }`}
+          >
+            <BarChart2 size={18} />
+            <span>{showGraphs ? 'Hide Graphs' : 'Show Graphs'}</span>
+          </button>
+          <button
+            onClick={() => {
+              resetForm();
+              setShowAddModal(true);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 transition-colors"
+          >
+            <Plus size={20} />
+            <span>Add Lead</span>
+          </button>
+        </div>
       </div>
 
       {/* Search & Filters header - compact */}
@@ -261,6 +313,61 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
           )}
         </div>
       </div>
+
+      {/* Graph Section */}
+      {showGraphs && (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        {/* Leads by Status */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <h3 className="text-base font-bold text-gray-800 mb-3">Leads by Status</h3>
+          {statusChartData.length > 0 ? (
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={statusChartData} layout="vertical" margin={{ top: 4, right: 20, left: 60, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: '#64748b' }} width={90} axisLine={false} tickLine={false} />
+                  <Tooltip cursor={{ fill: 'rgba(148,163,184,0.1)' }} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} name="Leads">
+                    {statusChartData.map((entry, i) => (
+                      <Cell key={i} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="h-56 flex items-center justify-center text-gray-400 text-sm">No data to display</div>
+          )}
+        </div>
+
+        {/* Leads Over Time */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <h3 className="text-base font-bold text-gray-800 mb-3">Leads Over Time</h3>
+          {leadsOverTimeData.length > 0 ? (
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={leadsOverTimeData} margin={{ top: 4, right: 4, left: 4, bottom: 4 }}>
+                  <defs>
+                    <linearGradient id="colorLeadsOverTime" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
+                  <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                  <Area type="monotone" dataKey="count" stroke="#6366f1" fillOpacity={1} fill="url(#colorLeadsOverTime)" name="Leads" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="h-56 flex items-center justify-center text-gray-400 text-sm">No data to display</div>
+          )}
+        </div>
+      </div>
+      )}
 
       {/* Lead Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-5">

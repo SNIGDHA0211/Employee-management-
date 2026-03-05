@@ -10,6 +10,7 @@ import type { LeaveRequest, LeaveBalance, ReviewLeavePayload, LeaveDay, HalfDayS
 // API calls disabled — panel is under development
 // import { getAllLeaveRequests, getAllLeaveBalances, reviewLeaveRequest, adjustLeaveBalance, addEmergencyLeave } from '../../services/api';
 import { useEmployeesQuery } from '../../hooks/useEmployees';
+import { useLeaveHolidays } from '../../hooks/useLeaveHolidays';
 import { EmployeeLeavePage } from './EmployeeLeavePage';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -28,12 +29,13 @@ function today(): string {
   return format(new Date(), 'yyyy-MM-dd');
 }
 
-function calcEndDate(startDate: string, durationDays: number): string {
+function calcEndDate(startDate: string, durationDays: number, holidayDates?: Set<string>): string {
   if (!startDate || durationDays < 1) return startDate;
+  const isNonWorking = (d: Date) => isWeekend(d) || (holidayDates?.has(format(d, 'yyyy-MM-dd')) ?? false);
   let d = parseISO(startDate);
   let counted = 0;
   while (counted < durationDays) {
-    if (!isWeekend(d)) counted++;
+    if (!isNonWorking(d)) counted++;
     if (counted < durationDays) d = addDays(d, 1);
   }
   return format(d, 'yyyy-MM-dd');
@@ -290,11 +292,12 @@ interface EmergencyLeaveModalProps {
   balances: LeaveBalance[];
   onSuccess: (req: LeaveRequest) => void;
   onClose: () => void;
+  holidayDates: Set<string>;
 }
 
 const LEAVE_TITLE_PRESETS = ['Casual Leave', 'Medical Leave', 'Sick Leave'] as const;
 
-const EmergencyLeaveModal: React.FC<EmergencyLeaveModalProps> = ({ balances, onSuccess, onClose }) => {
+const EmergencyLeaveModal: React.FC<EmergencyLeaveModalProps> = ({ balances, onSuccess, onClose, holidayDates }) => {
   const [employeeId, setEmployeeId]     = useState('');
   const [employeeName, setEmployeeName] = useState('');
   const [leaveTitle, setLeaveTitle]     = useState<string>('Casual Leave');
@@ -317,7 +320,7 @@ const EmergencyLeaveModal: React.FC<EmergencyLeaveModalProps> = ({ balances, onS
   // Fetch employees using the shared hook — same source as rest of the app
   const { data: employees = [], isLoading: loadingEmployees } = useEmployeesQuery(true);
 
-  const endDate   = leaveDay === 'Full Day' ? calcEndDate(startDate, duration) : startDate;
+  const endDate   = leaveDay === 'Full Day' ? calcEndDate(startDate, duration, holidayDates) : startDate;
   const deduction = leaveDay === 'Half Day' ? 0.5 : duration;
 
   // Try to find the balance for the selected employee (optional — balance overview may not be loaded)
@@ -359,6 +362,10 @@ const EmergencyLeaveModal: React.FC<EmergencyLeaveModalProps> = ({ balances, onS
     if (!employeeId) return 'Please select an employee.';
     if (isCustomTitle && !customTitle.trim()) return 'Please enter a leave title.';
     if (!startDate)  return 'Please select a start date.';
+    const start = parseISO(startDate);
+    const isHolidayOrWeekend = isWeekend(start) || holidayDates.has(format(start, 'yyyy-MM-dd'));
+    if (leaveDay === 'Half Day' && isHolidayOrWeekend) return 'Half-day leave cannot be on Saturday, Sunday, or a company holiday.';
+    if (leaveDay === 'Full Day' && isHolidayOrWeekend) return 'Start date cannot be Saturday, Sunday, or a company holiday.';
     if (!description.trim()) return 'Please provide a reason / description.';
     if (leaveDay === 'Full Day' && duration < 1) return 'Duration must be at least 1 day.';
     return null;
@@ -564,16 +571,27 @@ const EmergencyLeaveModal: React.FC<EmergencyLeaveModalProps> = ({ balances, onS
             <>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Start Date <span className="text-red-500">*</span></label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Start Date (working days only) <span className="text-red-500">*</span></label>
                   <input
                     type="date" value={startDate}
-                    onChange={(e) => { setStartDate(e.target.value); setError(null); }}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val) { setStartDate(''); setError(null); return; }
+                      const d = parseISO(val);
+                      const isHolidayOrWeekend = isWeekend(d) || holidayDates.has(format(d, 'yyyy-MM-dd'));
+                      if (isHolidayOrWeekend) {
+                        setError('Saturday, Sunday and company holidays are not allowed. Please select a working day.');
+                        return;
+                      }
+                      setStartDate(val);
+                      setError(null);
+                    }}
                     className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Duration (days)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Duration (working days — Sat, Sun & holidays excluded)</label>
                   <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-orange-400 focus-within:border-transparent">
                     <button
                       type="button"
@@ -607,7 +625,7 @@ const EmergencyLeaveModal: React.FC<EmergencyLeaveModalProps> = ({ balances, onS
               {startDate && (
                 <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
                   <Info size={12} />
-                  End Date (weekends excluded):&nbsp;
+                  End Date (working days only — Sat, Sun & company holidays excluded):&nbsp;
                   <span className="font-semibold text-gray-700">{formatDateDisplay(endDate)}</span>
                 </div>
               )}
@@ -615,10 +633,21 @@ const EmergencyLeaveModal: React.FC<EmergencyLeaveModalProps> = ({ balances, onS
           ) : (
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Date <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Date (weekdays only — Sat, Sun & holidays not allowed) <span className="text-red-500">*</span></label>
                 <input
                   type="date" value={startDate}
-                  onChange={(e) => { setStartDate(e.target.value); setError(null); }}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val) { setStartDate(''); setError(null); return; }
+                    const d = parseISO(val);
+                    const isHolidayOrWeekend = isWeekend(d) || holidayDates.has(format(d, 'yyyy-MM-dd'));
+                    if (isHolidayOrWeekend) {
+                      setError('Saturday, Sunday and company holidays are not allowed. Please select a working day.');
+                      return;
+                    }
+                    setStartDate(val);
+                    setError(null);
+                  }}
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
                   required
                 />
@@ -1174,6 +1203,7 @@ interface HRLeavePageProps {
 type ActiveView = 'requests' | 'balances' | 'emergency' | 'myleave';
 
 export const HRLeavePage: React.FC<HRLeavePageProps> = ({ currentUser }) => {
+  const { holidayDates } = useLeaveHolidays();
   const [view, setView] = useState<ActiveView>('requests');
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
@@ -1382,6 +1412,7 @@ export const HRLeavePage: React.FC<HRLeavePageProps> = ({ currentUser }) => {
           balances={balances}
           onSuccess={handleEmergencySuccess}
           onClose={() => setShowEmergencyModal(false)}
+          holidayDates={holidayDates}
         />
       )}
     </div>

@@ -9,17 +9,19 @@ import type { LeaveRequest, LeaveBalance, ApplyLeavePayload, LeaveDay, HalfDaySl
 // API calls disabled — panel is under development
 // import { getMyLeaveRequests, getMyLeaveBalance, applyLeave, cancelLeaveRequest, getAllLeaveRequests, getAllLeaveBalances } from '../../services/api';
 import { useEmployeesQuery } from '../../hooks/useEmployees';
+import { useLeaveHolidays } from '../../hooks/useLeaveHolidays';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const today = () => format(startOfToday(), 'yyyy-MM-dd');
 
-function calcEndDate(startDate: string, durationDays: number): string {
+function calcEndDate(startDate: string, durationDays: number, holidayDates?: Set<string>): string {
   if (!startDate || durationDays < 1) return startDate;
+  const isNonWorking = (d: Date) => isWeekend(d) || (holidayDates?.has(format(d, 'yyyy-MM-dd')) ?? false);
   let d = parseISO(startDate);
   let counted = 0;
   while (counted < durationDays) {
-    if (!isWeekend(d)) counted++;
+    if (!isNonWorking(d)) counted++;
     if (counted < durationDays) d = addDays(d, 1);
   }
   return format(d, 'yyyy-MM-dd');
@@ -82,11 +84,12 @@ interface ApplyFormProps {
   balance: LeaveBalance | null;
   existingRequests: LeaveRequest[];
   onSuccess: () => void;
+  holidayDates: Set<string>;
 }
 
 const LEAVE_TITLE_PRESETS = ['Casual Leave', 'Medical Leave', 'Sick Leave'] as const;
 
-const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, onSuccess }) => {
+const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, onSuccess, holidayDates }) => {
   const [leaveTitle, setLeaveTitle]       = useState<string>('Casual Leave');
   const [customTitle, setCustomTitle]     = useState('');
   const [isCustomTitle, setIsCustomTitle] = useState(false);
@@ -100,7 +103,7 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
   const [success, setSuccess]             = useState(false);
 
   const finalLeaveTitle = isCustomTitle ? customTitle.trim() : leaveTitle;
-  const endDate   = leaveDay === 'Full Day' ? calcEndDate(startDate, duration) : startDate;
+  const endDate   = leaveDay === 'Full Day' ? calcEndDate(startDate, duration, holidayDates) : startDate;
   const deduction = leaveDay === 'Half Day' ? 0.5 : duration;
   const remaining = balance ? balance.remaining_balance : 0;
 
@@ -109,6 +112,9 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
     if (!startDate) return 'Please select a date.';
     const start = parseISO(startDate);
     if (isBefore(start, startOfToday())) return 'Cannot apply for a past date.';
+    const isHolidayOrWeekend = isWeekend(start) || holidayDates.has(format(start, 'yyyy-MM-dd'));
+    if (leaveDay === 'Half Day' && isHolidayOrWeekend) return 'Half-day leave cannot be on Saturday, Sunday, or a company holiday.';
+    if (leaveDay === 'Full Day' && isHolidayOrWeekend) return 'Start date cannot be Saturday, Sunday, or a company holiday.';
     if (leaveDay === 'Full Day' && duration < 1) return 'Duration must be at least 1 day.';
     if (deduction > remaining) return `Insufficient leave balance. You have ${remaining} day(s) remaining.`;
     for (const req of existingRequests) {
@@ -238,16 +244,27 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
           {/* Full Day: date + stepper side by side on md+, stacked on small */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Start Date</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Start Date (working days only — Sat, Sun & holidays not allowed)</label>
               <input
                 type="date" value={startDate} min={today()}
-                onChange={(e) => { setStartDate(e.target.value); setError(null); }}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!val) { setStartDate(''); setError(null); return; }
+                  const d = parseISO(val);
+                  const isHolidayOrWeekend = isWeekend(d) || holidayDates.has(format(d, 'yyyy-MM-dd'));
+                  if (isHolidayOrWeekend) {
+                    setError('Saturday, Sunday and company holidays are not allowed. Please select a working day.');
+                    return;
+                  }
+                  setStartDate(val);
+                  setError(null);
+                }}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Duration (days)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Duration (working days — Sat, Sun & holidays excluded)</label>
               <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-brand-500 focus-within:border-transparent">
                 <button
                   type="button"
@@ -275,7 +292,7 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
           {startDate && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
               <Info size={13} className="shrink-0" />
-              <span>End Date (auto-calculated, excluding weekends):</span>
+              <span>End Date (working days only — Sat, Sun & company holidays excluded):</span>
               <span className="font-semibold text-gray-700">{formatDateDisplay(endDate)}</span>
             </div>
           )}
@@ -284,10 +301,21 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
         /* Half Day: date + slot stacked always (slot has 2 rows, no need for side-by-side on tiny screens) */
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Date</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Date (weekdays only — Sat, Sun & holidays not allowed)</label>
             <input
               type="date" value={startDate} min={today()}
-              onChange={(e) => { setStartDate(e.target.value); setError(null); }}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (!val) { setStartDate(''); setError(null); return; }
+                const d = parseISO(val);
+                const isHolidayOrWeekend = isWeekend(d) || holidayDates.has(format(d, 'yyyy-MM-dd'));
+                if (isHolidayOrWeekend) {
+                  setError('Saturday, Sunday and company holidays are not allowed. Please select a working day.');
+                  return;
+                }
+                setStartDate(val);
+                setError(null);
+              }}
               className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               required
             />
@@ -578,6 +606,7 @@ interface EmployeeLeavePageProps {
 export const EmployeeLeavePage: React.FC<EmployeeLeavePageProps> = ({ currentUser }) => {
   const isTL = (currentUser.role as string) === 'TEAM_LEADER';
   const { data: users = [], isLoading: loadingUsers } = useEmployeesQuery(isTL);
+  const { holidayDates } = useLeaveHolidays();
   const canSwitchEmployee = isTL;
 
   const [viewingUser, setViewingUser]           = useState<User>(currentUser);
@@ -748,6 +777,7 @@ export const EmployeeLeavePage: React.FC<EmployeeLeavePageProps> = ({ currentUse
             <ApplyLeaveForm
               balance={balance}
               existingRequests={requests}
+              holidayDates={holidayDates}
               onSuccess={() => {
                 setShowForm(false);
                 setLoadingBalance(true);
