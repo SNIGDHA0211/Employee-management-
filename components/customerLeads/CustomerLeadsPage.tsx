@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User } from '../../types';
-import { Plus, ChevronDown, ChevronUp, User as UserIcon, Package, Clock, ListPlus, StickyNote, UserPlus, Search, BarChart2 } from 'lucide-react';
+import { Plus, ChevronDown, ChevronUp, User as UserIcon, Package, Clock, ListPlus, StickyNote, UserPlus, Search, BarChart2, MapPin, Phone } from 'lucide-react';
 import { format, startOfMonth, parseISO } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
 
@@ -22,6 +22,8 @@ export interface CustomerLead {
   id: string;
   title: string;
   customerName: string;
+  customerAddress?: string;
+  customerContact?: string;
   description: string;
   product: string;
   notes: CustomerLeadNote[];
@@ -115,6 +117,8 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
   // Form state
   const [title, setTitle] = useState('');
   const [customerName, setCustomerName] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+  const [customerContact, setCustomerContact] = useState('');
   const [description, setDescription] = useState('');
   const [product, setProduct] = useState('');
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
@@ -134,6 +138,8 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
   const resetForm = () => {
     setTitle('');
     setCustomerName('');
+    setCustomerAddress('');
+    setCustomerContact('');
     setDescription('');
     setProduct('');
     setSelectedEmployeeIds([]);
@@ -155,7 +161,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
     const t = title.trim();
     const cn = customerName.trim();
     if (!t || !cn) {
-      setFormError('Company name and Customer name are required.');
+      setFormError('Company name and Client name are required.');
       return;
     }
     const assignedEmployees: AssignedEmployee[] = selectedEmployeeIds
@@ -166,6 +172,8 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
       id: `cl_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       title: t,
       customerName: cn,
+      ...(customerAddress.trim() && { customerAddress: customerAddress.trim() }),
+      ...(customerContact.trim() && { customerContact: customerContact.trim() }),
       description: description.trim(),
       product: product.trim(),
       notes: [],
@@ -192,7 +200,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
     if (statusFilter && lead.status !== statusFilter) return false;
     if (!searchLower) return true;
     const match = (s: string) => s && s.toLowerCase().includes(searchLower);
-    if (match(lead.title) || match(lead.customerName) || match(lead.product) || match(lead.description) || match(lead.createdBy)) return true;
+    if (match(lead.title) || match(lead.customerName) || match(lead.customerAddress ?? '') || match(lead.customerContact ?? '') || match(lead.product) || match(lead.description) || match(lead.createdBy)) return true;
     if (lead.assignedEmployees?.some((e) => match(e.name))) return true;
     if (lead.notes?.some((n) => match(n.text))) return true;
     return false;
@@ -249,18 +257,18 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
         <span className="text-xl mt-0.5 shrink-0">🚧</span>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-amber-800">This panel is currently under development</p>
-          <p className="text-xs text-amber-700 mt-0.5">Features may be incomplete or non-functional. Please do not use this panel for actual customer lead management until further notice.</p>
+          <p className="text-xs text-amber-700 mt-0.5">Features may be incomplete or non-functional. Please do not use this panel for actual client lead management until further notice.</p>
         </div>
       </div>
 
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-800">Customer Leads</h2>
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-800">Client Leads</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowGraphs((v) => !v)}
-            className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border font-medium transition-colors ${
-              showGraphs ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+            className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${
+              showGraphs ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:shadow-md' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 hover:shadow-sm'
             }`}
           >
             <BarChart2 size={18} />
@@ -271,7 +279,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
               resetForm();
               setShowAddModal(true);
             }}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
           >
             <Plus size={20} />
             <span>Add Lead</span>
@@ -307,7 +315,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
             ))}
           </select>
           {hasActiveFilters && (
-            <button type="button" onClick={clearFilters} className="px-2.5 py-1.5 rounded-md border border-gray-300 text-xs font-medium text-gray-600 hover:bg-gray-50">
+            <button type="button" onClick={clearFilters} className="px-2.5 py-1.5 rounded-md border border-gray-300 text-xs font-medium text-gray-600 hover:bg-gray-100 hover:border-gray-400 transition-colors duration-200">
               Clear
             </button>
           )}
@@ -318,7 +326,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
       {showGraphs && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         {/* Leads by Status */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 transition-all duration-200 hover:shadow-md hover:border-gray-300">
           <h3 className="text-base font-bold text-gray-800 mb-3">Leads by Status</h3>
           {statusChartData.length > 0 ? (
             <div className="h-56">
@@ -342,7 +350,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
         </div>
 
         {/* Leads Over Time */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 transition-all duration-200 hover:shadow-md hover:border-gray-300">
           <h3 className="text-base font-bold text-gray-800 mb-3">Leads Over Time</h3>
           {leadsOverTimeData.length > 0 ? (
             <div className="h-56">
@@ -375,7 +383,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
           <div className="col-span-full text-center py-16 bg-white rounded-xl border border-gray-200">
             <UserIcon size={48} className="mx-auto mb-4 text-gray-300" />
             <p className="text-gray-500 font-medium">No leads yet</p>
-            <p className="text-sm text-gray-400 mt-1">Click &quot;Add Lead&quot; to create your first customer lead.</p>
+            <p className="text-sm text-gray-400 mt-1">Click &quot;Add Lead&quot; to create your first client lead.</p>
           </div>
         ) : filteredLeads.length === 0 ? (
           <div className="col-span-full text-center py-16 bg-white rounded-xl border border-gray-200">
@@ -387,7 +395,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
           filteredLeads.map((lead) => (
             <div
               key={lead.id}
-              className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+              className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 hover:border-brand-200/60"
             >
               {/* Status badge - top */}
               <div className="flex justify-between items-center px-4 pt-3 pb-2 border-b border-gray-100">
@@ -403,14 +411,36 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                   <h3 className="font-bold text-gray-900 text-sm leading-snug line-clamp-2">{lead.title}</h3>
                 </div>
 
-                {/* Customer name */}
+                {/* Client name */}
                 <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-slate-50 border-l-2 border-slate-200">
                   <UserIcon size={14} className="text-slate-500 flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">Customer</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">Client</p>
                     <span className="text-xs font-medium text-slate-800 truncate block">{lead.customerName}</span>
                   </div>
                 </div>
+
+                {/* Client address */}
+                {lead.customerAddress && (
+                  <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-slate-50/80 border-l-2 border-slate-200">
+                    <MapPin size={14} className="text-slate-500 flex-shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">Address</p>
+                      <span className="text-xs font-medium text-slate-800 line-clamp-2 block">{lead.customerAddress}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Client contact */}
+                {lead.customerContact && (
+                  <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-slate-50/80 border-l-2 border-slate-200">
+                    <Phone size={14} className="text-slate-500 flex-shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">Contact</p>
+                      <span className="text-xs font-medium text-slate-800 truncate block">{lead.customerContact}</span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Product */}
                 {lead.product && (
@@ -443,7 +473,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                   <button
                     type="button"
                     onClick={() => setExpandedCardId((id) => (id === lead.id ? null : lead.id))}
-                    className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700"
+                    className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 hover:underline transition-colors"
                   >
                     {expandedCardId === lead.id ? (
                       <> <ChevronUp size={14} /> Less</>
@@ -490,7 +520,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                             onChange={(e) => setNewNoteInput((prev) => ({ ...prev, [lead.id]: e.target.value }))}
                             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addNote(lead.id))}
                             placeholder="Add note..."
-                            className="flex-1 text-xs border border-emerald-200 rounded-md px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 focus:outline-none"
+                            className="flex-1 text-xs border border-emerald-200 rounded-md px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 focus:outline-none hover:border-emerald-300 transition-colors duration-200"
                           />
                           <button
                             type="button"
@@ -521,7 +551,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                 <div className="relative">
                   <button
                     onClick={() => setOpenStatusDropdown(openStatusDropdown === lead.id ? null : lead.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 border transition-colors hover:opacity-90 ${STATUS_STYLES[lead.status]}`}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 border transition-all duration-200 hover:opacity-90 hover:scale-[1.02] ${STATUS_STYLES[lead.status]}`}
                   >
                     {lead.status}
                     <ChevronDown size={12} className={openStatusDropdown === lead.id ? 'rotate-180' : ''} />
@@ -553,7 +583,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl sm:rounded-2xl p-4 sm:p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg sm:text-xl font-bold mb-4 sm:mb-6 text-gray-800 border-b pb-2">
-              Add Customer Lead
+              Add Client Lead
             </h3>
             <div className="space-y-4">
               <div>
@@ -563,17 +593,37 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Company name"
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:outline-none hover:border-gray-400 transition-colors duration-200"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Customer name *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Client name *</label>
                 <input
                   type="text"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Customer name"
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                  placeholder="Client name"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:outline-none hover:border-gray-400 transition-colors duration-200"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Client address</label>
+                <input
+                  type="text"
+                  value={customerAddress}
+                  onChange={(e) => setCustomerAddress(e.target.value)}
+                  placeholder="Client address"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:outline-none hover:border-gray-400 transition-colors duration-200"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Client contact number</label>
+                <input
+                  type="text"
+                  value={customerContact}
+                  onChange={(e) => setCustomerContact(e.target.value)}
+                  placeholder="Contact number"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:outline-none hover:border-gray-400 transition-colors duration-200"
                 />
               </div>
               <div>
@@ -583,7 +633,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Describe the lead..."
                   rows={3}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none resize-none"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:outline-none hover:border-gray-400 transition-colors duration-200 resize-none"
                 />
               </div>
               <div>
@@ -593,7 +643,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                   value={product}
                   onChange={(e) => setProduct(e.target.value)}
                   placeholder="Product name"
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:outline-none hover:border-gray-400 transition-colors duration-200"
                 />
               </div>
               <div>
@@ -605,10 +655,10 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                     value={employeeSearchQuery}
                     onChange={(e) => setEmployeeSearchQuery(e.target.value)}
                     placeholder="Search employees..."
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:outline-none hover:border-gray-400 transition-colors duration-200"
                   />
                 </div>
-                <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2 bg-gray-50/50 space-y-1.5">
+                <div className="max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2 bg-gray-50/50 space-y-1.5 hover:border-gray-400 transition-colors duration-200">
                   {(() => {
                     const q = employeeSearchQuery.trim().toLowerCase();
                     const filtered = q
@@ -655,13 +705,13 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                   resetForm();
                   setShowAddModal(false);
                 }}
-                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50"
+                className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-400 transition-all duration-200"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreate}
-                className="flex-1 px-4 py-2.5 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700"
+                className="flex-1 px-4 py-2.5 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 hover:shadow-md active:scale-[0.99] transition-all duration-200"
               >
                 Create Lead
               </button>

@@ -210,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
             </div>
           )}
 
-          {/* Customer Leads - MD with MMR or RG function */}
+          {/* Client Leads - MD with MMR or RG function */}
           {canAccessCustomerLeads(user) && (
             <div className="mt-2">
               <button
@@ -226,7 +226,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
               >
                 <div className="flex items-center space-x-3 min-w-0">
                   <UserPlus size={20} className="flex-shrink-0" />
-                  <span className="truncate">Customer Leads</span>
+                  <span className="truncate">Client Leads</span>
                 </div>
                 <ChevronRight size={16} className="text-gray-400" />
               </button>
