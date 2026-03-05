@@ -91,6 +91,38 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     return val < min || val > max;
   };
 
+  const timeOverlaps = (s1: string, e1: string, s2: string, e2: string) => {
+    const pad = (t: string) => (t.length >= 5 ? t.substring(0, 5) : t || '09:00');
+    const a = pad(s1);
+    const b = pad(e1);
+    const c = pad(s2);
+    const d = pad(e2);
+    return a < d && c < b;
+  };
+
+  // Employees busy in overlapping meetings (attendees + booked-by) - not available for selection
+  const busyEmployeeIds = useMemo(() => {
+    const overlapping = existingMeetings.filter((m) => {
+      if (isEdit && initialMeeting && m.id === initialMeeting.id) return false;
+      return timeOverlaps(startTime, endTime, m.startTime || '09:00', m.endTime || '10:00');
+    });
+    const ids = new Set<string>();
+    for (const m of overlapping) {
+      for (const a of (m.attendees ?? []).filter((x) => x != null && String(x).trim() !== '')) {
+        ids.add(String(a).trim());
+      }
+      if (m.createdByName && String(m.createdByName).trim() !== '') {
+        ids.add(String(m.createdByName).trim());
+      }
+    }
+    return ids;
+  }, [existingMeetings, startTime, endTime, isEdit, initialMeeting?.id]);
+
+  const isEmployeeBusy = (emp: { id: string; name: string; employeeId?: string }) => {
+    const eid = (emp as any).employeeId ?? emp.id;
+    return busyEmployeeIds.has(emp.id) || busyEmployeeIds.has(emp.name) || busyEmployeeIds.has(eid);
+  };
+
   // Resolve members to employee IDs only (API expects Employee_id, not names)
   const resolveToEmployeeIds = (idsOrNames: string[]): string[] => {
     const result: string[] = [];
@@ -359,6 +391,23 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
               />
             </div>
 
+            <div className="col-span-2 -mt-1 mb-1">
+              {(() => {
+                const pad = (t: string) => (t.length >= 5 ? t.substring(0, 5) : t || '09:00');
+                const [sh, sm] = pad(startTime).split(':').map(Number);
+                const [eh, em] = pad(endTime).split(':').map(Number);
+                const mins = (eh * 60 + em) - (sh * 60 + sm);
+                const h = Math.floor(mins / 60);
+                const m = mins % 60;
+                const durationText = h > 0 && m > 0 ? `${h} hr ${m} min` : h > 0 ? `${h} hr` : m > 0 ? `${m} min` : '0 min';
+                return (
+                  <p className="text-xs text-slate-500">
+                    <span className="font-medium text-indigo-600">Duration:</span> {durationText}
+                  </p>
+                );
+              })()}
+            </div>
+
             <div className="col-span-2">
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 Select Hall
@@ -464,18 +513,20 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                       const empId = (user as any).employeeId ?? user.id;
                       const isSelected = selectedUsers.includes(user.id) || selectedUsers.includes(empId);
                       const idInSelected = selectedUsers.includes(user.id) ? user.id : selectedUsers.includes(empId) ? empId : null;
+                      const isBusy = isEmployeeBusy(user);
                       return (
                     <label
                       key={user.id}
-                      className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-white rounded cursor-pointer"
+                      className={`flex items-center gap-1.5 py-0.5 px-1 rounded ${isBusy ? 'opacity-60 cursor-not-allowed' : 'hover:bg-white cursor-pointer'}`}
                     >
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        onChange={() => toggleUser(isSelected ? (idInSelected ?? empId) : empId)}
-                        className="rounded border-slate-300 text-indigo-600 w-3 h-3"
+                        disabled={isBusy}
+                        onChange={() => !isBusy && toggleUser(isSelected ? (idInSelected ?? empId) : empId)}
+                        className="rounded border-slate-300 text-indigo-600 w-3 h-3 disabled:opacity-50 disabled:cursor-not-allowed"
                       />
-                      <span className="text-xs truncate">{user.name}</span>
+                      <span className="text-xs truncate">{user.name}{isBusy ? ' (busy)' : ''}</span>
                     </label>
                     );
                     })

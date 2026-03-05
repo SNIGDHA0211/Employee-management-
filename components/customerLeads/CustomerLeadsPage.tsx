@@ -153,7 +153,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
     const t = title.trim();
     const cn = customerName.trim();
     if (!t || !cn) {
-      setFormError('Title and Customer name are required.');
+      setFormError('Company name and Customer name are required.');
       return;
     }
     const assignedEmployees: AssignedEmployee[] = selectedEmployeeIds
@@ -203,6 +203,15 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
 
   return (
     <div className="w-full max-w-7xl mx-auto">
+      {/* Under Development Banner */}
+      <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-300 rounded-xl shadow-sm mb-4">
+        <span className="text-xl mt-0.5 shrink-0">🚧</span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-amber-800">This panel is currently under development</p>
+          <p className="text-xs text-amber-700 mt-0.5">Features may be incomplete or non-functional. Please do not use this panel for actual customer lead management until further notice.</p>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
         <h2 className="text-xl sm:text-2xl font-bold text-gray-800">Customer Leads</h2>
@@ -281,9 +290,9 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
               </div>
 
               <div className="p-4 space-y-3">
-                {/* Title */}
+                {/* Company Name */}
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-brand-600 mb-0.5">Title</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-brand-600 mb-0.5">Company Name</p>
                   <h3 className="font-bold text-gray-900 text-sm leading-snug line-clamp-2">{lead.title}</h3>
                 </div>
 
@@ -441,12 +450,12 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Company Name *</label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Lead title"
+                  placeholder="Company name"
                   className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:outline-none"
                 />
               </div>
