@@ -33,7 +33,7 @@ import type { Meeting, Holiday, Tour as ScheduleTour } from './components/calend
 import { MeetingStatus, MeetingType } from './components/calendars/types';
 import { addDays, format } from 'date-fns';
 import MDDashboardPage from './components/MDDashboard/MDDashboardPage';
-import { NMRHIPage } from './components/NMRHI';
+import { NMRHIPage, NMRHIRequestsPage } from './components/NMRHI';
 import { EmployeeLeavePage, HRLeavePage } from './components/leave';
 import { CustomerLeadsPage, canAccessCustomerLeads } from './components/customerLeads/CustomerLeadsPage';
 import AdminDashboard from './components/AdminOps/AdminDashboard';
@@ -1291,28 +1291,28 @@ export default function App() {
     setUsers(finalUsers);
   }, [employeesData, currentUser?.id, currentUser?.role]);
 
-  // NMRHI allowed categories: MD sees all; Employees see only pages matching their function (from users list)
+  // NMRHI: If user function has NPD/MMR/RG/HC/IP, show those panels + Requests. Else only Requests.
+  // MD sees all; HR sees Requests only; Team Lead and Employees follow function-based logic.
   useEffect(() => {
     if (!currentUser?.id) return;
+    const REQUESTS = 'nmrhi-requests';
+    const ALL_NMRHI = ['nmrhi-npd', 'nmrhi-mmr', 'nmrhi-rg', 'nmrhi-hc', 'nmrhi-ip', REQUESTS];
+    let categories: string[];
     if (currentUser.role === UserRole.MD) {
-      setAllowedNMRHICategories(['nmrhi-npd', 'nmrhi-mmr', 'nmrhi-rg', 'nmrhi-hc', 'nmrhi-ip']);
-      return;
-    }
-    if (currentUser.role === UserRole.HR) {
-      setAllowedNMRHICategories([]);
-      return;
-    }
-    const emp = users.find((u: any) =>
-      u.id === currentUser.id ||
-      (u.Employee_id && currentUser.Employee_id && String(u.Employee_id) === String(currentUser.Employee_id)) ||
-      (u.email && currentUser.email && u.email.toLowerCase() === currentUser.email.toLowerCase()) ||
-      (u.name && currentUser.name && u.name.trim().toLowerCase() === currentUser.name.trim().toLowerCase())
-    );
-    if (emp) {
-      setAllowedNMRHICategories(getNMRHIAllowedCategories(emp));
+      categories = ALL_NMRHI;
+    } else if (currentUser.role === UserRole.HR) {
+      categories = [REQUESTS];
     } else {
-      setAllowedNMRHICategories([]);
+      const emp = users.find((u: any) =>
+        u.id === currentUser.id ||
+        (u.Employee_id && currentUser.Employee_id && String(u.Employee_id) === String(currentUser.Employee_id)) ||
+        (u.email && currentUser.email && u.email.toLowerCase() === currentUser.email.toLowerCase()) ||
+        (u.name && currentUser.name && u.name.trim().toLowerCase() === currentUser.name.trim().toLowerCase())
+      );
+      const functionCategories = emp ? getNMRHIAllowedCategories(emp) : [];
+      categories = functionCategories.length > 0 ? [...functionCategories, REQUESTS] : [REQUESTS];
     }
+    setAllowedNMRHICategories(categories);
   }, [currentUser?.id, currentUser?.email, currentUser?.name, currentUser?.role, users]);
 
   // Derive meetEmployees from shared users - use Employee_id for API (not name)
@@ -1872,6 +1872,9 @@ export default function App() {
       
       case 'nmrhi-ip':
         return <NMRHIPage currentUserName={currentUser.name} currentUserId={currentUser.id} isMD={currentUser.role === UserRole.MD} users={users} categoryId="nmrhi-ip" allowedCategoryIds={allowedNMRHICategories} />;
+
+      case 'nmrhi-requests':
+        return <NMRHIRequestsPage />;
 
       case 'projects':
         // Commented out - Projects page temporarily disabled

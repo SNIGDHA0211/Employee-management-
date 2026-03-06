@@ -1,21 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
-import { AppProgress, PointProgress, StrategyCategory } from './types';
+import { Loader2, Share2 } from 'lucide-react';
+import { AppProgress, DailyLog, PointProgress, ProgressStatus, StrategyCategory } from './types';
 import { STRATEGY_CATEGORIES, getNMRHIAllowedCategories } from './constants';
 import StrategyDetail from './components/StrategyDetail';
 import { getActionableEntries, createActionableEntry, updateActionableEntry, deleteActionableEntry } from '../../services/api';
 
-function entryToDailyLog(entry: any): { id: string; date: string; note: string; status: 'pending' | 'in-progress' | 'completed' } {
+function entryToDailyLog(entry: any): DailyLog {
   const d = entry.date || '';
   const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const displayDate = m ? `${m[3]} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m[2], 10) - 1]} ${m[1]}` : d;
-  const s = String(entry.status || 'PENDING').toUpperCase().replace(/[-_\s]+/g, '');
-  const status = s === 'COMPLETED' ? 'completed' : s === 'INPROCESS' || s === 'INPROGRESS' ? 'in-progress' : 'pending';
+  const rawStatus = entry.final_Status ?? entry.status ?? 'PENDING';
+  const s = String(rawStatus).toUpperCase().replace(/[-_\s]+/g, '');
+  const status: ProgressStatus = s === 'COMPLETED' ? 'completed' : s === 'INPROCESS' || s === 'INPROGRESS' ? 'in-progress' : 'pending';
+  const note = entry.original_entry ?? entry.note ?? '';
+  const shareChain: { sharedWithName?: string; sharedNote?: string; statusName?: string }[] = Array.isArray(entry.share_chain)
+    ? entry.share_chain.map((sc: any) => ({
+        sharedWithName: sc.shared_with_name ?? sc.sharedWithName,
+        sharedNote: sc.shared_note ?? sc.sharedNote ?? '',
+        statusName: sc.status_name ?? sc.statusName,
+      }))
+    : [];
   return {
     id: String(entry.id ?? entry.Id ?? Math.random().toString(36).slice(2)),
     date: displayDate,
-    note: String(entry.note ?? ''),
+    note: String(note),
     status,
+    coAuthorName: entry.co_author_name ?? entry.coAuthorName,
+    approvedByCoauthor: entry.approved_by_coauthor ?? entry.approvedByCoauthor,
+    shareChain: shareChain.length > 0 ? shareChain : undefined,
   };
 }
 
@@ -57,6 +69,7 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
   const [filterEmployeeId, setFilterEmployeeId] = useState<string>('');
   const [hasAppliedFilter, setHasAppliedFilter] = useState(false);
   const [isLoadingEntries, setIsLoadingEntries] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState(false);
 
   // Use static data - STRATEGY_CATEGORIES already has sections; no API fetch needed
   useEffect(() => {
@@ -153,7 +166,7 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
     });
   };
 
-  const handleAddEntry = async (key: string, goalId: number, date: string, note: string, status: string, tempId?: string) => {
+  const handleAddEntry = async (key: string, goalId: number, date: string, note: string, status: string, tempId?: string, shareWith?: string[], coAuthor?: string[], sharedNote?: string) => {
     if (!activeCategory) return;
     if (!goalId) {
       console.warn('[NMRHI] Cannot add entry: goalId is required');
@@ -163,9 +176,11 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
     try {
       const created = await createActionableEntry({
         goal: goalId,
-        status: status === 'pending' ? 'PENDING' : status === 'in-progress' ? 'IN_PROGRESS' : 'COMPLETED',
         date: apiDate,
-        note: note || '',
+        original_entry: note || '',
+        share_with: shareWith?.[0],
+        co_author: coAuthor?.[0],
+        shared_note: sharedNote ?? '',
       });
       const createdEntry = Array.isArray(created) ? created[0] : created;
       const log = entryToDailyLog(createdEntry || { date: apiDate, status: 'PENDING', note });
@@ -194,6 +209,42 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
       await updateActionableEntry(id, payload);
     } catch (err: any) {
       console.warn('[NMRHI] Failed to update entry:', err);
+    }
+  };
+
+  const handleShareEntries = async () => {
+    if (!activeCategory) return;
+    const monthName = MONTHS.find((m) => m.value === filterMonth)?.label ?? String(filterMonth);
+    const employeeName = isMD && filterEmployeeId
+      ? (users.find((u) => String((u as any).Employee_id ?? u.id) === filterEmployeeId)?.name ?? filterEmployeeId)
+      : (currentUserName ?? 'My entries');
+    const lines: string[] = [
+      `NMRHI Actionable Entries`,
+      `Category: ${activeCategory.fullName}`,
+      `Month: ${monthName} | Employee: ${employeeName}`,
+      ``,
+    ];
+    activeCategory.sections.forEach((section, sIdx) => {
+      section.points.forEach((point, pIdx) => {
+        const key = `${activeCategory.id}-${sIdx}-${pIdx}`;
+        const pt = progress[key];
+        if (!pt?.logs?.length) return;
+        const pointLabel = typeof point === 'string' ? point : (point.purpose ?? String(point));
+        lines.push(`--- ${section.title} · Point ${pIdx + 1}: ${pointLabel} ---`);
+        pt.logs.forEach((log) => {
+          const st = (log.status ?? 'pending').toUpperCase().replace(/-/g, ' ');
+          lines.push(`  ${log.date} | ${st} | ${log.note || '(no note)'}`);
+        });
+        lines.push('');
+      });
+    });
+    const text = lines.join('\n').trim();
+    try {
+      await navigator.clipboard.writeText(text);
+      setShareFeedback(true);
+      setTimeout(() => setShareFeedback(false), 2000);
+    } catch {
+      alert('Could not copy to clipboard. You can select and copy the entries manually.');
     }
   };
 
@@ -273,7 +324,7 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
                   </select>
                 </div>
               )}
-              <div className="self-end">
+              <div className="self-end flex items-center gap-2">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1 invisible">Apply</label>
                 <button
                   onClick={handleApplyFilter}
@@ -281,6 +332,16 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
                 >
                   Filter
                 </button>
+                {hasAppliedFilter && (
+                  <button
+                    onClick={handleShareEntries}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-2"
+                    title="Copy entries to clipboard"
+                  >
+                    <Share2 size={16} />
+                    {shareFeedback ? 'Copied!' : 'Share'}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -320,6 +381,8 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
               onDeleteEntry={!isMD ? handleDeleteEntry : undefined}
               readOnly={isMD}
               filterMonth={hasAppliedFilter ? filterMonth : currentMonth}
+              users={users}
+              currentUserId={currentUserId}
             />
           </div>
         </div>

@@ -1,4 +1,5 @@
 export { default as NMRHIPage } from './NMRHIPage';
+export { default as NMRHIRequestsPage } from './NMRHIRequestsPage';
 export { default as DailyLogEntry } from './components/DailyLogEntry';
 export { default as PointExecutionCard } from './components/PointExecutionCard';
 export { default as PointRow } from './components/PointRow';

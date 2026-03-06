@@ -7,8 +7,7 @@ import {
 import { format, parseISO, addDays, isWeekend } from 'date-fns';
 import type { User } from '../../types';
 import type { LeaveRequest, LeaveBalance, ReviewLeavePayload, LeaveDay, HalfDaySlot, EmergencyLeavePayload } from '../../types';
-// API calls disabled — panel is under development
-// import { getAllLeaveRequests, getAllLeaveBalances, reviewLeaveRequest, adjustLeaveBalance, addEmergencyLeave } from '../../services/api';
+import { getLeaveApplicationsForApproval, addEmergencyLeave } from '../../services/api';
 import { useEmployeesQuery } from '../../hooks/useEmployees';
 import { useLeaveHolidays } from '../../hooks/useLeaveHolidays';
 import { EmployeeLeavePage } from './EmployeeLeavePage';
@@ -41,9 +40,58 @@ function calcEndDate(startDate: string, durationDays: number, holidayDates?: Set
   return format(d, 'yyyy-MM-dd');
 }
 
+/** Map approval API response to LeaveRequest */
+function mapApprovalToLeaveRequest(item: {
+  id: number;
+  applicant_name: string;
+  start_date: string;
+  duration_of_days: number;
+  leave_subject: string;
+  reason: string;
+  leave_type_name: string;
+  half_day_slots: string | null;
+  hr_approval_status: string;
+  md_approval_status: string;
+  application_date: string;
+}): LeaveRequest {
+  const hr = (item.hr_approval_status || '').toLowerCase();
+  const md = (item.md_approval_status || '').toLowerCase();
+  let status: 'Pending' | 'Approved' | 'Rejected' | 'Cancelled' = 'Pending';
+  if (hr === 'approved' || md === 'approved') status = 'Approved';
+  else if (hr === 'rejected' || md === 'rejected') status = 'Rejected';
+  const leaveDay = item.leave_type_name === 'Full_day' ? 'Full Day' : 'Half Day';
+  const endDate = leaveDay === 'Full Day' && item.duration_of_days > 1
+    ? format(addDays(parseISO(item.start_date), item.duration_of_days - 1), 'yyyy-MM-dd')
+    : item.start_date;
+  const halfSlot = item.half_day_slots === 'First_Half' ? 'First Half' : item.half_day_slots === 'Second_Half' ? 'Second Half' : undefined;
+  return {
+    id: String(item.id),
+    employee_id: '',
+    employee_name: item.applicant_name,
+    leave_title: item.leave_subject,
+    leave_day: leaveDay,
+    start_date: item.start_date,
+    end_date: endDate,
+    duration: item.duration_of_days,
+    half_day_slot: halfSlot,
+    description: item.reason,
+    status,
+    applied_on: item.application_date?.includes('T') ? item.application_date : `${item.application_date}T00:00:00`,
+  };
+}
+
 // ─── Status Badge ─────────────────────────────────────────────────────────────
+// Display status with exact spelling: "Approved", "Pending", "Rejected"
+function normalizeLeaveStatus(s: string | undefined): 'Approved' | 'Pending' | 'Rejected' | 'Cancelled' {
+  const t = (s || '').toLowerCase().trim();
+  if (t === 'approved') return 'Approved';
+  if (t === 'rejected') return 'Rejected';
+  if (t === 'cancelled') return 'Cancelled';
+  return 'Pending';
+}
 
 const StatusBadge: React.FC<{ status: LeaveRequest['status'] }> = ({ status }) => {
+  const norm = normalizeLeaveStatus(status);
   const map: Record<string, string> = {
     Pending:   'bg-amber-100 text-amber-700 border border-amber-200',
     Approved:  'bg-emerald-100 text-emerald-700 border border-emerald-200',
@@ -57,9 +105,9 @@ const StatusBadge: React.FC<{ status: LeaveRequest['status'] }> = ({ status }) =
     Cancelled: <X size={11} />,
   };
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${map[status] ?? 'bg-gray-100 text-gray-500'}`}>
-      {icons[status]}
-      {status}
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${map[norm] ?? 'bg-gray-100 text-gray-500'}`}>
+      {icons[norm]}
+      {norm}
     </span>
   );
 };
@@ -391,9 +439,11 @@ const EmergencyLeaveModal: React.FC<EmergencyLeaveModalProps> = ({ balances, onS
 
     setSubmitting(true);
     try {
-      // API disabled — panel is under development
-      void payload;
-      setError('This panel is under development. No data has been submitted.');
+      const req = await addEmergencyLeave(payload);
+      onSuccess(req);
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || err?.message || 'Failed to add emergency leave.');
     } finally {
       setSubmitting(false);
     }
@@ -401,7 +451,7 @@ const EmergencyLeaveModal: React.FC<EmergencyLeaveModalProps> = ({ balances, onS
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg my-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-4">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3 bg-orange-50 rounded-t-2xl">
           <Siren size={20} className="text-orange-600" />
@@ -940,7 +990,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, balances, loadi
                   </div>
                 </td>
                 <td className="py-3 px-3">
-                  {req.status === 'Pending' ? (
+                  {normalizeLeaveStatus(req.status) === 'Pending' ? (
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => onReview(req, 'Approved')}
@@ -1217,9 +1267,18 @@ export const HRLeavePage: React.FC<HRLeavePageProps> = ({ currentUser }) => {
   const [globalError, setGlobalError] = useState<string | null>(null);
 
   const fetchRequests = useCallback(async () => {
-    // API disabled — panel is under development
-    setLoadingRequests(false);
-    setRequests([]);
+    setLoadingRequests(true);
+    setGlobalError(null);
+    try {
+      const data = await getLeaveApplicationsForApproval();
+      const mapped = data.map(mapApprovalToLeaveRequest);
+      setRequests(mapped);
+    } catch (err: any) {
+      setGlobalError(err?.response?.data?.detail || err?.message || 'Failed to load leave requests.');
+      setRequests([]);
+    } finally {
+      setLoadingRequests(false);
+    }
   }, []);
 
   const fetchBalances = useCallback(async () => {
@@ -1234,7 +1293,7 @@ export const HRLeavePage: React.FC<HRLeavePageProps> = ({ currentUser }) => {
   const filteredRequests = requests.filter((r) => {
     const q = filters.search.toLowerCase();
     if (q && !r.employee_name.toLowerCase().includes(q) && !r.employee_id.includes(q)) return false;
-    if (filters.status && r.status !== filters.status) return false;
+    if (filters.status && normalizeLeaveStatus(r.status) !== filters.status) return false;
     if (filters.leaveDay && r.leave_day !== filters.leaveDay) return false;
     if (filters.startDate && r.start_date < filters.startDate) return false;
     if (filters.endDate && r.end_date > filters.endDate) return false;
@@ -1254,15 +1313,17 @@ export const HRLeavePage: React.FC<HRLeavePageProps> = ({ currentUser }) => {
   };
 
   const handleEmergencySuccess = (_req: LeaveRequest) => {
-    // API disabled — panel is under development
     void _req;
     setShowEmergencyModal(false);
+    setEmergencySuccess('Emergency leave added successfully.');
+    fetchRequests();
+    setTimeout(() => setEmergencySuccess(null), 4000);
   };
 
   const total     = requests.length;
-  const pending   = requests.filter((r) => r.status === 'Pending').length;
-  const approved  = requests.filter((r) => r.status === 'Approved').length;
-  const rejected  = requests.filter((r) => r.status === 'Rejected').length;
+  const pending   = requests.filter((r) => normalizeLeaveStatus(r.status) === 'Pending').length;
+  const approved  = requests.filter((r) => normalizeLeaveStatus(r.status) === 'Approved').length;
+  const rejected  = requests.filter((r) => normalizeLeaveStatus(r.status) === 'Rejected').length;
 
   return (
     <div className="space-y-4 w-full">

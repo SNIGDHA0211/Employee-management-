@@ -3,18 +3,26 @@ import { StrategyCategory, AppProgress, PointProgress } from '../types';
 import { getD3LabelForMonth } from '../constants';
 import PointExecutionCard from './PointExecutionCard';
 
+interface Employee {
+  id: string;
+  name: string;
+  [key: string]: any;
+}
+
 interface StrategyDetailProps {
   category: StrategyCategory;
   progress: AppProgress;
   onUpdateProgress: (key: string, updates: Partial<PointProgress>) => void;
-  onAddEntry?: (key: string, goalId: number, date: string, note: string, status: string, tempId?: string) => Promise<void>;
+  onAddEntry?: (key: string, goalId: number, date: string, note: string, status: string, tempId?: string, shareWith?: string[], coAuthor?: string[], sharedNote?: string) => Promise<void>;
   onUpdateEntry?: (id: string, updates: { status?: string; note?: string }) => Promise<void>;
   onDeleteEntry?: (id: string) => Promise<void>;
   readOnly?: boolean;
   filterMonth?: number;
+  users?: Employee[];
+  currentUserId?: string;
 }
 
-const StrategyDetail: React.FC<StrategyDetailProps> = ({ category, progress, onUpdateProgress, onAddEntry, onUpdateEntry, onDeleteEntry, readOnly, filterMonth }) => {
+const StrategyDetail: React.FC<StrategyDetailProps> = ({ category, progress, onUpdateProgress, onAddEntry, onUpdateEntry, onDeleteEntry, readOnly, filterMonth, users = [], currentUserId }) => {
   const [activeSectionIdx, setActiveSectionIdx] = useState(0);
   const activeSection = category.sections[activeSectionIdx];
   const hasSections = category.sections.length > 0;
@@ -74,7 +82,7 @@ const StrategyDetail: React.FC<StrategyDetailProps> = ({ category, progress, onU
         ))}
       </div>
 
-      <div className="max-w-3xl">
+      <div className="max-w-7xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <h3 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-3">
             <span className="w-1.5 h-8 bg-blue-600 rounded-full"></span>
@@ -117,12 +125,14 @@ const StrategyDetail: React.FC<StrategyDetailProps> = ({ category, progress, onU
                 progress={pointProgress}
                 isUnlocked={isActuallyUnlocked}
                 onUpdate={(updates) => onUpdateProgress(key, updates)}
-                onAddEntry={onAddEntry ? (goalId, date, note, status, tempId) => onAddEntry(key, goalId, date, note, status, tempId) : undefined}
+                onAddEntry={onAddEntry ? (goalId, date, note, status, tempId, shareWith, coAuthor, sharedNote) => onAddEntry(key, goalId, date, note, status, tempId, shareWith, coAuthor, sharedNote) : undefined}
                 onUpdateEntry={onUpdateEntry}
                 onDeleteEntry={onDeleteEntry}
                 readOnly={readOnly}
                 grpId={grpId}
                 filterMonth={filterMonth}
+                users={users}
+                currentUserId={currentUserId}
               />
               </div>
             );

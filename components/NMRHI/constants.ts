@@ -218,6 +218,29 @@ export const FUNCTION_CODES: Record<string, string> = Object.fromEntries(
   FUNCTION_META.map((m) => [m.id, m.fnCode])
 );
 
+/** Lookup purpose and main_goal by goal (actionable_id). */
+export function getGoalPurposeAndMainGoal(goalId: number | string): { purpose: string; main_goal: string } | null {
+  const id = Number(goalId) || 0;
+  if (!id) return null;
+  for (const data of Object.values(NMRHI_STATIC_DATA)) {
+    const goals = data?.functional_goals ?? [];
+    for (const g of goals) {
+      const mainGoal = g.main_goal ?? g.Main_goal ?? g.mainGoal ?? '';
+      const ag = g.actionable_goals ?? g.Actionable_goals ?? g.actionableGoals ?? [];
+      for (const a of Array.isArray(ag) ? ag : []) {
+        const aid = Number(a.actionable_id ?? a.id ?? a.Id ?? 0);
+        if (aid === id) {
+          return {
+            purpose: String(a.purpose ?? a.Purpose ?? ''),
+            main_goal: String(mainGoal),
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * D1 = days 1-10, D2 = days 11-20, D3 = days 21 to last day of month.
  * D3 is flexible based on month (28/29/30/31 days).

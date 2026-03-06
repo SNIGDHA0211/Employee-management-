@@ -1,10 +1,19 @@
 export type ProgressStatus = 'pending' | 'in-progress' | 'completed';
 
+export interface ShareChainItem {
+  sharedWithName?: string;
+  sharedNote?: string;
+  statusName?: string;
+}
+
 export interface DailyLog {
   id: string;
   date: string;
   note: string;
   status: ProgressStatus;
+  coAuthorName?: string;
+  approvedByCoauthor?: boolean;
+  shareChain?: ShareChainItem[];
 }
 
 export interface PointProgress {

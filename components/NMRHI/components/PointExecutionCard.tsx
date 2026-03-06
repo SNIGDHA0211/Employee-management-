@@ -3,22 +3,30 @@ import { PointProgress, DailyLog } from '../types';
 import { getD3LabelForMonth } from '../constants';
 import DailyLogEntry from './DailyLogEntry';
 
+interface Employee {
+  id: string;
+  name: string;
+  [key: string]: any;
+}
+
 interface PointExecutionCardProps {
   point: string;
   goalId?: number;
   index: number;
   progress: PointProgress;
   onUpdate: (updates: Partial<PointProgress>) => void;
-  onAddEntry?: (goalId: number, date: string, note: string, status: string, tempId?: string) => Promise<void>;
+  onAddEntry?: (goalId: number, date: string, note: string, status: string, tempId?: string, shareWith?: string[], coAuthor?: string[]) => Promise<void>;
   onUpdateEntry?: (id: string, updates: { status?: string; note?: string }) => Promise<void>;
   onDeleteEntry?: (id: string) => Promise<void>;
   isUnlocked: boolean;
   readOnly?: boolean;
   grpId?: string;
   filterMonth?: number;
+  users?: Employee[];
+  currentUserId?: string;
 }
 
-const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId = 0, index, progress, onUpdate, onAddEntry, onUpdateEntry, onDeleteEntry, isUnlocked, readOnly, grpId, filterMonth }) => {
+const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId = 0, index, progress, onUpdate, onAddEntry, onUpdateEntry, onDeleteEntry, isUnlocked, readOnly, grpId, filterMonth, users = [], currentUserId }) => {
   const [isAdding, setIsAdding] = useState(false);
   const progressRef = useRef(progress);
   useEffect(() => { progressRef.current = progress; }, [progress]);
@@ -52,7 +60,7 @@ const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId =
     onUpdate({ logs: [newLog, ...progress.logs] });
   };
 
-  const handleSubmitEntry = async (log: DailyLog) => {
+  const handleSubmitEntry = async (log: DailyLog, opts?: { share_with?: string[]; co_author?: string[]; shared_note?: string }) => {
     if (!onAddEntry || !goalId) return;
     const m: Record<string, number> = { Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12 };
     const apiDate = /^\d{4}-\d{2}-\d{2}$/.test(log.date) ? log.date : (() => {
@@ -64,7 +72,7 @@ const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId =
     })();
     setIsAdding(true);
     try {
-      await onAddEntry(goalId, apiDate, log.note || '', log.status, log.id.startsWith('temp-') ? log.id : undefined);
+      await onAddEntry(goalId, apiDate, log.note || '', log.status, log.id.startsWith('temp-') ? log.id : undefined, opts?.share_with, opts?.co_author, opts?.shared_note);
     } finally {
       setIsAdding(false);
     }
@@ -173,9 +181,12 @@ const PointExecutionCard: React.FC<PointExecutionCardProps> = ({ point, goalId =
                   isDraft={log.id.startsWith('temp-')}
                   onUpdate={(updates) => updateLog(log.id, updates)}
                   onDelete={() => deleteLog(log.id)}
-                  onSubmit={log.id.startsWith('temp-') && onAddEntry && goalId && canAddEntry ? () => handleSubmitEntry(log) : undefined}
+                  onSubmit={log.id.startsWith('temp-') && onAddEntry && goalId && canAddEntry ? (opts) => handleSubmitEntry(log, opts) : undefined}
                   isSubmitting={isAdding}
                   readOnly={readOnly}
+                  pointLabel={point}
+                  users={users}
+                  currentUserId={currentUserId}
                 />
               ))}
             </div>

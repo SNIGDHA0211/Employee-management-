@@ -3807,16 +3807,16 @@ export const getFunctionsAndActionableGoals = async (functionName: string) => {
 /**
  * GET actionable entries
  * @endpoint GET /ActionableEntries/?username=&month=
- * @param username - Optional for own entries; mandatory when MD accesses another user's details
- * @param month - Optional (1-12); if omitted, fetches current month
- * @returns Array of entry objects { id, goal, Creator, date, time, status, note }
+ * @query username - Optional for own entries; mandatory when MD accesses another user's details
+ * @query month - Optional (1-12); if omitted, fetches current month
+ * @returns Array of entries { id, goal, creator_name, co_author_name, approved_by_coauthor, date, time, final_Status, original_entry, share_chain }
  */
 export const getActionableEntries = async (params?: {
   username?: string;
   month?: number;
 }): Promise<any[]> => {
   const q: Record<string, string> = {};
-  q.username = params?.username ?? '';
+  if (params?.username != null && params.username !== '') q.username = params.username;
   if (params?.month != null) q.month = String(params.month);
   const response = await api.get('/ActionableEntries/', { params: q });
   const data = response.data;
@@ -3826,25 +3826,76 @@ export const getActionableEntries = async (params?: {
 };
 
 /**
+ * GET actionable entries sent for approval to co-author
+ * @endpoint GET /ActionableEntriesCoAuthor/
+ * @returns Array of entries { id, goal, creator_name, co_author_name, approved_by_coauthor, date, time, final_Status, original_entry, share_chain }
+ */
+export const getActionableEntriesCoAuthor = async (): Promise<any[]> => {
+  const response = await api.get('/ActionableEntriesCoAuthor/');
+  const data = response.data;
+  if (Array.isArray(data)) return data;
+  if (data?.entries && Array.isArray(data.entries)) return data.entries;
+  return [];
+};
+
+/**
+ * GET actionable entries shared with the current user
+ * @endpoint GET /ActionableEntriesSharedWith/
+ * @returns Array of entries { id, goal, creator_name, co_author_name, approved_by_coauthor, co_author_note, date, time, final_Status, original_entry, share_chain }
+ */
+export const getActionableEntriesSharedWith = async (): Promise<any[]> => {
+  const response = await api.get('/ActionableEntriesSharedWith/');
+  const data = response.data;
+  if (Array.isArray(data)) return data;
+  if (data?.entries && Array.isArray(data.entries)) return data.entries;
+  return [];
+};
+
+/**
+ * PATCH co-author approval/note for actionable entry
+ * @endpoint PATCH /ActionableEntriesCoAuthor/{id}/
+ * @body { approved_by_coauthor?: boolean, co_author_note?: string }
+ */
+export const updateActionableEntryCoAuthor = async (id: string | number, payload: { approved_by_coauthor?: boolean; co_author_note?: string }): Promise<any> => {
+  const body: Record<string, boolean | string> = {};
+  if (payload.approved_by_coauthor === true || payload.approved_by_coauthor === false) {
+    body.approved_by_coauthor = payload.approved_by_coauthor;
+  }
+  if (payload.co_author_note != null && payload.co_author_note !== '') {
+    body.co_author_note = String(payload.co_author_note);
+  }
+  const response = await api.patch(`/ActionableEntriesCoAuthor/${id}/`, body);
+  const data = response.data;
+  if (data?.data) return data.data;
+  if (data?.entry) return data.entry;
+  return data;
+};
+
+/**
  * POST actionable entry (create)
  * @endpoint POST /ActionableEntries/
- * @body { goal, status, date, note }
- * goal = actionable_id, status = PENDING|IN_PROGRESS|COMPLETED, date = YYYY-MM-DD
+ * @body { goal, date, original_entry, share_with, co_author, shared_note }
  */
 export const createActionableEntry = async (payload: {
   goal: number;
-  status: string;
   date: string;
-  note: string;
+  original_entry: string;
+  share_with?: string | number;
+  co_author?: string | number;
+  shared_note?: string;
 }): Promise<any> => {
-  const s = String(payload.status).toUpperCase().replace(/[-_\s]+/g, '');
-  const statusForApi = s === 'INPROGRESS' || s === 'INPROCESS' ? 'INPROCESS' : s === 'COMPLETED' ? 'COMPLETED' : 'PENDING';
-  const body = {
+  const body: Record<string, unknown> = {
     goal: payload.goal,
-    status: statusForApi,
     date: payload.date,
-    note: payload.note || '',
+    original_entry: payload.original_entry ?? '',
+    shared_note: payload.shared_note ?? '',
   };
+  if (payload.share_with != null && payload.share_with !== '') {
+    body.share_with = payload.share_with;
+  }
+  if (payload.co_author != null && payload.co_author !== '') {
+    body.co_author = payload.co_author;
+  }
   const response = await api.post('/ActionableEntries/', body);
   const data = response.data;
   if (Array.isArray(data) && data.length > 0) return data[0];
@@ -3856,15 +3907,19 @@ export const createActionableEntry = async (payload: {
 /**
  * PUT/PATCH actionable entry (update)
  * @endpoint PUT/PATCH /ActionableEntriesByID/{id}/
- * @body { status?, note? } - only pass fields to update
+ * @body { status?, final_Status?, approved_by_coauthor?, co_author_note? } - note is accepted but never sent
  */
-export const updateActionableEntry = async (id: string | number, payload: { status?: string; note?: string }): Promise<any> => {
-  const body: Record<string, string> = {};
-  if (payload.status != null) {
+export const updateActionableEntry = async (id: string | number, payload: { status?: string; final_Status?: string; note?: string; approved_by_coauthor?: boolean; co_author_note?: string }): Promise<any> => {
+  const body: Record<string, string | boolean> = {};
+  if (payload.final_Status != null) {
+    const s = String(payload.final_Status).toUpperCase().replace(/[-_\s]+/g, '');
+    body.final_Status = s === 'INPROGRESS' || s === 'INPROCESS' ? 'INPROCESS' : s === 'COMPLETED' ? 'COMPLETED' : 'PENDING';
+  } else if (payload.status != null) {
     const s = String(payload.status).toUpperCase().replace(/[-_\s]+/g, '');
-    body.status = s === 'INPROGRESS' || s === 'INPROCESS' ? 'INPROCESS' : s === 'COMPLETED' ? 'COMPLETED' : 'PENDING';
+    body.final_Status = s === 'INPROGRESS' || s === 'INPROCESS' ? 'INPROCESS' : s === 'COMPLETED' ? 'COMPLETED' : 'PENDING';
   }
-  if (payload.note != null) body.note = String(payload.note);
+  if (payload.approved_by_coauthor != null) body.approved_by_coauthor = payload.approved_by_coauthor;
+  if (payload.co_author_note != null) body.co_author_note = String(payload.co_author_note);
   const response = await api.patch(`/ActionableEntriesByID/${id}/`, body);
   const data = response.data;
   if (Array.isArray(data) && data.length > 0) return data[0];
@@ -3879,6 +3934,39 @@ export const updateActionableEntry = async (id: string | number, payload: { stat
  */
 export const deleteActionableEntry = async (id: string | number): Promise<void> => {
   await api.delete(`/ActionableEntriesByID/${id}/`);
+};
+
+/**
+ * PATCH share chain item (share_note, individual_status)
+ * @endpoint PATCH /ActionableEntriesSharedWith/{id}/ — id = actionable entry id (e.g. 136)
+ * @body { share_note?: string, individual_status?: string } - PENDING | INPROCESS | COMPLETED
+ */
+export const updateShareChainItem = async (entryId: string | number, payload: { share_note?: string; individual_status?: string }): Promise<any> => {
+  const body: Record<string, string> = {};
+  if (payload.share_note != null) body.share_note = String(payload.share_note);
+  if (payload.individual_status != null) {
+    const s = String(payload.individual_status).toUpperCase().replace(/[-_\s]+/g, '');
+    body.individual_status = s === 'INPROGRESS' || s === 'INPROCESS' ? 'INPROCESS' : s === 'COMPLETED' ? 'COMPLETED' : 'PENDING';
+  }
+  const response = await api.patch(`/ActionableEntriesSharedWith/${entryId}/`, body);
+  const data = response.data;
+  if (data?.data) return data.data;
+  if (data?.entry) return data.entry;
+  return data;
+};
+
+/**
+ * Add share to actionable entry (share with another employee)
+ * @endpoint POST /ActionableEntriesByID/{id}/share/
+ * @body { share_with, shared_note? }
+ */
+export const addShareToEntry = async (entryId: string | number, payload: { share_with: string | number; shared_note?: string }): Promise<any> => {
+  const body = { share_with: payload.share_with, shared_note: payload.shared_note ?? '' };
+  const response = await api.post(`/ActionableEntriesByID/${entryId}/share/`, body);
+  const data = response.data;
+  if (data?.data) return data.data;
+  if (data?.entry) return data.entry;
+  return data;
 };
 
 // Export default api instance
@@ -3939,9 +4027,14 @@ export const apiFunctions = {
   getAssetTypes,
   getFunctionsAndActionableGoals,
   getActionableEntries,
+  getActionableEntriesCoAuthor,
+  getActionableEntriesSharedWith,
+  updateActionableEntryCoAuthor,
   createActionableEntry,
   updateActionableEntry,
   deleteActionableEntry,
+  updateShareChainItem,
+  addShareToEntry,
   uploadFile,
   addLink,
   deleteAttachment,
@@ -4061,6 +4154,161 @@ export async function getMyLeaveBalance(): Promise<LeaveBalance> {
 /** POST /leave/apply/ — employee applies for leave */
 export async function applyLeave(payload: ApplyLeavePayload): Promise<LeaveRequest> {
   const res = await api.post<LeaveRequest>('/leave/apply/', payload);
+  return res.data;
+}
+
+/** POST /accounts/leave-applications/ — create leave application (Full_day or Half_day) */
+export interface CreateLeaveApplicationBody {
+  start_date: string;
+  duration_of_days?: number;
+  leave_subject: string;
+  reason: string;
+  leave_type: 'Full_day' | 'Half_day';
+  half_day_slots?: 'First_Half' | 'Second_Half';
+}
+
+export interface CreateLeaveApplicationResponse {
+  id: number;
+  applicant_name: string;
+  team_lead_name: string | null;
+  start_date: string;
+  duration_of_days: number;
+  leave_subject: string;
+  reason: string;
+  leave_type_name: string;
+  half_day_slots: string | null;
+  team_lead_approval_status: string | null;
+  hr_approval_status: string;
+  md_approval_status: string;
+  admin_approval_status: string | null;
+  is_emergency: boolean;
+  application_date: string;
+  approved_by_MD_at: string | null;
+}
+
+export async function createLeaveApplication(body: CreateLeaveApplicationBody): Promise<CreateLeaveApplicationResponse> {
+  const res = await api.post<CreateLeaveApplicationResponse>('/accounts/leave-applications/', body);
+  return res.data;
+}
+
+/** GET /accounts/leave-applications/view_history/ — logged-in user's leave history */
+export async function getLeaveHistory(): Promise<CreateLeaveApplicationResponse[]> {
+  const res = await api.get<CreateLeaveApplicationResponse[]>('/accounts/leave-applications/view_history/');
+  const data = res.data;
+  return Array.isArray(data) ? data : [];
+}
+
+/** GET /accounts/leave-applications/approval/ — leave requests for approval (TeamLead, MD, HR, Admin) */
+export async function getLeaveApplicationsForApproval(): Promise<CreateLeaveApplicationResponse[]> {
+  const res = await api.get<CreateLeaveApplicationResponse[]>('/accounts/leave-applications/approval/');
+  const data = res.data;
+  return Array.isArray(data) ? data : [];
+}
+
+/** GET /clientsapi/stages/ — list of client lead stages (for status_id in create/update) */
+export interface ClientStage {
+  id: number;
+  name: string;
+}
+
+export async function getClientStages(): Promise<ClientStage[]> {
+  const res = await api.get<ClientStage[]>('/clientsapi/stages/');
+  const data = res.data;
+  return Array.isArray(data) ? data : [];
+}
+
+/** GET /clientsapi/products/ — product list for client leads */
+export async function getProducts(): Promise<string[]> {
+  const res = await api.get<string[]>('/clientsapi/products/');
+  const data = res.data;
+  return Array.isArray(data) ? data : [];
+}
+
+/** GET /clientsapi/profiles/ — list client lead profiles */
+export interface ClientProfileNote {
+  id: number;
+  note: string;
+  created_by?: string;
+  created_at: string;
+}
+
+export interface ClientProfileResponse {
+  id: number;
+  company_name: string;
+  client_name: string;
+  client_contact?: string;
+  representative_contact_number?: string;
+  representative_name?: string;
+  motive?: string;
+  gst_number?: string;
+  status_id: number;
+  status_name: string;
+  product_id?: number;
+  product_name?: string;
+  created_by?: string;
+  members?: Array<number | string | { id?: number; username?: string; employee_id?: number; user?: number; user_id?: number }>;
+  notes?: ClientProfileNote[];
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getClientProfiles(): Promise<ClientProfileResponse[]> {
+  const res = await api.get<ClientProfileResponse[]>('/clientsapi/profiles/');
+  const data = res.data;
+  return Array.isArray(data) ? data : [];
+}
+
+/** POST /clientsapi/profiles/ — create client lead profile */
+export interface CreateClientProfileBody {
+  company_name: string;
+  client_name: string;
+  client_contact?: string;
+  representative_contact_number?: string;
+  representative_name?: string;
+  motive?: string;
+  gst_number?: string;
+  status_id: number;
+  product_name?: string;
+  members?: number[];
+}
+
+export async function createClientProfile(body: CreateClientProfileBody): Promise<any> {
+  const res = await api.post('/clientsapi/profiles/', body);
+  return res.data;
+}
+
+/** POST /clientsapi/profiles/{id}/conversations/ — add multiple notes */
+export async function addConversations(profileId: number | string, notes: string[]): Promise<any> {
+  const res = await api.post(`/clientsapi/profiles/${profileId}/conversations/`, { notes });
+  return res.data;
+}
+
+/** PATCH /clientsapi/profiles/{id}/conversations/{noteId}/ — update a note */
+export async function updateConversation(
+  profileId: number | string,
+  noteId: number | string,
+  note: string
+): Promise<any> {
+  const res = await api.patch(`/clientsapi/profiles/${profileId}/conversations/${noteId}/`, { note });
+  return res.data;
+}
+
+/** PATCH /clientsapi/profiles/{id}/ — update client lead profile */
+export interface UpdateClientProfileBody {
+  company_name?: string;
+  client_name?: string;
+  client_contact?: string;
+  representative_contact_number?: string;
+  representative_name?: string;
+  motive?: string;
+  gst_number?: string;
+  status_id?: number;
+  product_name?: string;
+  members?: number[];
+}
+
+export async function updateClientProfile(id: number | string, body: UpdateClientProfileBody): Promise<any> {
+  const res = await api.patch<ClientProfileResponse>(`/clientsapi/profiles/${id}/`, body);
   return res.data;
 }
 

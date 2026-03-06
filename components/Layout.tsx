@@ -42,12 +42,17 @@ const NMRHI_ITEMS = [
   { id: 'nmrhi-rg', label: 'RG', letter: 'R', color: 'bg-amber-600' },
   { id: 'nmrhi-hc', label: 'HC', letter: 'H', color: 'bg-purple-600' },
   { id: 'nmrhi-ip', label: 'IP', letter: 'I', color: 'bg-rose-600' },
+  { id: 'nmrhi-requests', label: 'Requests', letter: 'Q', color: 'bg-cyan-600' },
 ] as const;
 
 export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab, onLogout, isLoggingOut = false, isOpen, setIsOpen, onUserProfileClick, onTasksHover, allowedNMRHICategories }) => {
-  const visibleNMRHI = allowedNMRHICategories && allowedNMRHICategories.length > 0
+  const baseNMRHI = allowedNMRHICategories && allowedNMRHICategories.length > 0
     ? NMRHI_ITEMS.filter((item) => allowedNMRHICategories.includes(item.id))
     : NMRHI_ITEMS;
+  const requestsItem = NMRHI_ITEMS.find((i) => i.id === 'nmrhi-requests');
+  const visibleNMRHI = requestsItem && !baseNMRHI.some((i) => i.id === 'nmrhi-requests')
+    ? [...baseNMRHI, requestsItem]
+    : baseNMRHI;
   const [expandedNMRHI, setExpandedNMRHI] = useState(false);
   
   const menuItems = [
@@ -76,7 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
 
   // Check if NMRHI submenu should be expanded
   useEffect(() => {
-    if (activeTab === 'nmrhi-npd' || activeTab === 'nmrhi-mmr' || activeTab === 'nmrhi-rg' || activeTab === 'nmrhi-hc' || activeTab === 'nmrhi-ip') {
+    if (['nmrhi-npd', 'nmrhi-mmr', 'nmrhi-rg', 'nmrhi-hc', 'nmrhi-ip', 'nmrhi-requests'].includes(activeTab)) {
       setExpandedNMRHI(true);
     }
   }, [activeTab]);
@@ -168,7 +173,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
                 onClick={() => {
                   if (!expandedNMRHI) {
                     setExpandedNMRHI(true);
-                    setActiveTab('nmrhi-npd');
+                    setActiveTab('nmrhi-requests');
                   } else {
                     setExpandedNMRHI(false);
                   }

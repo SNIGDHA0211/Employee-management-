@@ -5,9 +5,8 @@ import {
 } from 'lucide-react';
 import { addDays, format, parseISO, isWeekend, isBefore, startOfToday } from 'date-fns';
 import type { User } from '../../types';
-import type { LeaveRequest, LeaveBalance, ApplyLeavePayload, LeaveDay, HalfDaySlot } from '../../types';
-// API calls disabled — panel is under development
-// import { getMyLeaveRequests, getMyLeaveBalance, applyLeave, cancelLeaveRequest, getAllLeaveRequests, getAllLeaveBalances } from '../../services/api';
+import type { LeaveRequest, LeaveBalance, LeaveDay, HalfDaySlot } from '../../types';
+import { createLeaveApplication, getLeaveHistory } from '../../services/api';
 import { useEmployeesQuery } from '../../hooks/useEmployees';
 import { useLeaveHolidays } from '../../hooks/useLeaveHolidays';
 
@@ -38,8 +37,17 @@ function formatDateTime(dateStr: string): string {
 }
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
+// Display status with exact spelling: "Approved", "Pending", "Rejected"
+function normalizeLeaveStatus(s: string | undefined): 'Approved' | 'Pending' | 'Rejected' | 'Cancelled' {
+  const t = (s || '').toLowerCase().trim();
+  if (t === 'approved') return 'Approved';
+  if (t === 'rejected') return 'Rejected';
+  if (t === 'cancelled') return 'Cancelled';
+  return 'Pending';
+}
 
 const StatusBadge: React.FC<{ status: LeaveRequest['status'] }> = ({ status }) => {
+  const norm = normalizeLeaveStatus(status);
   const map: Record<string, string> = {
     Pending:   'bg-amber-100 text-amber-700 border border-amber-200',
     Approved:  'bg-emerald-100 text-emerald-700 border border-emerald-200',
@@ -53,9 +61,9 @@ const StatusBadge: React.FC<{ status: LeaveRequest['status'] }> = ({ status }) =
     Cancelled: <X size={11} />,
   };
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${map[status] ?? 'bg-gray-100 text-gray-500'}`}>
-      {icons[status]}
-      {status}
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${map[norm] ?? 'bg-gray-100 text-gray-500'}`}>
+      {icons[norm]}
+      {norm}
     </span>
   );
 };
@@ -118,7 +126,7 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
     if (leaveDay === 'Full Day' && duration < 1) return 'Duration must be at least 1 day.';
     if (deduction > remaining) return `Insufficient leave balance. You have ${remaining} day(s) remaining.`;
     for (const req of existingRequests) {
-      if (req.status === 'Cancelled' || req.status === 'Rejected') continue;
+      if (normalizeLeaveStatus(req.status) === 'Cancelled' || normalizeLeaveStatus(req.status) === 'Rejected') continue;
       const reqStart = parseISO(req.start_date);
       const reqEnd   = parseISO(req.end_date);
       const newStart = parseISO(startDate);
@@ -137,21 +145,25 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
     const err = validate();
     if (err) { setError(err); return; }
 
-    const payload: ApplyLeavePayload = {
-      leave_title: finalLeaveTitle || undefined,
-      leave_day: leaveDay,
-      start_date: startDate,
-      end_date: endDate,
-      duration: deduction,
-      description,
-      ...(leaveDay === 'Half Day' ? { half_day_slot: halfDaySlot } : {}),
-    };
+    const body = leaveDay === 'Full Day'
+      ? {
+          start_date: startDate,
+          duration_of_days: duration,
+          leave_subject: finalLeaveTitle || 'Leave',
+          reason: description,
+          leave_type: 'Full_day' as const,
+        }
+      : {
+          start_date: startDate,
+          leave_subject: finalLeaveTitle || 'Leave',
+          reason: description,
+          leave_type: 'Half_day' as const,
+          half_day_slots: (halfDaySlot === 'First Half' ? 'First_Half' : 'Second_Half') as 'First_Half' | 'Second_Half',
+        };
 
     setSubmitting(true);
     try {
-      // API disabled — panel is under development
-      await Promise.resolve();
-      void payload;
+      await createLeaveApplication(body);
       setSuccess(true);
       setLeaveTitle('Casual Leave');
       setCustomTitle('');
@@ -161,7 +173,7 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
       setDescription('');
       setTimeout(() => { setSuccess(false); onSuccess(); }, 1500);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || 'Failed to submit leave request.');
+      setError(err?.response?.data?.error || err?.response?.data?.detail || err?.message || 'Failed to submit leave request.');
     } finally {
       setSubmitting(false);
     }
@@ -456,7 +468,7 @@ const LeaveHistoryTable: React.FC<HistoryTableProps> = ({ requests, loading, onC
                   : <span className="text-gray-300 text-xs">—</span>}
               </td>
               <td className="py-3 px-3 text-right whitespace-nowrap">
-                {!readOnly && req.status === 'Pending' && (
+                {!readOnly && normalizeLeaveStatus(req.status) === 'Pending' && (
                   <button
                     onClick={() => onCancel(req.id)}
                     disabled={cancellingId === req.id}
@@ -620,15 +632,68 @@ export const EmployeeLeavePage: React.FC<EmployeeLeavePageProps> = ({ currentUse
   const [cancellingId, setCancellingId]         = useState<string | null>(null);
   const [globalError, setGlobalError]           = useState<string | null>(null);
 
+  const mapHistoryToRequest = useCallback((item: {
+    id: number;
+    start_date: string;
+    duration_of_days: number;
+    leave_subject: string;
+    reason: string;
+    leave_type_name: string;
+    half_day_slots: string | null;
+    hr_approval_status: string;
+    md_approval_status: string;
+    application_date: string;
+    applicant_name: string;
+  }): LeaveRequest => {
+    const hr = (item.hr_approval_status || '').toLowerCase();
+    const md = (item.md_approval_status || '').toLowerCase();
+    let status: 'Pending' | 'Approved' | 'Rejected' | 'Cancelled' = 'Pending';
+    if (hr === 'approved' || md === 'approved') status = 'Approved';
+    else if (hr === 'rejected' || md === 'rejected') status = 'Rejected';
+    const leaveDay = item.leave_type_name === 'Full_day' ? 'Full Day' : 'Half Day';
+    const endDate = leaveDay === 'Full Day' && item.duration_of_days > 1
+      ? format(addDays(parseISO(item.start_date), item.duration_of_days - 1), 'yyyy-MM-dd')
+      : item.start_date;
+    const halfSlot = item.half_day_slots === 'First_Half' ? 'First Half' : item.half_day_slots === 'Second_Half' ? 'Second Half' : undefined;
+    return {
+      id: String(item.id),
+      employee_id: '',
+      employee_name: item.applicant_name,
+      leave_title: item.leave_subject,
+      leave_day: leaveDay,
+      start_date: item.start_date,
+      end_date: endDate,
+      duration: item.duration_of_days,
+      half_day_slot: halfSlot,
+      description: item.reason,
+      status,
+      applied_on: item.application_date?.includes('T') ? item.application_date : `${item.application_date}T00:00:00`,
+    };
+  }, []);
+
   const fetchAll = useCallback(async () => {
-    // API calls disabled — panel is under development
     setGlobalError(null);
     setShowForm(false);
     setBalance(null);
     setRequests([]);
-    setLoadingBalance(false);
-    setLoadingRequests(false);
-  }, []);
+    setLoadingBalance(true);
+    setLoadingRequests(true);
+    try {
+      if (isViewingSelf) {
+        const history = await getLeaveHistory();
+        const mapped = history.map(mapHistoryToRequest);
+        setRequests(mapped);
+      } else {
+        setRequests([]);
+      }
+    } catch (err: any) {
+      setGlobalError(err?.response?.data?.detail || err?.message || 'Failed to load leave history.');
+      setRequests([]);
+    } finally {
+      setLoadingBalance(false);
+      setLoadingRequests(false);
+    }
+  }, [isViewingSelf, mapHistoryToRequest]);
 
   useEffect(() => {
     setBalance(null);
@@ -646,9 +711,9 @@ export const EmployeeLeavePage: React.FC<EmployeeLeavePageProps> = ({ currentUse
 
   const handleSelectEmployee = (user: User) => setViewingUser(user);
 
-  const pending  = requests.filter((r) => r.status === 'Pending').length;
-  const approved = requests.filter((r) => r.status === 'Approved').length;
-  const rejected = requests.filter((r) => r.status === 'Rejected').length;
+  const pending  = requests.filter((r) => normalizeLeaveStatus(r.status) === 'Pending').length;
+  const approved = requests.filter((r) => normalizeLeaveStatus(r.status) === 'Approved').length;
+  const rejected = requests.filter((r) => normalizeLeaveStatus(r.status) === 'Rejected').length;
 
   return (
     <div className="space-y-4 w-full">
