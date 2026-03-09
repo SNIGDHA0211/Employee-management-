@@ -7,7 +7,7 @@ import {
 import { format, parseISO, addDays, isWeekend } from 'date-fns';
 import type { User } from '../../types';
 import type { LeaveRequest, LeaveBalance, ReviewLeavePayload, LeaveDay, HalfDaySlot, EmergencyLeavePayload } from '../../types';
-import { getLeaveApplicationsForApproval, addEmergencyLeave } from '../../services/api';
+import { getLeaveApplicationsForApproval, addEmergencyLeave, updateLeaveApplication, type UpdateLeaveApplicationBody } from '../../services/api';
 import { useEmployeesQuery } from '../../hooks/useEmployees';
 import { useLeaveHolidays } from '../../hooks/useLeaveHolidays';
 import { EmployeeLeavePage } from './EmployeeLeavePage';
@@ -50,15 +50,20 @@ function mapApprovalToLeaveRequest(item: {
   reason: string;
   leave_type_name: string;
   half_day_slots: string | null;
-  hr_approval_status: string;
-  md_approval_status: string;
+  team_lead_approval_status?: string | null;
+  hr_approval_status?: string | null;
+  md_approval_status?: string | null;
+  admin_approval_status?: string | null;
   application_date: string;
 }): LeaveRequest {
+  const tl = (item.team_lead_approval_status || '').toLowerCase();
   const hr = (item.hr_approval_status || '').toLowerCase();
   const md = (item.md_approval_status || '').toLowerCase();
+  const admin = (item.admin_approval_status || '').toLowerCase();
+  const statuses = [tl, hr, md, admin];
   let status: 'Pending' | 'Approved' | 'Rejected' | 'Cancelled' = 'Pending';
-  if (hr === 'approved' || md === 'approved') status = 'Approved';
-  else if (hr === 'rejected' || md === 'rejected') status = 'Rejected';
+  if (statuses.some((s) => s === 'rejected')) status = 'Rejected';
+  else if (hr === 'approved' && md === 'approved') status = 'Approved';
   const leaveDay = item.leave_type_name === 'Full_day' ? 'Full Day' : 'Half Day';
   const endDate = leaveDay === 'Full Day' && item.duration_of_days > 1
     ? format(addDays(parseISO(item.start_date), item.duration_of_days - 1), 'yyyy-MM-dd')
@@ -77,6 +82,10 @@ function mapApprovalToLeaveRequest(item: {
     description: item.reason,
     status,
     applied_on: item.application_date?.includes('T') ? item.application_date : `${item.application_date}T00:00:00`,
+    team_lead_approval_status: item.team_lead_approval_status ?? null,
+    hr_approval_status: item.hr_approval_status ?? null,
+    md_approval_status: item.md_approval_status ?? null,
+    admin_approval_status: item.admin_approval_status ?? null,
   };
 }
 
@@ -874,10 +883,38 @@ interface RequestsTableProps {
   requests: LeaveRequest[];
   balances: LeaveBalance[];
   loading: boolean;
+  currentUser: User;
   onReview: (req: LeaveRequest, action: 'Approved' | 'Rejected') => void;
 }
 
-const RequestsTable: React.FC<RequestsTableProps> = ({ requests, balances, loading, onReview }) => {
+function isPendingForCurrentUser(req: LeaveRequest, role: string): boolean {
+  const tl = (req.team_lead_approval_status || '').toLowerCase();
+  const hr = (req.hr_approval_status || '').toLowerCase();
+  const md = (req.md_approval_status || '').toLowerCase();
+  const admin = (req.admin_approval_status || '').toLowerCase();
+  if (role === 'TEAM_LEADER') return tl !== 'approved' && tl !== 'rejected';
+  if (role === 'HR') return hr !== 'approved' && hr !== 'rejected';
+  if (role === 'MD') return md !== 'approved' && md !== 'rejected';
+  if (role === 'ADMIN') return admin !== 'approved' && admin !== 'rejected';
+  return false;
+}
+
+function getCurrentUserApprovalStatus(req: LeaveRequest, role: string): 'Approved' | 'Rejected' | null {
+  const tl = (req.team_lead_approval_status || '').toLowerCase();
+  const hr = (req.hr_approval_status || '').toLowerCase();
+  const md = (req.md_approval_status || '').toLowerCase();
+  const admin = (req.admin_approval_status || '').toLowerCase();
+  let status: string | null = null;
+  if (role === 'TEAM_LEADER') status = tl || null;
+  else if (role === 'HR') status = hr || null;
+  else if (role === 'MD') status = md || null;
+  else if (role === 'ADMIN') status = admin || null;
+  if (status === 'approved') return 'Approved';
+  if (status === 'rejected') return 'Rejected';
+  return null;
+}
+
+const RequestsTable: React.FC<RequestsTableProps> = ({ requests, balances, loading, currentUser, onReview }) => {
   const [sortKey, setSortKey] = useState<keyof LeaveRequest>('applied_on');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -990,7 +1027,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, balances, loadi
                   </div>
                 </td>
                 <td className="py-3 px-3">
-                  {normalizeLeaveStatus(req.status) === 'Pending' ? (
+                  {normalizeLeaveStatus(req.status) === 'Pending' && isPendingForCurrentUser(req, currentUser.role as string) ? (
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => onReview(req, 'Approved')}
@@ -1008,9 +1045,12 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, balances, loadi
                       </button>
                     </div>
                   ) : (
-                    <span className="text-xs text-gray-400 block text-right pr-1">
-                      {req.reviewed_by ? `By ${req.reviewed_by}` : ''}
-                    </span>
+                    (() => {
+                      const myStatus = getCurrentUserApprovalStatus(req, currentUser.role as string);
+                      if (myStatus === 'Approved') return <span className="text-xs text-emerald-600 font-medium block text-right pr-1">Approved</span>;
+                      if (myStatus === 'Rejected') return <span className="text-xs text-red-600 font-medium block text-right pr-1">Rejected</span>;
+                      return <span className="text-xs text-gray-400 block text-right pr-1">{req.reviewed_by ? `By ${req.reviewed_by}` : ''}</span>;
+                    })()
                   )}
                 </td>
               </tr>
@@ -1300,10 +1340,22 @@ export const HRLeavePage: React.FC<HRLeavePageProps> = ({ currentUser }) => {
     return true;
   });
 
-  const handleReview = async (_comment: string) => {
-    // API disabled — panel is under development
-    void _comment;
+  const handleReview = async (comment: string) => {
+    if (!reviewTarget) return;
+    const { req, action } = reviewTarget;
+    const status = action;
+    const role = currentUser.role as string;
+    const body: UpdateLeaveApplicationBody = {};
+    if (role === 'TEAM_LEADER') body.team_lead_approval = status;
+    else if (role === 'HR') body.HR_approval = status;
+    else if (role === 'ADMIN') body.admin_approval = status;
+    else if (role === 'MD') body.MD_approval = status;
+    else { setReviewTarget(null); return; }
+
+    await updateLeaveApplication(req.id, body);
     setReviewTarget(null);
+    fetchRequests();
+    void comment;
   };
 
   const handleAdjust = async (_totalCredit: number) => {
@@ -1326,7 +1378,7 @@ export const HRLeavePage: React.FC<HRLeavePageProps> = ({ currentUser }) => {
   const rejected  = requests.filter((r) => normalizeLeaveStatus(r.status) === 'Rejected').length;
 
   return (
-    <div className="space-y-4 w-full">
+    <div className="space-y-4 w-full min-h-[200px]">
       {/* Under Development Banner */}
       <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-300 rounded-xl shadow-sm">
         <span className="text-xl mt-0.5 shrink-0">🚧</span>
@@ -1428,6 +1480,7 @@ export const HRLeavePage: React.FC<HRLeavePageProps> = ({ currentUser }) => {
                 requests={filteredRequests}
                 balances={balances}
                 loading={loadingRequests}
+                currentUser={currentUser}
                 onReview={(req, action) => setReviewTarget({ req, action })}
               />
             </div>

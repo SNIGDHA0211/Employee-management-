@@ -1898,14 +1898,14 @@ export default function App() {
         // );
 
       case 'leave':
-        if (currentUser.role === UserRole.HR || currentUser.role === UserRole.MD || currentUser.role === UserRole.ADMIN) {
+        if (currentUser.role === UserRole.HR || currentUser.role === UserRole.MD || currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.TEAM_LEADER) {
           return <HRLeavePage currentUser={currentUser} />;
         }
         return <EmployeeLeavePage currentUser={currentUser} />;
 
       case 'customer-leads':
         if (!canAccessCustomerLeads(currentUser)) return <div className="p-10 text-center text-gray-500">Access Denied</div>;
-        return <CustomerLeadsPage currentUser={currentUser} users={users} />;
+        return <CustomerLeadsPage currentUser={currentUser} users={Array.isArray(users) ? users : []} />;
 
       case 'admin':
          if (currentUser.role !== UserRole.ADMIN) return <div>Access Denied</div>;

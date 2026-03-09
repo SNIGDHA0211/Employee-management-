@@ -785,6 +785,41 @@ export const createEmployee = async (employeeData: {
 };
 
 /**
+ * Get employees by department from accounts API
+ * Tries: GET /accounts/employees/?department={dept}; falls back to client-side filter
+ */
+export const getEmployeesByDepartment = async (department: string): Promise<any[]> => {
+  const parseResponse = (data: any) => {
+    if (Array.isArray(data)) return data;
+    if (data?.employees && Array.isArray(data.employees)) return data.employees;
+    if (data?.users && Array.isArray(data.users)) return data.users;
+    if (data?.data && Array.isArray(data.data)) return data.data;
+    return [];
+  };
+  const matchesDept = (emp: any, dept: string) => {
+    const empDept = emp?.Department ?? emp?.department ?? emp?.branch ?? emp?.Dept ?? '';
+    const d = String(dept).trim().toLowerCase().replace(/[_\s&]/g, '');
+    const ed = String(empDept).trim().toLowerCase().replace(/[_\s&]/g, '');
+    if (!ed) return false;
+    return ed === d || ed.includes(d) || d.includes(ed);
+  };
+  for (const path of ['/accounts/employees/', '/accounts/accounts/employees/']) {
+    try {
+      const response = await api.get(path, {
+        params: department ? { department } : undefined,
+        headers: { 'Accept': 'application/json' },
+      });
+      const list = parseResponse(response.data);
+      return department ? list.filter((e: any) => matchesDept(e, department)) : list;
+    } catch (err: any) {
+      if (err?.response?.status === 404) continue;
+      console.error(`❌ [GET EMPLOYEES BY DEPARTMENT] ${path}:`, err?.response?.data || err);
+    }
+  }
+  return [];
+};
+
+/**
  * Get all employees from accounts API (includes department, function for NMRHI filtering)
  * Tries: GET /accounts/employees/ then /accounts/accounts/employees/ as fallback
  */
@@ -1766,15 +1801,13 @@ export const getDepartmentsandFunctions = async (role?: string): Promise<{ depar
 };
 
 /**
- * Get monthly schedule for a user
- * @endpoint GET /getMonthlySchedule/{user_id}/?quater=Q3&month=October
- * @param userId - User ID (Employee_id)
- * @param params - quater (e.g. "Q3"), month (e.g. "October") – query params
+ * Get monthly schedule by department
+ * @endpoint GET /getMonthlySchedule/?quater=Q3&month=October&department=Sales
+ * @param params - quater (e.g. "Q3"), month (e.g. "October"), department (e.g. "Sales") – query params
  * @returns Array of monthly schedule objects
  */
 export const getMonthlySchedule = async (
-  userId: string,
-  params?: { quater?: string; month?: string }
+  params: { quater: string; month: string; department: string }
 ): Promise<Array<{
   id?: number;
   quater: string;
@@ -1789,12 +1822,14 @@ export const getMonthlySchedule = async (
   month_quater_id?: number;
 }>> => {
   try {
-    const endpoint = `/getMonthlySchedule/${encodeURIComponent(userId)}/`;
-    const queryParams: Record<string, string> = {};
-    if (params?.quater) queryParams.quater = params.quater;
-    if (params?.month) queryParams.month = params.month;
+    const endpoint = '/getMonthlySchedule/';
+    const queryParams: Record<string, string> = {
+      quater: params.quater,
+      month: params.month,
+      department: params.department,
+    };
     const response = await api.get(endpoint, {
-      params: Object.keys(queryParams).length ? queryParams : undefined,
+      params: queryParams,
     });
     const data = response.data;// Handle different response formats
     let scheduleArray: any[] = [];
@@ -3467,21 +3502,22 @@ export const postMessages = async (
  * Get messages for a chat
  * @endpoint GET /messaging/getMessages/{chat_id}/
  * @param chatId Chat ID (integer or string)
- * @returns Array of message objects with sender, message, date, time
+ * @returns Array of message objects: { id, sender, message, date, time (HH:MM:SS), attachments[] }
  */
 export const getMessages = async (
   chatId: string | number
 ): Promise<
   Array<{
-    sender:        string;
-    message:       string;
-    date:          string;
-    time:          string;
+    id?:          number;
+    sender:       string;
+    message:      string;
+    date:         string;  // "DD/MM/YY"
+    time:         string;  // "HH:MM:SS" (includes seconds)
     attachment_id?: number;
-    /** Attachment object returned by the new API format */
+    attachments?: Array<{ id?: number; type?: string; file_name?: string; name?: string; url?: string }>;
     attachment?: {
       id:        number;
-      type:      string;   // "file"
+      type:      string;
       file_name: string;
       url:       string;
     };
@@ -3578,10 +3614,12 @@ export const getMessages = async (
         : attachment?.id ?? undefined;
 
       return {
+        ...(m.id != null ? { id: Number(m.id) } : {}),
         sender:        String(m.sender ?? ''),
         message:       String(m.message ?? ''),
         date:          String(m.date ?? ''),
         time:          String(m.time ?? ''),
+        ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}),
         ...(attachmentId != null ? { attachment_id: attachmentId } : {}),
         ...(attachment      ? { attachment }                    : {}),
       };
@@ -3789,6 +3827,20 @@ export const endGroupCall = async (callId: string | number): Promise<any> => {
  */
 export const getActiveGroupCalls = async (): Promise<any[]> => {
   const response = await api.get('/messaging/activeGroupCalls/');
+  const data = response.data;
+  if (Array.isArray(data)) return data;
+  if (data?.calls && Array.isArray(data.calls)) return data.calls;
+  if (data?.data && Array.isArray(data.data)) return data.data;
+  return [];
+};
+
+/**
+ * Get call history for current user
+ * @endpoint GET /messaging/callHistory/
+ * @returns Array of call objects { id, call_kind, call_type, status, initiator, initiator_name, participant[], timestamp?, created_at? }
+ */
+export const getCallHistory = async (): Promise<any[]> => {
+  const response = await api.get('/messaging/callHistory/');
   const data = response.data;
   if (Array.isArray(data)) return data;
   if (data?.calls && Array.isArray(data.calls)) return data.calls;
@@ -4165,6 +4217,8 @@ export interface CreateLeaveApplicationBody {
   reason: string;
   leave_type: 'Full_day' | 'Half_day';
   half_day_slots?: 'First_Half' | 'Second_Half';
+  /** Employee ID of person who will work on behalf of the applicant during leave */
+  alternate_employee_id?: string;
 }
 
 export interface CreateLeaveApplicationResponse {
@@ -4191,6 +4245,25 @@ export async function createLeaveApplication(body: CreateLeaveApplicationBody): 
   return res.data;
 }
 
+/** GET /accounts/leave-applications/summary/ — leave summary for logged-in user */
+export interface LeaveSummary {
+  total_leaves: number;
+  used_leaves: number;
+  remaining_leaves: number;
+  remaining_emergency_leave: number;
+}
+
+export async function getLeaveSummary(): Promise<LeaveSummary> {
+  const res = await api.get<LeaveSummary>('/accounts/leave-applications/summary/');
+  const d = res.data;
+  return {
+    total_leaves: Number(d?.total_leaves ?? 0),
+    used_leaves: Number(d?.used_leaves ?? 0),
+    remaining_leaves: Number(d?.remaining_leaves ?? 0),
+    remaining_emergency_leave: Number(d?.remaining_emergency_leave ?? 0),
+  };
+}
+
 /** GET /accounts/leave-applications/view_history/ — logged-in user's leave history */
 export async function getLeaveHistory(): Promise<CreateLeaveApplicationResponse[]> {
   const res = await api.get<CreateLeaveApplicationResponse[]>('/accounts/leave-applications/view_history/');
@@ -4203,6 +4276,21 @@ export async function getLeaveApplicationsForApproval(): Promise<CreateLeaveAppl
   const res = await api.get<CreateLeaveApplicationResponse[]>('/accounts/leave-applications/approval/');
   const data = res.data;
   return Array.isArray(data) ? data : [];
+}
+
+/** PATCH /accounts/leave-applications/{id}/ — update leave application approvals */
+export type LeaveApprovalStatus = 'Pending' | 'Approved' | 'Rejected';
+
+export interface UpdateLeaveApplicationBody {
+  team_lead_approval?: LeaveApprovalStatus;
+  HR_approval?: LeaveApprovalStatus;
+  admin_approval?: LeaveApprovalStatus;
+  MD_approval?: LeaveApprovalStatus;
+}
+
+export async function updateLeaveApplication(id: string | number, body: UpdateLeaveApplicationBody): Promise<CreateLeaveApplicationResponse> {
+  const res = await api.patch<CreateLeaveApplicationResponse>(`/accounts/leave-applications/${id}/`, body);
+  return res.data;
 }
 
 /** GET /clientsapi/stages/ — list of client lead stages (for status_id in create/update) */

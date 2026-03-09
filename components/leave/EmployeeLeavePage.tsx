@@ -6,7 +6,7 @@ import {
 import { addDays, format, parseISO, isWeekend, isBefore, startOfToday } from 'date-fns';
 import type { User } from '../../types';
 import type { LeaveRequest, LeaveBalance, LeaveDay, HalfDaySlot } from '../../types';
-import { createLeaveApplication, getLeaveHistory } from '../../services/api';
+import { createLeaveApplication, getLeaveHistory, getLeaveSummary } from '../../services/api';
 import { useEmployeesQuery } from '../../hooks/useEmployees';
 import { useLeaveHolidays } from '../../hooks/useLeaveHolidays';
 
@@ -93,11 +93,13 @@ interface ApplyFormProps {
   existingRequests: LeaveRequest[];
   onSuccess: () => void;
   holidayDates: Set<string>;
+  users: User[];
+  currentUserId: string;
 }
 
 const LEAVE_TITLE_PRESETS = ['Casual Leave', 'Medical Leave', 'Sick Leave'] as const;
 
-const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, onSuccess, holidayDates }) => {
+const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, onSuccess, holidayDates, users, currentUserId }) => {
   const [leaveTitle, setLeaveTitle]       = useState<string>('Casual Leave');
   const [customTitle, setCustomTitle]     = useState('');
   const [isCustomTitle, setIsCustomTitle] = useState(false);
@@ -106,6 +108,7 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
   const [duration, setDuration]           = useState(1);
   const [halfDaySlot, setHalfDaySlot]     = useState<HalfDaySlot>('First Half');
   const [description, setDescription]     = useState('');
+  const [alternateEmployeeId, setAlternateEmployeeId] = useState<string>('');
   const [submitting, setSubmitting]       = useState(false);
   const [error, setError]                 = useState<string | null>(null);
   const [success, setSuccess]             = useState(false);
@@ -145,21 +148,14 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
     const err = validate();
     if (err) { setError(err); return; }
 
+    const base = {
+      leave_subject: finalLeaveTitle || 'Leave',
+      reason: description,
+      ...(alternateEmployeeId ? { alternate_employee_id: alternateEmployeeId } : {}),
+    };
     const body = leaveDay === 'Full Day'
-      ? {
-          start_date: startDate,
-          duration_of_days: duration,
-          leave_subject: finalLeaveTitle || 'Leave',
-          reason: description,
-          leave_type: 'Full_day' as const,
-        }
-      : {
-          start_date: startDate,
-          leave_subject: finalLeaveTitle || 'Leave',
-          reason: description,
-          leave_type: 'Half_day' as const,
-          half_day_slots: (halfDaySlot === 'First Half' ? 'First_Half' : 'Second_Half') as 'First_Half' | 'Second_Half',
-        };
+      ? { start_date: startDate, duration_of_days: duration, leave_type: 'Full_day' as const, ...base }
+      : { start_date: startDate, leave_type: 'Half_day' as const, half_day_slots: (halfDaySlot === 'First Half' ? 'First_Half' : 'Second_Half') as 'First_Half' | 'Second_Half', ...base };
 
     setSubmitting(true);
     try {
@@ -171,6 +167,7 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
       setStartDate('');
       setDuration(1);
       setDescription('');
+      setAlternateEmployeeId('');
       setTimeout(() => { setSuccess(false); onSuccess(); }, 1500);
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.response?.data?.detail || err?.message || 'Failed to submit leave request.');
@@ -360,6 +357,25 @@ const ApplyLeaveForm: React.FC<ApplyFormProps> = ({ balance, existingRequests, o
           </div>
         </div>
       )}
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Alternate / Person working on your behalf</label>
+        <select
+          value={alternateEmployeeId}
+          onChange={(e) => setAlternateEmployeeId(e.target.value)}
+          className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white"
+        >
+          <option value="">Select employee (optional)</option>
+          {(Array.isArray(users) ? users : [])
+            .filter((u) => u && u.id !== currentUserId)
+            .map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}{u.designation ? ` — ${u.designation}` : ''}
+              </option>
+            ))}
+        </select>
+        <p className="text-xs text-gray-500 mt-1">Employee who will handle your work during your absence</p>
+      </div>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Reason / Description</label>
@@ -617,13 +633,14 @@ interface EmployeeLeavePageProps {
 
 export const EmployeeLeavePage: React.FC<EmployeeLeavePageProps> = ({ currentUser }) => {
   const isTL = (currentUser.role as string) === 'TEAM_LEADER';
-  const { data: users = [], isLoading: loadingUsers } = useEmployeesQuery(isTL);
+  const { data: users = [], isLoading: loadingUsers } = useEmployeesQuery(!!currentUser?.id);
   const { holidayDates } = useLeaveHolidays();
   const canSwitchEmployee = isTL;
 
   const [viewingUser, setViewingUser]           = useState<User>(currentUser);
   const isViewingSelf = viewingUser.id === currentUser.id;
 
+  const [summary, setSummary]                   = useState<{ total_leaves: number; used_leaves: number; remaining_leaves: number; remaining_emergency_leave: number } | null>(null);
   const [balance, setBalance]                   = useState<LeaveBalance | null>(null);
   const [requests, setRequests]                 = useState<LeaveRequest[]>([]);
   const [loadingBalance, setLoadingBalance]     = useState(true);
@@ -640,16 +657,21 @@ export const EmployeeLeavePage: React.FC<EmployeeLeavePageProps> = ({ currentUse
     reason: string;
     leave_type_name: string;
     half_day_slots: string | null;
-    hr_approval_status: string;
-    md_approval_status: string;
+    team_lead_approval_status?: string | null;
+    hr_approval_status?: string | null;
+    md_approval_status?: string | null;
+    admin_approval_status?: string | null;
     application_date: string;
     applicant_name: string;
   }): LeaveRequest => {
+    const tl = (item.team_lead_approval_status || '').toLowerCase();
     const hr = (item.hr_approval_status || '').toLowerCase();
     const md = (item.md_approval_status || '').toLowerCase();
+    const admin = (item.admin_approval_status || '').toLowerCase();
+    const statuses = [tl, hr, md, admin];
     let status: 'Pending' | 'Approved' | 'Rejected' | 'Cancelled' = 'Pending';
-    if (hr === 'approved' || md === 'approved') status = 'Approved';
-    else if (hr === 'rejected' || md === 'rejected') status = 'Rejected';
+    if (statuses.some((s) => s === 'rejected')) status = 'Rejected';
+    else if (hr === 'approved' && md === 'approved') status = 'Approved';
     const leaveDay = item.leave_type_name === 'Full_day' ? 'Full Day' : 'Half Day';
     const endDate = leaveDay === 'Full Day' && item.duration_of_days > 1
       ? format(addDays(parseISO(item.start_date), item.duration_of_days - 1), 'yyyy-MM-dd')
@@ -674,20 +696,35 @@ export const EmployeeLeavePage: React.FC<EmployeeLeavePageProps> = ({ currentUse
   const fetchAll = useCallback(async () => {
     setGlobalError(null);
     setShowForm(false);
+    setSummary(null);
     setBalance(null);
     setRequests([]);
     setLoadingBalance(true);
     setLoadingRequests(true);
     try {
       if (isViewingSelf) {
-        const history = await getLeaveHistory();
+        const [leaveSummary, history] = await Promise.all([
+          getLeaveSummary().catch(() => null),
+          getLeaveHistory(),
+        ]);
+        if (leaveSummary) {
+          setSummary(leaveSummary);
+          setBalance({
+            employee_id: currentUser.id,
+            employee_name: currentUser.name,
+            total_credit: leaveSummary.total_leaves,
+            used_leaves: leaveSummary.used_leaves,
+            remaining_balance: leaveSummary.remaining_leaves,
+            pending_requests: 0,
+          });
+        }
         const mapped = history.map(mapHistoryToRequest);
         setRequests(mapped);
       } else {
         setRequests([]);
       }
     } catch (err: any) {
-      setGlobalError(err?.response?.data?.detail || err?.message || 'Failed to load leave history.');
+      setGlobalError(err?.response?.data?.detail || err?.message || 'Failed to load leave data.');
       setRequests([]);
     } finally {
       setLoadingBalance(false);
@@ -716,7 +753,7 @@ export const EmployeeLeavePage: React.FC<EmployeeLeavePageProps> = ({ currentUse
   const rejected = requests.filter((r) => normalizeLeaveStatus(r.status) === 'Rejected').length;
 
   return (
-    <div className="space-y-4 w-full">
+    <div className="space-y-4 w-full min-h-[200px]">
       {/* Under Development Banner */}
       <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-300 rounded-xl shadow-sm">
         <span className="text-xl mt-0.5 shrink-0">🚧</span>
@@ -798,31 +835,37 @@ export const EmployeeLeavePage: React.FC<EmployeeLeavePageProps> = ({ currentUse
         </div>
       )}
 
-      {/* Summary Cards — 2 cols on small, 4 on lg */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Summary Cards — from GET /accounts/leave-applications/summary/ */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <SummaryCard
-          label="Total Credit" icon={<CalendarDays size={18} className="text-blue-600" />}
+          label="Total Leaves" icon={<CalendarDays size={18} className="text-blue-600" />}
           color="bg-blue-50"
-          value={loadingBalance ? '–' : (balance?.total_credit ?? 0)}
+          value={loadingBalance ? '–' : (summary?.total_leaves ?? balance?.total_credit ?? 0)}
           sub="Annual allocation"
         />
         <SummaryCard
           label="Used Leaves" icon={<CheckCircle2 size={18} className="text-emerald-600" />}
           color="bg-emerald-50"
-          value={loadingBalance ? '–' : (balance?.used_leaves ?? 0)}
+          value={loadingBalance ? '–' : (summary?.used_leaves ?? balance?.used_leaves ?? 0)}
           sub="Approved + deducted"
         />
         <SummaryCard
           label="Remaining" icon={<Clock size={18} className="text-brand-600" />}
           color="bg-brand-50"
-          value={loadingBalance ? '–' : (balance?.remaining_balance ?? 0)}
+          value={loadingBalance ? '–' : (summary?.remaining_leaves ?? balance?.remaining_balance ?? 0)}
           sub="Available to use"
         />
         <SummaryCard
-          label="Pending" icon={<AlertCircle size={18} className="text-amber-600" />}
+          label="Emergency Leave" icon={<AlertCircle size={18} className="text-orange-600" />}
+          color="bg-orange-50"
+          value={loadingBalance ? '–' : (summary?.remaining_emergency_leave ?? 0)}
+          sub="Remaining emergency"
+        />
+        <SummaryCard
+          label="Pending" icon={<Clock size={18} className="text-amber-600" />}
           color="bg-amber-50"
           value={loadingRequests ? '–' : pending}
-          sub="Awaiting HR review"
+          sub="Awaiting approval"
         />
       </div>
 
@@ -843,6 +886,8 @@ export const EmployeeLeavePage: React.FC<EmployeeLeavePageProps> = ({ currentUse
               balance={balance}
               existingRequests={requests}
               holidayDates={holidayDates}
+              users={Array.isArray(users) ? users : []}
+              currentUserId={String((currentUser as any)?.Employee_id ?? currentUser?.id ?? '')}
               onSuccess={() => {
                 setShowForm(false);
                 setLoadingBalance(true);

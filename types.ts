@@ -133,6 +133,8 @@ export interface Task {
   status: TaskStatus;
   assigneeId: string; // Primary owner
   assigneeIds?: string[]; // For Group tasks
+  /** Display names from API Assigned_to array — shown as Report to in card */
+  assignedToNames?: string[];
   reporterId: string; // Who assigned it
   createdByName?: string; // Name from API created_by (e.g. viewAssignedTasks), shown for MD
   projectId?: string;
@@ -222,6 +224,11 @@ export interface LeaveRequest {
   hr_comment?: string;
   reviewed_by?: string;
   reviewed_on?: string;
+  /** Per-approver statuses from API (used to show Approve/Reject only when pending for current user) */
+  team_lead_approval_status?: string | null;
+  hr_approval_status?: string | null;
+  md_approval_status?: string | null;
+  admin_approval_status?: string | null;
 }
 
 export interface LeaveBalance {

@@ -2,11 +2,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart, Phone, VideoIcon, Search, Check, PhoneCall, Mic, ClipboardList, UserPlus } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart, Phone, VideoIcon, Search, Check, PhoneCall, Mic, ClipboardList, UserPlus, PhoneIncoming, PhoneOutgoing } from 'lucide-react';
 import { canAccessCustomerLeads } from './customerLeads/CustomerLeadsPage';
 import { getMotivationalQuote } from '../services/gemini';
 import { getPermission, requestPermission, isNotificationSupported } from '../utils/browserNotifications';
-import { getBirthdayCounter, postBirthdayCounter, initiateCall, initiateGroupCall } from '../services/api';
+import { getBirthdayCounter, postBirthdayCounter, initiateCall, initiateGroupCall, getCallHistory } from '../services/api';
 
 const formatBookingTime = (val: string): string => {
   if (!val) return '';
@@ -330,12 +330,15 @@ interface HeaderCallModalProps {
 }
 
 const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, onClose }) => {
+  const [view, setView] = useState<'start' | 'history'>('start');
   const [step, setStep] = useState<'type' | 'select'>('type');
   const [callType, setCallType] = useState<'audio' | 'video'>('audio');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [callHistory, setCallHistory] = useState<any[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Exclude self from the list
@@ -365,6 +368,29 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
   useEffect(() => {
     if (step === 'select') setTimeout(() => searchRef.current?.focus(), 80);
   }, [step]);
+
+  // Fetch call history when view is history
+  useEffect(() => {
+    if (view !== 'history') return;
+    setIsLoadingHistory(true);
+    getCallHistory()
+      .then(setCallHistory)
+      .catch(() => setCallHistory([]))
+      .finally(() => setIsLoadingHistory(false));
+  }, [view]);
+
+  const formatCallDate = (ts: string) => {
+    if (!ts) return '';
+    try {
+      const d = new Date(ts);
+      if (isNaN(d.getTime())) return ts;
+      const now = new Date();
+      const isToday = d.toDateString() === now.toDateString();
+      return isToday ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return ts;
+    }
+  };
 
   const handleStart = async () => {
     if (selected.size === 0) return;
@@ -400,9 +426,9 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
-            {step === 'select' && (
+            {(step === 'select' || view === 'history') && (
               <button
-                onClick={() => { setStep('type'); setSelected(new Set()); setError(null); }}
+                onClick={() => { if (view === 'history') setView('start'); else { setStep('type'); setSelected(new Set()); setError(null); } }}
                 className="p-1 rounded-lg hover:bg-gray-100 transition-colors mr-1"
                 aria-label="Back"
               >
@@ -411,7 +437,7 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
             )}
             <PhoneCall size={18} className="text-brand-600" />
             <h2 className="font-semibold text-gray-800 text-base">
-              {step === 'type' ? 'Start a Call' : `${callType === 'audio' ? 'Voice' : 'Video'} Call — Select People`}
+              {view === 'history' ? 'Call History' : step === 'type' ? 'Start a Call' : `${callType === 'audio' ? 'Voice' : 'Video'} Call — Select People`}
             </h2>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" aria-label="Close">
@@ -419,8 +445,55 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
           </button>
         </div>
 
+        {/* Call History view */}
+        {view === 'history' && (
+          <div className="flex-1 overflow-y-auto p-4" style={{ maxHeight: '400px' }}>
+            {isLoadingHistory ? (
+              <p className="text-sm text-gray-500 py-8 text-center">Loading call history...</p>
+            ) : callHistory.length === 0 ? (
+              <p className="text-sm text-gray-500 py-8 text-center">No call history</p>
+            ) : (
+              <div className="space-y-2">
+                {callHistory.map((call) => {
+                  const dt = call.timestamp ?? call.created_at ?? '';
+                  const participants = Array.isArray(call.participant) ? call.participant : [];
+                  const initiatorName = String(call.initiator_name ?? '').trim().toLowerCase();
+                  const displayNames = participants
+                    .map((p) => String(p ?? '').trim())
+                    .filter((p) => p && p.toLowerCase() !== initiatorName);
+                  const label = displayNames.length > 0 ? displayNames.join(', ') : '—';
+                  const loggedInId = String((currentUser as any).Employee_id ?? currentUser.id ?? '');
+                  const senderId = String(call.sender ?? call.initiator ?? '');
+                  const isOutgoing = loggedInId && senderId && senderId === loggedInId;
+                  return (
+                    <div
+                      key={call.id}
+                      className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
+                    >
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${call.call_type === 'video' ? 'bg-blue-100' : 'bg-green-100'}`}>
+                        {call.call_type === 'video' ? <VideoIcon size={16} className="text-blue-600" /> : <Mic size={16} className="text-green-600" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{label}</p>
+                        <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                          {isOutgoing ? (
+                            <><PhoneOutgoing size={12} className="text-green-600 flex-shrink-0" /> Outgoing</>
+                          ) : (
+                            <><PhoneIncoming size={12} className="text-blue-600 flex-shrink-0" /> Incoming{call.initiator_name ? ` • ${call.initiator_name}` : ''}</>
+                          )}
+                        </p>
+                      </div>
+                      <span className="text-xs text-gray-400 flex-shrink-0">{formatCallDate(dt)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Step 1 — Choose call type */}
-        {step === 'type' && (
+        {view === 'start' && step === 'type' && (
           <div className="p-6 flex flex-col gap-4">
             <p className="text-sm text-gray-500 mb-1">Choose how you'd like to connect</p>
             <button
@@ -449,11 +522,17 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
               </div>
               <ChevronRight size={16} className="text-gray-400 ml-auto" />
             </button>
+            <button
+              onClick={() => setView('history')}
+              className="mt-2 text-sm text-brand-600 hover:text-brand-700 font-medium"
+            >
+              View call history
+            </button>
           </div>
         )}
 
         {/* Step 2 — Select employees */}
-        {step === 'select' && (
+        {view === 'start' && step === 'select' && (
           <>
             {/* Search */}
             <div className="px-4 pt-4 pb-2">

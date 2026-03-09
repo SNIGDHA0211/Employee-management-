@@ -1127,9 +1127,11 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                     u.id === id || u.name === id || String((u as any).Employee_id) === String(id) || String((u as any)['Employee ID']) === String(id)
                   ))
                 : (assignee ? [assignee] : []);
-              const assigneeDisplayName = allAssignees.length > 0
-                ? allAssignees.map(a => a.name).join(', ')
-                : (assignee?.name || (typeof task.assigneeId === 'string' ? String(task.assigneeId).trim() : '') || 'Unknown');
+              const assigneeDisplayName = task.assignedToNames?.length
+                ? task.assignedToNames.join(', ')
+                : allAssignees.length > 0
+                  ? allAssignees.map(a => a.name).join(', ')
+                  : (assignee?.name || (typeof task.assigneeId === 'string' ? String(task.assigneeId).trim() : '') || 'Unknown');
               // Find reporter - try to find by ID, name, or email
               const reporter = task.reporterId ? users.find(u => 
                 u.id === task.reporterId || 
@@ -1964,9 +1966,11 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                   u.id === id || u.name === id || String((u as any).Employee_id) === String(id) || String((u as any)['Employee ID']) === String(id)
                 ))
               : (assignee ? [assignee] : []);
-            const assigneeDisplayName = allAssignees.length > 0
-              ? allAssignees.map(a => a.name).join(', ')
-              : (assignee?.name || (typeof task.assigneeId === 'string' ? String(task.assigneeId).trim() : '') || 'Unknown');
+            const assigneeDisplayName = task.assignedToNames?.length
+              ? task.assignedToNames.join(', ')
+              : allAssignees.length > 0
+                ? allAssignees.map(a => a.name).join(', ')
+                : (assignee?.name || (typeof task.assigneeId === 'string' ? String(task.assigneeId).trim() : '') || 'Unknown');
 
             const typeLabels: Record<string, string> = {
               [TaskType.SOS]: 'SOS',

@@ -4,6 +4,17 @@ import { getProducts, createClientProfile, getClientProfiles, getClientStages, u
 import { useEmployeesQuery } from '../../hooks/useEmployees';
 import { Plus, ChevronDown, ChevronUp, User as UserIcon, Package, Clock, ListPlus, StickyNote, UserPlus, Search, BarChart2, MapPin, Phone, PhoneCall, Receipt, Pencil, Check, X } from 'lucide-react';
 import { format, startOfMonth, parseISO } from 'date-fns';
+
+function safeFormatDate(dateStr: string | undefined, formatStr: string, fallback = '—'): string {
+  if (!dateStr) return fallback;
+  try {
+    const d = parseISO(dateStr);
+    if (!(d instanceof Date) || isNaN(d.getTime())) return fallback;
+    return format(d, formatStr);
+  } catch {
+    return fallback;
+  }
+}
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
 
 export interface CustomerLeadNote {
@@ -117,7 +128,8 @@ function mapApiProfileToLead(item: ClientProfileResponse): CustomerLead {
   };
 }
 
-export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUser, users = [] }) => {
+export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUser, users: usersProp }) => {
+  const users = Array.isArray(usersProp) ? usersProp : [];
   const { data: employeesFromApi = [] } = useEmployeesQuery(!!currentUser?.id);
   const employeeIdToName = useMemo(() => {
     const map: Record<string, string> = {};
@@ -419,25 +431,29 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
   }, [filteredLeads, stages]);
 
   const leadsOverTimeData = useMemo(() => {
-    const byMonth: { key: string; ts: number; count: number }[] = [];
-    const map = new Map<string, { ts: number; count: number }>();
-    filteredLeads.forEach((l) => {
-      const d = l.createdAt ? parseISO(l.createdAt) : new Date();
-      const key = format(startOfMonth(d), 'MMM yyyy');
-      const ts = startOfMonth(d).getTime();
-      const existing = map.get(key);
-      if (existing) existing.count += 1;
-      else map.set(key, { ts, count: 1 });
-    });
-    return Array.from(map.entries())
-      .map(([name, { ts, count }]) => ({ name, count, ts }))
-      .sort((a, b) => a.ts - b.ts)
-      .slice(-6)
-      .map(({ name, count }) => ({ name, count }));
+    try {
+      const map = new Map<string, { ts: number; count: number }>();
+      filteredLeads.forEach((l) => {
+        const parsed = l.createdAt ? parseISO(l.createdAt) : new Date();
+        const d = parsed instanceof Date && !isNaN(parsed.getTime()) ? parsed : new Date();
+        const key = format(startOfMonth(d), 'MMM yyyy');
+        const ts = startOfMonth(d).getTime();
+        const existing = map.get(key);
+        if (existing) existing.count += 1;
+        else map.set(key, { ts, count: 1 });
+      });
+      return Array.from(map.entries())
+        .map(([name, { ts, count }]) => ({ name, count, ts }))
+        .sort((a, b) => a.ts - b.ts)
+        .slice(-6)
+        .map(({ name, count }) => ({ name, count }));
+    } catch {
+      return [];
+    }
   }, [filteredLeads]);
 
   return (
-    <div className="w-full max-w-7xl mx-auto">
+    <div className="w-full max-w-7xl mx-auto min-h-[200px]">
       {/* Under Development Banner */}
       <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-300 rounded-xl shadow-sm mb-4">
         <span className="text-xl mt-0.5 shrink-0">🚧</span>
@@ -761,7 +777,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                                       <>
                                         <span className="block whitespace-pre-wrap">{note.text}</span>
                                         <span className="text-[10px] text-emerald-600/80 mt-0.5 block flex items-center gap-2">
-                                          {format(new Date(note.createdAt), 'dd MMM yyyy, HH:mm')}
+                                          {safeFormatDate(note.createdAt, 'dd MMM yyyy, HH:mm')}
                                           {note.createdBy && (
                                             <span className="text-emerald-500/90"> • by {employeeIdToName[String(note.createdBy).trim()] ?? note.createdBy}</span>
                                           )}
@@ -813,7 +829,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[10px] text-gray-400">
                   <span className="flex items-center gap-1">
                     <Clock size={10} />
-                    {format(new Date(lead.createdAt), 'dd MMM yyyy, HH:mm')}
+                    {safeFormatDate(lead.createdAt, 'dd MMM yyyy, HH:mm')}
                   </span>
                   <span>By: <strong className="text-brand-600">{employeeIdToName[String(lead.createdBy).trim()] ?? lead.createdBy}</strong></span>
                 </div>

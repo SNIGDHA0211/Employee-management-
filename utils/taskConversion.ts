@@ -42,15 +42,19 @@ export function convertApiTasksToTasks(
       }
     }
     let assigneeArray: any[] | undefined;
+    let assignedToNames: string[] | undefined;
     const at = apiTask.Assigned_to ?? apiTask.assigned_to ?? apiTask['assigned_to'];
     if (Array.isArray(at)) {
       assigneeArray = at.filter((x: any) => x != null && (typeof x !== 'string' || x.trim() !== ''));
+      assignedToNames = assigneeArray.map((x: any) => (typeof x === 'string' ? x.trim() : (x?.assignee ?? x?.name ?? x?.Assignee ?? x?.Name ?? '')?.trim() || '')).filter(Boolean);
     } else if (Array.isArray(apiTask.assignees)) {
       assigneeArray = apiTask.assignees;
     } else if (Array.isArray(apiTask.Report_to)) {
       assigneeArray = apiTask.Report_to;
+      assignedToNames = assigneeArray.map((x: any) => (typeof x === 'string' ? x.trim() : (x?.assignee ?? x?.name ?? '')?.trim() || '')).filter(Boolean);
     } else if (Array.isArray(apiTask.report_to)) {
       assigneeArray = apiTask.report_to;
+      assignedToNames = assigneeArray.map((x: any) => (typeof x === 'string' ? x.trim() : (x?.assignee ?? x?.name ?? '')?.trim() || '')).filter(Boolean);
     } else if (Array.isArray(apiTask.assigned_to_ids)) {
       assigneeArray = apiTask.assigned_to_ids;
     } else if (at && typeof at === 'object' && Array.isArray(at.ids)) {
@@ -178,6 +182,7 @@ export function convertApiTasksToTasks(
       status: mappedStatus,
       assigneeId: String(rawAssignedTo),
       assigneeIds: assigneeIds,
+      assignedToNames: assignedToNames?.length ? assignedToNames : undefined,
       reporterId: (reporterId && String(reporterId).trim()) || (rawReporterId && String(rawReporterId).trim()) || '',
       createdByName: typeof createdByName === 'string' ? createdByName : undefined,
       dueDate,

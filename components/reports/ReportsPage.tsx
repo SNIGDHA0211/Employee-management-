@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { FileText, Printer, Send, Plus, Calendar, Building2, User as UserIcon, Filter } from 'lucide-react';
+import { FileText, Printer, Send, Plus, Calendar, Building2, User as UserIcon, Filter, Loader2 } from 'lucide-react';
 import { Department, ViewType, ReviewRow, ImplementationRow, SalesOpsRow } from './types';
 import { MONTH_TO_MEETING_MAP, MONTH_NAMES } from './constants';
 import ReviewTable from './ReviewTable';
 import ImplementationTable from './ImplementationTable';
 import SalesOpsTable from './SalesOpsTable';
-import { 
-  getEmployeeDashboard, 
-  getMonthlySchedule, 
-  addDayEntries, 
-  changeEntryStatus, 
+import {
+  getEmployeeDashboard,
+  getMonthlySchedule,
+  addDayEntries,
+  changeEntryStatus,
   getDepartmentsandFunctions,
-} from '../../services/api';
+  getEmployeesFromAccounts,
+  getProducts,
+} from '../../services/reportsApi';
 import type { User } from '../../types';
 
 interface ReportsPageProps {
@@ -41,15 +43,14 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(false);
   const [currentSchedule, setCurrentSchedule] = useState<any | null>(null);
   const [selectedScheduleIndex, setSelectedScheduleIndex] = useState<number>(0);
-  // Use shared users from App
-  const allEmployees = usersProp.map((u) => ({
-    id: u.id,
-    name: u.name,
-    department: (u as any).department || u.branch,
-  }));
   const [refreshEntriesKey, setRefreshEntriesKey] = useState(0); // Bump after save to refetch and display stored entries
   const [mdAttendeeSchedule, setMdAttendeeSchedule] = useState<any[]>([]);
   const [isLoadingMDSchedule, setIsLoadingMDSchedule] = useState(false);
+  const [allEmployees, setAllEmployees] = useState<{ id: string; name: string; department?: string }[]>([]);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
+  const [products, setProducts] = useState<Array<{ id: string | number; name: string } | string>>([]);
+  const [selectedProduct, setSelectedProduct] = useState<string>('');
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
 
   // Refs to prevent duplicate fetches
   const hasFetchedEntries = useRef(false);
@@ -59,21 +60,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
 
   // Memoize the schedule month to prevent unnecessary re-renders
   const scheduleMonth = useMemo(() => currentSchedule?.month, [currentSchedule?.month]);
-
-  // For MD: selected attendee → user id for API (username param). For non-MD: current user id. MD never uses userId for entries – only matched attendee id.
-  const scheduleUserId = useMemo(() => {
-    if (isMD) {
-      if (attendee && typeof attendee === 'string' && attendee.trim()) {
-        const normalized = attendee.trim().toLowerCase();
-        const emp = allEmployees.find(
-          (e) => e.name && String(e.name).trim().toLowerCase() === normalized
-        );
-        return emp?.id ?? undefined;
-      }
-      return undefined;
-    }
-    return userId ?? undefined;
-  }, [isMD, attendee, allEmployees, userId]);
 
   // Helper: map quarter number to months (financial year: Q4 = Jan–Mar, Q1 = Apr–Jun, etc.)
   const getMonthsForQuarter = (quarterNum: number): number[] => {
@@ -134,6 +120,29 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     return Department.SALES;
   };
 
+  // Filter employees by selected department (client-side, no API call). Exclude department: none/empty.
+  const departmentEmployees = useMemo(() => {
+    return allEmployees.filter((emp) => {
+      const dept = String(emp.department ?? '').trim().toLowerCase();
+      if (!dept || dept === 'none') return false;
+      return mapApiDepartmentToEnum(emp.department) === selectedDept;
+    });
+  }, [allEmployees, selectedDept]);
+
+  const scheduleUserId = useMemo(() => {
+    if (isMD) {
+      if (attendee && typeof attendee === 'string' && attendee.trim()) {
+        const normalized = attendee.trim().toLowerCase();
+        const emp = departmentEmployees.find(
+          (e) => e.name && String(e.name).trim().toLowerCase() === normalized
+        );
+        return emp?.id ?? undefined;
+      }
+      return undefined;
+    }
+    return userId ?? undefined;
+  }, [isMD, attendee, departmentEmployees, userId]);
+
   // Fetch departments list for MD role (used for dropdown)
   const fetchDepartmentsForMD = async () => {
     setIsLoadingDeptList(true);
@@ -159,6 +168,52 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMD]);
 
+  // Fetch all employees once (for MD) – filter by department client-side
+  useEffect(() => {
+    if (!isMD) {
+      setAllEmployees([]);
+      return;
+    }
+    setIsLoadingEmployees(true);
+    getEmployeesFromAccounts()
+      .then((list) => {
+        const mapped = list
+          .map((e: any) => ({
+            id: String(e.Employee_id ?? e.Employee_ID ?? e.id ?? ''),
+            name: e.Name ?? e.name ?? e.employee_name ?? String(e.Employee_id ?? e.id ?? ''),
+            department: e.Department ?? e.department ?? e.branch ?? e.Dept ?? '',
+          }))
+          .filter((e) => {
+            if (!e.id) return false;
+            const dept = String(e.department ?? '').trim().toLowerCase();
+            return dept && dept !== 'none';
+          });
+        setAllEmployees(mapped);
+      })
+      .catch(() => setAllEmployees([]))
+      .finally(() => setIsLoadingEmployees(false));
+  }, [isMD]);
+
+  // Fetch products for Product dropdown — normalize string[] or {id, name}[] from API
+  useEffect(() => {
+    setIsLoadingProducts(true);
+    getProducts()
+      .then((list) => {
+        if (!Array.isArray(list)) {
+          setProducts([]);
+          return;
+        }
+        const normalized = list.map((p: unknown, i: number) => {
+          if (typeof p === 'string') return p;
+          if (p && typeof p === 'object' && 'name' in p) return { id: (p as any).id ?? i, name: String((p as any).name ?? '') };
+          if (p && typeof p === 'object' && 'id' in p) return { id: (p as any).id, name: String((p as any).name ?? (p as any).id ?? '') };
+          return { id: i, name: String(p ?? '') };
+        });
+        setProducts(normalized);
+      })
+      .catch(() => setProducts([]))
+      .finally(() => setIsLoadingProducts(false));
+  }, []);
 
   // Fetch department, role and user ID from API when component mounts
   useEffect(() => {
@@ -170,13 +225,13 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
         // Get user ID (Employee_id) for monthly schedule API
         const employeeId = employeeData?.['Employee_id'] || 
                           employeeData?.['Employee ID'] || 
-                          employeeData?.id ||
+                          (employeeData as { id?: string })?.id ||
                           null;
         
         if (employeeId) setUserId(String(employeeId));
 
         // Detect role (MD vs others) – support "MD", "Managing Director", etc.
-        const apiRole = employeeData?.['Role'] || employeeData?.['role'] || employeeData?.ROLE;
+        const apiRole = employeeData?.['Role'] || employeeData?.['role'] || (employeeData as { ROLE?: string })?.['ROLE'];
         const normalizedRole = apiRole ? String(apiRole).trim().toUpperCase().replace(/\s+/g, ' ') : '';
         const userIsMD = normalizedRole === 'MD' ||
           normalizedRole === 'MANAGING DIRECTOR' ||
@@ -184,13 +239,9 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
           /^MD\b/.test(normalizedRole);
         setIsMD(userIsMD);
         
-        // Try multiple possible field names for department
-        const apiDepartment = employeeData?.['Department'] || 
-                              employeeData?.['department'] || 
-                              employeeData?.Department ||
-                              employeeData?.department ||
-                              currentUserDepartment ||
-                              null;
+        // Try multiple possible field names for department (API may return Department/department)
+        const ed = employeeData as { Department?: string; department?: string };
+        const apiDepartment = ed?.Department || ed?.department || currentUserDepartment || null;
         
         if (apiDepartment) {
           const mappedDept = mapApiDepartmentToEnum(apiDepartment);
@@ -227,16 +278,19 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     return idx >= 0 ? idx + 1 : null;
   };
 
-  // Fetch schedule (only when Filter is clicked – not on mount)
+  // Fetch schedule by department, quarter, month
   const fetchScheduleOnFilter = async () => {
-    const targetId = isMD ? scheduleUserId : userId;
-    if (!targetId || selectedQuarter == null || selectedMonth == null) return;
+    if (selectedQuarter == null || selectedMonth == null) return;
 
     setIsLoadingSchedule(true);
     if (isMD) setIsLoadingMDSchedule(true);
     try {
-      const params = { quater: `Q${selectedQuarter}`, month: monthNumToName(selectedMonth) };
-      const schedule = await getMonthlySchedule(String(targetId), params);
+      const params = {
+        quater: `Q${selectedQuarter}`,
+        month: monthNumToName(selectedMonth),
+        department: selectedDept,
+      };
+      const schedule = await getMonthlySchedule(params);
       const scheduleArray = Array.isArray(schedule) ? schedule : [];
       if (isMD) {
         setMdAttendeeSchedule(scheduleArray);
@@ -271,6 +325,14 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
       setRefreshEntriesKey((k) => k + 1);
     });
   };
+
+  // Auto-fetch schedule when quarter, month, and department are set
+  useEffect(() => {
+    if (selectedQuarter != null && selectedMonth != null && selectedDept) {
+      fetchScheduleOnFilter().then(() => setRefreshEntriesKey((k) => k + 1));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDept, selectedQuarter, selectedMonth]);
 
   // Schedule source: for MD use attendee's schedule, else logged-in user's monthly schedule
   const scheduleSource = useMemo(() => {
@@ -454,20 +516,12 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
     };
   }, [currentSchedule, selectedDept]);
 
-  // Filter employees by selected department for Reporting Officer / Attendee dropdown
-  const filteredEmployeesByDept = useMemo(() => {
-    return allEmployees.filter((emp) => {
-      if (!emp.department) return false;
-      return mapApiDepartmentToEnum(emp.department) === selectedDept;
-    });
-  }, [allEmployees, selectedDept]);
-
-  // Clear attendee when department changes and current selection is not in filtered list
+  // Clear attendee when department changes and current selection is not in list
   useEffect(() => {
     if (!attendee) return;
-    const inList = filteredEmployeesByDept.some((e) => e.name === attendee);
+    const inList = departmentEmployees.some((e) => e.name === attendee);
     if (!inList) setAttendee('');
-  }, [selectedDept, filteredEmployeesByDept]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedDept, departmentEmployees]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle status change for Review rows
   const handleReviewStatusChange = async (rowId: string, newStatus: 'PENDING' | 'INPROCESS' | 'COMPLETED') => {
@@ -504,15 +558,8 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
               : parseInt(String(updatedRow.entry_id));
             
             if (!isNaN(entryIdNum) && entryIdNum > 0) {
-              let normalizedStatus: 'PENDING' | 'INPROCESS' | 'Completed' = newStatus;
-              if (newStatus === 'COMPLETED') {
-                normalizedStatus = 'Completed';
-              } else if (newStatus === 'INPROCESS') {
-                normalizedStatus = 'INPROCESS';
-              } else {
-                normalizedStatus = 'PENDING';
-              }
-              
+              const normalizedStatus: 'PENDING' | 'INPROCESS' | 'Completed' =
+                newStatus === 'COMPLETED' ? 'Completed' : newStatus === 'INPROCESS' ? 'INPROCESS' : 'PENDING';
               await changeEntryStatus(entryIdNum, normalizedStatus);
               return;
             }
@@ -538,15 +585,8 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
       }
       
       // Normalize status to match backend expectations
-      let normalizedStatus: 'PENDING' | 'INPROCESS' | 'Completed' = newStatus;
-      if (newStatus === 'COMPLETED') {
-        normalizedStatus = 'Completed';
-      } else if (newStatus === 'INPROCESS') {
-        normalizedStatus = 'INPROCESS';
-      } else {
-        normalizedStatus = 'PENDING';
-      }
-      
+      const normalizedStatus: 'PENDING' | 'INPROCESS' | 'Completed' =
+        newStatus === 'COMPLETED' ? 'Completed' : newStatus === 'INPROCESS' ? 'INPROCESS' : 'PENDING';
       await changeEntryStatus(entryIdNum, normalizedStatus);
     } catch (error: any) {
       console.error('❌ [REPORTS] Error changing status:', error);
@@ -626,8 +666,8 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
         .filter(col => col.trim())
         .join(' | ');
       
-      // Normalize status value
-      let statusValue = row.status || 'PENDING';
+      // Normalize status value (API may return various formats)
+      let statusValue = String(row.status || 'PENDING');
       if (statusValue === 'Completed' || statusValue === 'completed') {
         statusValue = 'COMPLETED';
       } else if (statusValue === 'INPROCESS' || statusValue === 'In Process' || statusValue === 'IN_PROGRESS') {
@@ -849,8 +889,8 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
             .filter(col => col.trim())
             .join(' | ');
           
-          // Get status value and normalize it
-          let statusValue = row.status || 'PENDING';
+          // Get status value and normalize it (API may return various formats)
+          let statusValue = String(row.status || 'PENDING');
           
           // Normalize status to match backend expectations
           // Backend might expect "COMPLETED" (all caps) instead of "Completed"
@@ -992,7 +1032,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
             </div>
 
             {/* Meta Info Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-left border-t border-b border-gray-100 py-6 text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-7 gap-4 text-left border-t border-b border-gray-100 py-6 text-sm">
               <div className="flex flex-col">
                 <span className="text-gray-400 text-[10px] font-black uppercase tracking-tighter flex items-center">
                   <Building2 className="w-3 h-3 mr-1" />
@@ -1072,27 +1112,42 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                   {currentSchedule?.financial_year || year}
                 </span>
               </div>
-              <div className="flex flex-col justify-end">
-                <button
-                  type="button"
-                  onClick={handleFilterClick}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors no-print"
-                >
-                  <Filter className="w-4 h-4" />
-                  Filter
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-8 text-left text-sm">
               <div className="flex flex-col">
+                <span className="text-gray-400 text-[10px] font-black uppercase tracking-tighter mb-1">Product</span>
+                {isLoadingProducts ? (
+                  <span className="text-slate-500 font-bold mt-1 text-sm">Loading...</span>
+                ) : (
+                  <select
+                    value={selectedProduct}
+                    onChange={(e) => setSelectedProduct(e.target.value)}
+                    className="mt-1 bg-white border border-slate-200 rounded-md px-3 py-1.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
+                  >
+                    <option value="">Select Product</option>
+                    {products.map((p, i) => {
+                      const id = typeof p === 'string' ? p : String((p as any).id ?? i);
+                      const name = typeof p === 'string' ? p : String((p as any).name ?? id);
+                      return (
+                        <option key={`${id}-${i}`} value={name}>
+                          {name}
+                        </option>
+                      );
+                    })}
+                  </select>
+                )}
+              </div>
+              <div className="flex flex-col min-w-[320px]">
                 <span className="text-gray-400 text-[10px] font-black uppercase tracking-tighter mb-1">Meeting Strategic Title</span>
-                {scheduleEntriesForView.length >= 1 ? (
+                {isLoadingSchedule || isLoadingMDSchedule ? (
+                  <div className="flex items-center gap-2 py-3 text-slate-500 font-semibold">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading...
+                  </div>
+                ) : scheduleEntriesForView.length >= 1 ? (
                   <>
                     <select
                       value={selectedScheduleIndex}
                       onChange={(e) => setSelectedScheduleIndex(parseInt(e.target.value, 10))}
-                      className="mb-2 bg-white border border-slate-200 rounded-md px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
+                      className="mt-1 mb-2 w-full min-w-0 bg-white border border-slate-200 rounded-md px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
                     >
                       {scheduleEntriesForView.map((entry: any, idx: number) => {
                         const meetingHead = entry['Meeting-head'] || 'General Review';
@@ -1105,7 +1160,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                         );
                       })}
                     </select>
-                    <div className="text-slate-800 font-semibold bg-brand-50/50 p-3 rounded border-l-4 border-brand-600 shadow-sm">
+                    <div className="text-slate-800 font-semibold bg-brand-50/50 p-3 rounded border-l-4 border-brand-600 shadow-sm min-w-0">
                       <span className="font-bold">{currentSchedule?.['Meeting-head'] || config.head}</span>
                       {(currentSchedule?.['Sub-Meeting-head'] || config.subMeetingHead) && (
                         <span className="block text-xs text-slate-600 mt-1 font-normal">
@@ -1115,7 +1170,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                     </div>
                   </>
                 ) : (
-                  <div className="text-slate-800 font-semibold bg-brand-50/50 p-3 rounded border-l-4 border-brand-600 shadow-sm">
+                  <div className="text-slate-800 font-semibold mt-1 bg-brand-50/50 p-3 rounded border-l-4 border-brand-600 shadow-sm">
                     {config.head}
                     {config.subMeetingHead && (
                       <span className="block text-xs text-slate-600 mt-1 font-normal">
@@ -1125,29 +1180,41 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ currentUserName, currentUserD
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="mt-6 text-left text-sm flex flex-wrap items-end gap-4">
               <div className="flex flex-col">
                 <span className="text-gray-400 text-[10px] font-black uppercase tracking-tighter mb-1 flex items-center">
                   <UserIcon className="w-3 h-3 mr-1" />
-                  Reporting Officer / Attendee
+                  Reporting Officer
                 </span>
                 {isMD ? (
-                    <select
-                      value={attendee}
-                      onChange={(e) => setAttendee(e.target.value)}
-                      className="bg-white border border-slate-200 rounded-md px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print"
-                    >
-                      <option value="">Select reporting officer / attendee</option>
-                      {filteredEmployeesByDept.map((emp) => (
-                        <option key={emp.id} value={emp.name}>
-                          {emp.name}
-                        </option>
-                      ))}
-                    </select>
+                  <select
+                    value={attendee}
+                    onChange={(e) => setAttendee(e.target.value)}
+                    disabled={isLoadingEmployees}
+                    className="mt-1 bg-white border border-slate-200 rounded-md px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 no-print disabled:opacity-60"
+                  >
+                    <option value="">{isLoadingEmployees ? 'Loading...' : 'Select reporting officer / attendee'}</option>
+                    {departmentEmployees.map((emp) => (
+                      <option key={emp.id} value={emp.name}>
+                        {emp.name}
+                      </option>
+                    ))}
+                  </select>
                 ) : (
-                  <span className="text-slate-800 font-semibold mt-1 no-print">{currentUserName || '—'}</span>
+                  <span className="text-slate-800 font-semibold mt-1">{currentUserName || '—'}</span>
                 )}
                 <span className="hidden print:block text-slate-800 font-semibold border-b border-slate-200 py-2">{isMD ? (attendee || '____________________') : (currentUserName || '____________________')}</span>
               </div>
+              <button
+                type="button"
+                onClick={handleFilterClick}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors no-print"
+              >
+                <Filter className="w-4 h-4" />
+                Filter
+              </button>
             </div>
           </div>
 

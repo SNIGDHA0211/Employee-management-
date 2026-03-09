@@ -2377,28 +2377,27 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           ) : (
             // Sort messages by date and time (oldest first, newest last) to show latest at bottom
             [...apiMessages].sort((a, b) => {
-              // Parse date in DD/MM/YY format and time in HH:MM format
+              // Parse date in DD/MM/YY format and time in HH:MM or HH:MM:SS format
               const parseDateTime = (date: string, time: string) => {
                 if (!date) return 0;
                 // Date format: "14/01/26" (DD/MM/YY)
                 const dateParts = date.split('/');
                 if (dateParts.length === 3) {
                   const day = parseInt(dateParts[0], 10);
-                  const month = parseInt(dateParts[1], 10) - 1; // Month is 0-indexed
-                  const year = 2000 + parseInt(dateParts[2], 10); // Convert YY to YYYY
-                  
-                  // Time format: "11:55" (HH:MM)
-                  const timeParts = (time || '00:00').split(':');
+                  const month = parseInt(dateParts[1], 10) - 1;
+                  const year = 2000 + parseInt(dateParts[2], 10);
+                  // Time format: "11:55" (HH:MM) or "11:19:37" (HH:MM:SS)
+                  const timeParts = (time || '00:00:00').split(':');
                   const hours = parseInt(timeParts[0] || '0', 10);
                   const minutes = parseInt(timeParts[1] || '0', 10);
-                  
-                  return new Date(year, month, day, hours, minutes).getTime();
+                  const seconds = parseInt(timeParts[2] || '0', 10);
+                  return new Date(year, month, day, hours, minutes, seconds).getTime();
                 }
                 return 0;
               };
               
-              const dateTimeA = parseDateTime(a.date || '', a.time || '00:00');
-              const dateTimeB = parseDateTime(b.date || '', b.time || '00:00');
+              const dateTimeA = parseDateTime(a.date || '', a.time || '00:00:00');
+              const dateTimeB = parseDateTime(b.date || '', b.time || '00:00:00');
               
               // Return negative if A is earlier (should come first), positive if B is earlier
               return dateTimeA - dateTimeB;
