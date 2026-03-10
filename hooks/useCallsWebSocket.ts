@@ -144,10 +144,17 @@ export function useCallsWebSocket(options: UseCallsWebSocketOptions) {
               cbs.onGroupCallEnded?.({ call_id: data.call_id, reason: data.reason });
               break;
             case 'screen_shared': {
-              const d = data as { is_screen_shared: boolean; shared_by_name: string; call_id?: number; group_call_id?: number };
+              const raw = data as {
+                payload?: { type?: string; is_screen_shared: boolean; shared_by_name?: string; stopped_by_name?: string; call_id?: number; group_call_id?: number };
+                is_screen_shared?: boolean;
+                shared_by_name?: string;
+                call_id?: number;
+                group_call_id?: number;
+              };
+              const d = raw.payload ?? raw;
               cbs.onScreenShared?.({
-                is_screen_shared: d.is_screen_shared,
-                shared_by_name: d.shared_by_name ?? '',
+                is_screen_shared: d.is_screen_shared ?? false,
+                shared_by_name: (d.shared_by_name ?? '') as string,
                 call_id: d.call_id,
                 group_call_id: d.group_call_id,
               });
