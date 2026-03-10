@@ -342,6 +342,7 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
   const [error, setError] = useState<string | null>(null);
   const [callHistory, setCallHistory] = useState<any[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [participantsModalCall, setParticipantsModalCall] = useState<{ participant: string[]; label?: string } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Exclude self from the list
@@ -385,11 +386,17 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
   const formatCallDate = (ts: string) => {
     if (!ts) return '';
     try {
-      const d = new Date(ts);
+      // API returns "dd/mm/yyyy HH:mm:ss" or "dd/mm/yy HH:mm:ss"
+      const [datePart, timePart] = String(ts).trim().split(/\s+/);
+      if (!datePart) return ts;
+      const [dd, mm, yy] = datePart.split('/');
+      const [hh = '0', min = '0'] = (timePart || '00:00').split(':');
+      const fullYear = yy && yy.length === 2 ? 2000 + parseInt(yy, 10) : parseInt(yy || '0', 10);
+      const d = new Date(fullYear, (parseInt(mm || '1', 10) - 1), parseInt(dd || '1', 10), parseInt(hh, 10), parseInt(min, 10), 0);
       if (isNaN(d.getTime())) return ts;
-      const now = new Date();
-      const isToday = d.toDateString() === now.toDateString();
-      return isToday ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const yy2 = String(d.getFullYear()).slice(-2);
+      return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${yy2} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     } catch {
       return ts;
     }
@@ -445,7 +452,7 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
       style={{ background: 'rgba(15,23,42,0.55)' }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col" style={{ maxHeight: '90vh' }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col relative" style={{ maxHeight: '90vh' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
@@ -468,6 +475,39 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
           </button>
         </div>
 
+        {/* Participants modal */}
+        {participantsModalCall && (
+          <div
+            className="absolute inset-0 z-10 flex items-center justify-center p-4 bg-black/30"
+            onClick={() => setParticipantsModalCall(null)}
+          >
+            <div
+              className="bg-white rounded-xl shadow-xl w-full max-w-sm max-h-[70vh] overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                <h3 className="font-semibold text-gray-800">Participants</h3>
+                <button
+                  type="button"
+                  onClick={() => setParticipantsModalCall(null)}
+                  className="p-1 rounded-lg hover:bg-gray-100 text-gray-500"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <ul className="flex-1 overflow-y-auto p-3 space-y-1">
+                {participantsModalCall.participant.map((name, i) => (
+                  <li key={`${name}-${i}`} className="flex items-center gap-2 py-2 px-2 rounded-lg hover:bg-gray-50 text-sm text-gray-800">
+                    <Users size={14} className="text-gray-400 flex-shrink-0" />
+                    <span className="truncate">{name}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+
         {/* Call History view */}
         {view === 'history' && (
           <div className="flex-1 overflow-y-auto p-4" style={{ maxHeight: '400px' }}>
@@ -477,34 +517,45 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
               <p className="text-sm text-gray-500 py-8 text-center">No call history</p>
             ) : (
               <div className="space-y-2">
-                {callHistory.map((call) => {
+                {callHistory.map((call, index) => {
                   const dt = call.timestamp ?? call.created_at ?? '';
                   const participants = Array.isArray(call.participant) ? call.participant : [];
                   const initiatorName = String(call.initiator_name ?? '').trim().toLowerCase();
                   const displayNames = participants
                     .map((p) => String(p ?? '').trim())
                     .filter((p) => p && p.toLowerCase() !== initiatorName);
-                  const label = displayNames.length > 0 ? displayNames.join(', ') : '—';
-                  const loggedInId = String((currentUser as any).Employee_id ?? currentUser.id ?? '');
-                  const senderId = String(call.sender ?? call.initiator ?? '');
-                  const isOutgoing = loggedInId && senderId && senderId === loggedInId;
+                  const isOutgoing = call.initiator === true;
+                  const isMissed = String(call.status ?? '').toLowerCase() === 'missed';
+                  const label = !isOutgoing && call.initiator_name
+                    ? call.initiator_name
+                    : displayNames.length > 0 ? displayNames.join(', ') : '—';
+                  const isGroupCall = call.call_kind === 'group' || participants.length > 2;
                   return (
                     <div
-                      key={call.id}
-                      className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
+                      key={`call-${call.id}-${call.timestamp ?? index}-${index}`}
+                      className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${isMissed ? 'bg-red-50 border-red-200 hover:bg-red-100' : 'border-gray-200 hover:bg-gray-50'}`}
                     >
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${call.call_type === 'video' ? 'bg-blue-100' : 'bg-green-100'}`}>
                         {call.call_type === 'video' ? <VideoIcon size={16} className="text-blue-600" /> : <Mic size={16} className="text-green-600" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-800 truncate">{label}</p>
-                        <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                        <p className={`text-xs flex items-center gap-1.5 ${isMissed ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
                           {isOutgoing ? (
-                            <><PhoneOutgoing size={12} className="text-green-600 flex-shrink-0" /> Outgoing</>
+                            <><PhoneOutgoing size={12} className="text-green-600 flex-shrink-0" /> Outgoing{isMissed ? ' • Missed call' : ''}</>
                           ) : (
-                            <><PhoneIncoming size={12} className="text-blue-600 flex-shrink-0" /> Incoming{call.initiator_name ? ` • ${call.initiator_name}` : ''}</>
+                            <><PhoneIncoming size={12} className="text-blue-600 flex-shrink-0" /> Incoming{isMissed ? ' • Missed call' : ''}</>
                           )}
                         </p>
+                        {isGroupCall && participants.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setParticipantsModalCall({ participant: participants.map((p) => String(p).trim()).filter(Boolean), label })}
+                            className="mt-1 text-xs text-brand-600 hover:text-brand-700 hover:underline"
+                          >
+                            View all {participants.length} participants
+                          </button>
+                        )}
                       </div>
                       <span className="text-xs text-gray-400 flex-shrink-0">{formatCallDate(dt)}</span>
                     </div>
