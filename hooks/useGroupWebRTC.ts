@@ -197,7 +197,7 @@ export function useGroupWebRTC(options: UseGroupWebRTCOptions) {
       const fromUser = data.from_user ?? data.sender;
       if (!data.candidate || !fromUser) return;
       const pc = pcMapRef.current.get(fromUser);
-      if (!pc) {
+      if (!pc || !pc.remoteDescription) {
         const pending = pendingIceRef.current.get(fromUser) ?? [];
         pending.push(data.candidate);
         pendingIceRef.current.set(fromUser, pending);

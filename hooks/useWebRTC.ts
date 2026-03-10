@@ -262,12 +262,13 @@ export function useWebRTC(options: UseWebRTCOptions) {
       if (!data.candidate) return;
       const fromUser = data.from_user ?? data.sender;
       if (!fromUser || (fromUser !== targetUserId && String(fromUser) !== String(targetUserId))) return;
-      if (!pcRef.current) {
+      const pc = pcRef.current;
+      if (!pc || !pc.remoteDescription) {
         pendingIceRef.current.push(data.candidate);
         return;
       }
       try {
-        await pcRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
       } catch (err) {
         console.error('[WebRTC] Add ICE candidate failed:', err);
       }
