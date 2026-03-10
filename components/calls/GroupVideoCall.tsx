@@ -71,6 +71,15 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
     setIsCameraOff((c) => !c);
   };
 
+  const remoteParticipants = participants.filter((p) => !p.isLocal);
+  const gridCount = Math.max(1, remoteParticipants.length + 1);
+
+  // When someone shares: show shared screen at 80%, others in 20% row
+  const whoIsSharing = screenSharedBy ?? (isSharingScreen ? localUserName : null);
+  const sharedStream = whoIsSharing
+    ? (whoIsSharing === localUserName ? localStream : remoteParticipants.find((p) => (p.name || p.username) === whoIsSharing)?.stream)
+    : null;
+
   useEffect(() => {
     if (sharedVideoRef.current && sharedStream) {
       sharedVideoRef.current.srcObject = sharedStream;
@@ -86,15 +95,6 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
       if (stream) el.srcObject = stream;
     });
   }, [participants, localStream, isCameraOff]);
-
-  const remoteParticipants = participants.filter((p) => !p.isLocal);
-  const gridCount = Math.max(1, remoteParticipants.length + 1);
-
-  // When someone shares: show shared screen at 80%, others in 20% row
-  const whoIsSharing = screenSharedBy ?? (isSharingScreen ? localUserName : null);
-  const sharedStream = whoIsSharing
-    ? (whoIsSharing === localUserName ? localStream : remoteParticipants.find((p) => (p.name || p.username) === whoIsSharing)?.stream)
-    : null;
 
   return (
     <div className="fixed inset-0 z-[99999] flex flex-col bg-slate-900 text-white min-h-0">
@@ -127,7 +127,7 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
           </div>
         ) : whoIsSharing && sharedStream ? (
           /* Screen share layout: 80% shared, 20% thumbnails */
-          <div className="flex flex-col h-full w-full gap-2 min-h-0">
+          <div className="flex flex-col h-full w-full gap-2 min-h-0 bg-slate-900">
             <div className="w-full flex-1 min-h-0">
               <div className="w-full h-full relative rounded-lg overflow-hidden bg-slate-800 border-2 border-amber-500/50">
                 <video
@@ -169,9 +169,14 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
               ))}
             </div>
           </div>
+        ) : !localStream && remoteParticipants.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-4 flex-1 min-h-[200px] bg-slate-900">
+            <div className="w-16 h-16 rounded-full border-2 border-brand-500/50 border-t-brand-500 animate-spin" />
+            <p className="text-slate-400 text-sm">Connecting...</p>
+          </div>
         ) : (
           <div
-            className="grid gap-2 min-h-[200px] w-full flex-1"
+            className="grid gap-2 min-h-[200px] w-full flex-1 bg-slate-900"
             style={{
               gridTemplateColumns: gridCount <= 2 ? '1fr 1fr' : 'repeat(2, 1fr)',
               gridTemplateRows: gridCount <= 2 ? '1fr' : 'repeat(2, 1fr)',
