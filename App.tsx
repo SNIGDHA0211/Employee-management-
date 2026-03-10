@@ -21,6 +21,7 @@ import { convertApiTasksToTasks } from './utils/taskConversion';
 import { requestPermission, handleWebSocketNotification, parseNotificationPayload, playNotificationSound, getPermission, isNotificationSupported } from './utils/browserNotifications';
 import { clearAuthData } from './services/utils/auth';
 import { Sidebar, Header } from './components/Layout';
+import { CallProvider } from './contexts/CallContext';
 import { MeetCard } from './components/MeetCard';
 import { TaskBoard } from './components/TaskBoard';
 import { ChatSystem } from './components/ChatSystem';
@@ -1922,6 +1923,7 @@ export default function App() {
   };
 
   return (
+    <CallProvider currentUser={currentUser} users={users}>
     <div className="flex h-screen bg-gray-50">
       <Sidebar 
         user={currentUser} 
@@ -2279,5 +2281,6 @@ export default function App() {
         </>
       )}
     </div>
+    </CallProvider>
   );
 }

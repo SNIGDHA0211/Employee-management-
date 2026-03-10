@@ -27,6 +27,8 @@ interface GroupVideoCallProps {
   onShareScreen?: () => Promise<boolean>;
   onStopShareScreen?: () => void;
   isSharingScreen?: boolean;
+  /** Who is sharing screen (from WebSocket screen_shared.shared_by_name). When set, shared screen gets 80% layout. */
+  screenSharedBy?: string | null;
   isEndingCall?: boolean;
 }
 
@@ -45,9 +47,11 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
   onShareScreen,
   onStopShareScreen,
   isSharingScreen = false,
+  screenSharedBy = null,
   isEndingCall = false,
 }) => {
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const sharedVideoRef = useRef<HTMLVideoElement | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
 
@@ -68,6 +72,12 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
   };
 
   useEffect(() => {
+    if (sharedVideoRef.current && sharedStream) {
+      sharedVideoRef.current.srcObject = sharedStream;
+    }
+  }, [sharedStream]);
+
+  useEffect(() => {
     if (isCameraOff) return;
     videoRefs.current.forEach((el, key) => {
       if (!el) return;
@@ -80,9 +90,15 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
   const remoteParticipants = participants.filter((p) => !p.isLocal);
   const gridCount = Math.max(1, remoteParticipants.length + 1);
 
+  // When someone shares: show shared screen at 80%, others in 20% row
+  const whoIsSharing = screenSharedBy ?? (isSharingScreen ? localUserName : null);
+  const sharedStream = whoIsSharing
+    ? (whoIsSharing === localUserName ? localStream : remoteParticipants.find((p) => (p.name || p.username) === whoIsSharing)?.stream)
+    : null;
+
   return (
-    <div className="fixed inset-0 z-[99999] flex flex-col bg-slate-900 text-white">
-      <div className="flex-1 p-4 overflow-auto">
+    <div className="fixed inset-0 z-[99999] flex flex-col bg-slate-900 text-white min-h-0">
+      <div className="flex-1 min-h-0 p-4 overflow-auto flex flex-col">
         {status === 'incoming' ? (
           <div className="flex flex-col items-center justify-center h-full gap-6">
             <div className="w-24 h-24 rounded-full bg-brand-500/30 flex items-center justify-center">
@@ -109,16 +125,60 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
               </button>
             </div>
           </div>
+        ) : whoIsSharing && sharedStream ? (
+          /* Screen share layout: 80% shared, 20% thumbnails */
+          <div className="flex flex-col h-full w-full gap-2 min-h-0">
+            <div className="w-full flex-1 min-h-0">
+              <div className="w-full h-full relative rounded-lg overflow-hidden bg-slate-800 border-2 border-amber-500/50">
+                <video
+                  ref={(el) => { sharedVideoRef.current = el; if (el && sharedStream) el.srcObject = sharedStream; }}
+                  autoPlay
+                  playsInline
+                  muted={whoIsSharing === localUserName}
+                  className="w-full h-full object-contain bg-slate-800"
+                />
+                <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 rounded text-xs">
+                  {whoIsSharing} (sharing)
+                </span>
+              </div>
+            </div>
+            <div className="flex gap-2 flex-shrink-0 overflow-x-auto py-2 min-h-[80px]">
+              {localStream && (
+                <div className="relative rounded overflow-hidden bg-slate-800 border border-white/20 flex-shrink-0 w-32 min-w-[8rem] h-full min-h-[60px]">
+                  {isCameraOff ? (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-700">
+                      <span className="text-lg font-bold text-brand-300">{localUserName.charAt(0).toUpperCase()}</span>
+                    </div>
+                  ) : (
+                    <video ref={(el) => { if (el) videoRefs.current.set('local', el); el && (el.srcObject = localStream); }} autoPlay playsInline muted className="w-full h-full object-cover bg-slate-800" />
+                  )}
+                  <span className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/60 rounded text-[10px]">You</span>
+                </div>
+              )}
+              {remoteParticipants.map((p) => (
+                <div key={p.username} className="relative rounded overflow-hidden bg-slate-800 border border-white/20 flex-shrink-0 w-32 min-w-[8rem] h-full min-h-[60px]">
+                  {p.stream ? (
+                    <video ref={(el) => { if (el) videoRefs.current.set(p.username, el); el && (el.srcObject = p.stream!); }} autoPlay playsInline muted={false} className="w-full h-full object-cover bg-slate-800" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-700">
+                      <span className="text-lg font-bold text-brand-300">{(p.name || p.username).charAt(0).toUpperCase()}</span>
+                    </div>
+                  )}
+                  <span className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/60 rounded text-[10px] truncate max-w-[85%]">{p.name || p.username}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         ) : (
           <div
-            className="grid gap-2 h-full w-full"
+            className="grid gap-2 min-h-[200px] w-full flex-1"
             style={{
               gridTemplateColumns: gridCount <= 2 ? '1fr 1fr' : 'repeat(2, 1fr)',
               gridTemplateRows: gridCount <= 2 ? '1fr' : 'repeat(2, 1fr)',
             }}
           >
             {localStream && (
-              <div className="relative rounded-lg overflow-hidden bg-slate-800 border-2 border-white/20">
+              <div className="relative rounded-lg overflow-hidden bg-slate-800 border-2 border-white/20 min-h-[120px]">
                 {isCameraOff ? (
                   <div className="w-full h-full flex flex-col items-center justify-center bg-slate-700">
                     {localUserAvatar ? (
@@ -138,14 +198,14 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
                     autoPlay
                     playsInline
                     muted
-                    className="w-full h-full object-cover"
+                    className="w-full h-full min-h-[120px] object-cover bg-slate-800"
                   />
                 )}
                 <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 rounded text-xs">You</span>
               </div>
             )}
             {remoteParticipants.map((p) => (
-              <div key={p.username} className="relative rounded-lg overflow-hidden bg-slate-800 border-2 border-white/20">
+              <div key={p.username} className="relative rounded-lg overflow-hidden bg-slate-800 border-2 border-white/20 min-h-[120px]">
                 {p.stream ? (
                   <video
                     ref={(el) => {
@@ -154,7 +214,7 @@ export const GroupVideoCall: React.FC<GroupVideoCallProps> = ({
                     autoPlay
                     playsInline
                     muted={false}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full min-h-[120px] object-cover bg-slate-800"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-slate-700">

@@ -14,7 +14,8 @@ export type CallsWsMessage =
   | { type: 'incoming_group_call'; call_id: number; creator: string; call_type: 'audio' | 'video'; participant_usernames: string[] }
   | { type: 'participant_joined'; call_id: number; username: string; participant_usernames: string[] }
   | { type: 'participant_left'; call_id: number; username: string }
-  | { type: 'group_call_ended'; call_id: number; reason?: string };
+  | { type: 'group_call_ended'; call_id: number; reason?: string }
+  | { type: 'screen_shared'; is_screen_shared: boolean; shared_by_name: string; call_id?: number; group_call_id?: number };
 
 export type CallsWsOutgoing =
   | { type: 'webrtc_offer'; target: string; call_id?: number; sdp: RTCSessionDescriptionInit }
@@ -37,6 +38,7 @@ interface UseCallsWebSocketOptions {
   onParticipantJoined?: (data: { call_id: number; username: string; participant_usernames: string[] }) => void;
   onParticipantLeft?: (data: { call_id: number; username: string }) => void;
   onGroupCallEnded?: (data: { call_id: number; reason?: string }) => void;
+  onScreenShared?: (data: { is_screen_shared: boolean; shared_by_name: string; call_id?: number; group_call_id?: number }) => void;
 }
 
 export function useCallsWebSocket(options: UseCallsWebSocketOptions) {
@@ -53,6 +55,7 @@ export function useCallsWebSocket(options: UseCallsWebSocketOptions) {
     onParticipantJoined,
     onParticipantLeft,
     onGroupCallEnded,
+    onScreenShared,
   } = options;
 
   const [isConnected, setIsConnected] = useState(false);
@@ -60,11 +63,11 @@ export function useCallsWebSocket(options: UseCallsWebSocketOptions) {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbacksRef = useRef({
     onIncomingCall, onCallAccepted, onCallEnded, onWebRtcOffer, onWebRtcAnswer, onIceCandidate,
-    onIncomingGroupCall, onParticipantJoined, onParticipantLeft, onGroupCallEnded,
+    onIncomingGroupCall, onParticipantJoined, onParticipantLeft, onGroupCallEnded, onScreenShared,
   });
   callbacksRef.current = {
     onIncomingCall, onCallAccepted, onCallEnded, onWebRtcOffer, onWebRtcAnswer, onIceCandidate,
-    onIncomingGroupCall, onParticipantJoined, onParticipantLeft, onGroupCallEnded,
+    onIncomingGroupCall, onParticipantJoined, onParticipantLeft, onGroupCallEnded, onScreenShared,
   };
 
   const send = useCallback((msg: CallsWsOutgoing) => {
@@ -140,6 +143,16 @@ export function useCallsWebSocket(options: UseCallsWebSocketOptions) {
             case 'group_call_ended':
               cbs.onGroupCallEnded?.({ call_id: data.call_id, reason: data.reason });
               break;
+            case 'screen_shared': {
+              const d = data as { is_screen_shared: boolean; shared_by_name: string; call_id?: number; group_call_id?: number };
+              cbs.onScreenShared?.({
+                is_screen_shared: d.is_screen_shared,
+                shared_by_name: d.shared_by_name ?? '',
+                call_id: d.call_id,
+                group_call_id: d.group_call_id,
+              });
+              break;
+            }
             case 'webrtc_signal':
               if (data.sdp && (data.sdp as RTCSessionDescriptionInit).type === 'offer') {
                 cbs.onWebRtcOffer?.({ sdp: data.sdp as RTCSessionDescriptionInit, from_user: data.from_user, call_id: data.call_id });

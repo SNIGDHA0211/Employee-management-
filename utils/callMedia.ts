@@ -174,7 +174,6 @@ export async function applyVideoSenderBitrate(pc: RTCPeerConnection): Promise<vo
     const params = sender.getParameters();
     if (!params.encodings?.length) params.encodings = [{}];
     params.encodings[0].maxBitrate = VIDEO_BITRATE_MAX;
-    params.encodings[0].minBitrate = VIDEO_BITRATE_MIN;
     await sender.setParameters(params);
   } catch (err) {
     console.warn('[callMedia] applyVideoSenderBitrate failed:', err);

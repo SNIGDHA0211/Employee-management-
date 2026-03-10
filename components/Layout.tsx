@@ -7,6 +7,8 @@ import { canAccessCustomerLeads } from './customerLeads/CustomerLeadsPage';
 import { getMotivationalQuote } from '../services/gemini';
 import { getPermission, requestPermission, isNotificationSupported } from '../utils/browserNotifications';
 import { getBirthdayCounter, postBirthdayCounter, initiateCall, initiateGroupCall, getCallHistory } from '../services/api';
+import { useCallContext } from '../contexts/CallContext';
+import { requestCallMediaPermissions } from '../utils/callMedia';
 
 const formatBookingTime = (val: string): string => {
   if (!val) return '';
@@ -330,6 +332,7 @@ interface HeaderCallModalProps {
 }
 
 const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, onClose }) => {
+  const { startOutgoingCall, startOutgoingGroupCall, wsSend } = useCallContext();
   const [view, setView] = useState<'start' | 'history'>('start');
   const [step, setStep] = useState<'type' | 'select'>('type');
   const [callType, setCallType] = useState<'audio' | 'video'>('audio');
@@ -394,14 +397,34 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
 
   const handleStart = async () => {
     if (selected.size === 0) return;
+    const granted = await requestCallMediaPermissions(callType);
+    if (!granted) {
+      setError(callType === 'video' ? 'Camera and microphone access are required for video calls.' : 'Microphone access is required.');
+      return;
+    }
     setIsStarting(true);
     setError(null);
     try {
       const ids = Array.from(selected);
       if (ids.length === 1) {
-        await initiateCall(ids[0], callType);
+        const res = await initiateCall(ids[0], callType);
+        const callId = res?.call_id ?? res?.id ?? res?.callId;
+        const targetUser = users.find((u) => u.id === ids[0]);
+        const target = {
+          name: targetUser?.name ?? ids[0],
+          id: ids[0],
+          avatar: targetUser?.avatar,
+        };
+        startOutgoingCall(target, callType, callId ?? ids[0]);
       } else {
-        await initiateGroupCall(ids, callType);
+        const res = await initiateGroupCall(ids, callType);
+        const callId = res?.call_id ?? res?.id ?? res?.callId;
+        const creator = res?.creator ?? currentUser?.name ?? currentUser?.id ?? '';
+        const participants = res?.participant_usernames ?? ids;
+        if (callId != null) {
+          startOutgoingGroupCall(callType, Number(callId), creator, participants);
+          wsSend({ type: 'join_group_call', call_id: Number(callId) });
+        }
       }
       onClose();
     } catch (err: any) {

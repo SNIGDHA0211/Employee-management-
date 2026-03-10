@@ -3737,9 +3737,28 @@ export const declineCall = async (callId: string | number): Promise<any> => {
 
 /**
  * End active call
+ * @endpoint PATCH /messaging/screenShare/
+   * @body { call_id?: number } for 1:1 | { group_call_id?: number } for group
+   * @returns { success, is_screen_shared, shared_by_name }
+   */
+export const updateScreenShare = async (params: {
+  callId?: number;
+  groupCallId?: number;
+  isScreenShared: boolean;
+}): Promise<{ success: boolean; is_screen_shared: boolean; shared_by_name: string }> => {
+  const body: Record<string, number | boolean> = {
+    is_screen_shared: params.isScreenShared,
+  };
+  if (params.callId != null) body.call_id = params.callId;
+  if (params.groupCallId != null) body.group_call_id = params.groupCallId;
+  const response = await api.patch('/messaging/screenShare/', body);
+  return response.data;
+};
+
+/**
  * @endpoint POST /messaging/endCall/
- * @body { call_id: number } (integer)
- */
+   * @body { call_id: number } (integer)
+   */
 export const endCall = async (callId: string | number): Promise<any> => {
   const response = await api.post('/messaging/endCall/', {
     call_id: typeof callId === 'string' && /^\d+$/.test(callId) ? parseInt(callId, 10) : callId,
@@ -4064,6 +4083,7 @@ export const apiFunctions = {
   acceptCall,
   declineCall,
   endCall,
+  updateScreenShare,
   endAllMyCalls,
   getActiveCalls,
   initiateGroupCall,

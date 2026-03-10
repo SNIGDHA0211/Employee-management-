@@ -14,29 +14,16 @@ import {
   postMessages as apiPostMessages,
   getMessages as apiGetMessages,
   initiateCall as apiInitiateCall,
-  acceptCall as apiAcceptCall,
-  declineCall as apiDeclineCall,
-  endCall as apiEndCall,
-  getPendingCalls as apiGetPendingCalls,
   getCallableUsers as apiGetCallableUsers,
   initiateGroupCall as apiInitiateGroupCall,
-  joinGroupCall as apiJoinGroupCall,
-  leaveGroupCall as apiLeaveGroupCall,
-  endGroupCall as apiEndGroupCall,
   uploadFile as apiUploadFile,
   addLink as apiAddLink,
   deleteAttachment as apiDeleteAttachment,
   UploadedFileAttachment,
   LinkAttachment,
 } from '../services/api';
-import { AudioCall } from './calls/AudioCall';
-import { VideoCall } from './calls/VideoCall';
-import { GroupAudioCall } from './calls/GroupAudioCall';
-import { GroupVideoCall } from './calls/GroupVideoCall';
-import { useCallsWebSocket } from '../hooks/useCallsWebSocket';
-import { useWebRTC } from '../hooks/useWebRTC';
-import { useGroupWebRTC } from '../hooks/useGroupWebRTC';
-import { requestCallMediaPermissions, requestAndGetCallMediaStream } from '../utils/callMedia';
+import { useCallContext } from '../contexts/CallContext';
+import { requestCallMediaPermissions } from '../utils/callMedia';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 import { MessageContent } from './chat/MessageContent';
 
@@ -379,190 +366,13 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   const [isStartingChat, setIsStartingChat] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [createGroupSearchQuery, setCreateGroupSearchQuery] = useState('');
+  const { startOutgoingCall, startOutgoingGroupCall, wsSend } = useCallContext();
   const [showCallParticipantPicker, setShowCallParticipantPicker] = useState<'audio' | 'video' | null>(null);
   const [isInitiatingCall, setIsInitiatingCall] = useState(false);
   const callPickerRef = useRef<HTMLDivElement>(null);
   const groupCallPickerRef = useRef<HTMLDivElement>(null);
-  const [activeCall, setActiveCall] = useState<{
-    type: 'audio' | 'video';
-    status: 'outgoing' | 'incoming' | 'active';
-    role?: 'caller' | 'callee';
-    target: { name: string; id: string; avatar?: string };
-    callId?: string | number;
-  } | null>(null);
-  const [isEndingCall, setIsEndingCall] = useState(false);
   const [showGroupCallPicker, setShowGroupCallPicker] = useState<'audio' | 'video' | null>(null);
   const [selectedGroupCallUserIds, setSelectedGroupCallUserIds] = useState<Set<string>>(new Set());
-  const [activeGroupCall, setActiveGroupCall] = useState<{
-    type: 'audio' | 'video';
-    status: 'incoming' | 'active';
-    callId: number;
-    creator: string;
-    participants: string[];
-    isCreator: boolean;
-  } | null>(null);
-  const [isEndingGroupCall, setIsEndingGroupCall] = useState(false);
-  const groupCalleeStreamRef = useRef<MediaStream | null>(null);
-
-  const webrtcHandlersRef = useRef<{
-    handleOffer: (d: { sdp: RTCSessionDescriptionInit; from_user?: string; sender?: string; call_id?: number }) => void;
-    handleAnswer: (d: { sdp: RTCSessionDescriptionInit; from_user?: string; sender?: string; call_id?: number }) => void;
-    handleIceCandidate: (d: { candidate: RTCIceCandidateInit; from_user?: string; sender?: string }) => void;
-  } | null>(null);
-  const pendingOfferRef = useRef<{ sdp: RTCSessionDescriptionInit; from_user?: string; sender?: string; call_id?: number } | null>(null);
-  const calleeStreamRef = useRef<MediaStream | null>(null);
-  const groupWebRtcHandlersRef = useRef<{
-    handleOffer: (d: { sdp: RTCSessionDescriptionInit; from_user?: string; sender?: string }) => void;
-    handleAnswer: (d: { sdp: RTCSessionDescriptionInit; from_user?: string; sender?: string }) => void;
-    handleIceCandidate: (d: { candidate: RTCIceCandidateInit; from_user?: string; sender?: string }) => void;
-    createOfferForPeer: (username: string) => Promise<void>;
-    removePeer: (username: string) => void;
-    cleanup: () => void;
-  } | null>(null);
-  const activeGroupCallRef = useRef(activeGroupCall);
-  const activeCallRef = useRef(activeCall);
-  activeGroupCallRef.current = activeGroupCall;
-  activeCallRef.current = activeCall;
-
-  // WebSocket for calls - ws://host/ws/calls/ (session cookie auth)
-  const { send: wsSend, isConnected: wsConnected } = useCallsWebSocket({
-    enabled: !!currentUser?.id,
-    currentUsername: currentUser?.name || currentUser?.id || '',
-    onIncomingCall: (data) => {
-      if (activeGroupCallRef.current) return;
-      const u = users.find((x: User) => x.name === data.sender || x.id === data.sender);
-      setActiveCall({
-        type: data.call_type,
-        status: 'incoming',
-        role: 'callee',
-        target: { name: u?.name || data.sender, id: data.sender, avatar: u?.avatar },
-        callId: data.call_id,
-      });
-    },
-    onCallAccepted: () => {
-      setActiveCall((prev) => (prev ? { ...prev, status: 'active' as const } : null));
-    },
-    onCallEnded: (data) => {
-      console.log('[ChatSystem] Call ended/declined', data);
-      setActiveCall(null);
-    },
-    onWebRtcOffer: (d) => {
-      if (activeGroupCallRef.current) {
-        groupWebRtcHandlersRef.current?.handleOffer(d);
-      } else {
-        const handler = webrtcHandlersRef.current?.handleOffer;
-        if (handler) handler(d);
-        else pendingOfferRef.current = d;
-      }
-    },
-    onWebRtcAnswer: (d) => {
-      if (activeGroupCallRef.current) groupWebRtcHandlersRef.current?.handleAnswer(d);
-      else webrtcHandlersRef.current?.handleAnswer(d);
-    },
-    onIceCandidate: (d) => {
-      if (activeGroupCallRef.current) groupWebRtcHandlersRef.current?.handleIceCandidate(d);
-      else webrtcHandlersRef.current?.handleIceCandidate(d);
-    },
-    onIncomingGroupCall: (data) => {
-      if (activeCallRef.current) return;
-      setActiveGroupCall({
-        type: data.call_type,
-        status: 'incoming',
-        callId: data.call_id,
-        creator: data.creator,
-        participants: data.participant_usernames ?? [],
-        isCreator: false,
-      });
-    },
-    onParticipantJoined: (data) => {
-      if (activeGroupCallRef.current?.callId !== data.call_id) return;
-      setActiveGroupCall((prev) => {
-        if (!prev || prev.callId !== data.call_id) return prev;
-        const next = new Set(prev.participants);
-        if (!next.has(data.username)) next.add(data.username);
-        return { ...prev, participants: Array.from(next) };
-      });
-      groupWebRtcHandlersRef.current?.createOfferForPeer?.(data.username);
-    },
-    onParticipantLeft: (data) => {
-      if (activeGroupCallRef.current?.callId !== data.call_id) return;
-      setActiveGroupCall((prev) => {
-        if (!prev || prev.callId !== data.call_id) return prev;
-        return { ...prev, participants: prev.participants.filter((p) => p !== data.username) };
-      });
-      groupWebRtcHandlersRef.current?.removePeer?.(data.username);
-    },
-    onGroupCallEnded: (data) => {
-      if (activeGroupCallRef.current?.callId === data.call_id) {
-        setActiveGroupCall(null);
-        groupWebRtcHandlersRef.current?.cleanup?.();
-        groupCalleeStreamRef.current?.getTracks().forEach((t) => t.stop());
-        groupCalleeStreamRef.current = null;
-      }
-    },
-  });
-
-  const webrtc = useWebRTC({
-    enabled: !!activeCall && !!wsSend && !activeGroupCall,
-    callType: activeCall?.type ?? 'audio',
-    targetUserId: activeCall?.target?.id ?? '',
-    callId: activeCall?.callId,
-    isCaller: activeCall?.role === 'caller',
-    isActive: activeCall?.status === 'active',
-    send: wsSend,
-    calleeStreamRef,
-    onPeerDisconnected: () => setActiveCall(null),
-  });
-
-  const groupWebRtc = useGroupWebRTC({
-    enabled: !!activeGroupCall && activeGroupCall.status === 'active' && !!wsSend,
-    callId: activeGroupCall?.callId ?? 0,
-    callType: activeGroupCall?.type ?? 'audio',
-    currentUsername: currentUser?.name || currentUser?.id || '',
-    participants: activeGroupCall?.participants ?? [],
-    send: wsSend,
-    calleeStreamRef: groupCalleeStreamRef,
-  });
-
-  useEffect(() => {
-    groupWebRtcHandlersRef.current = {
-      handleOffer: groupWebRtc.handleOffer,
-      handleAnswer: groupWebRtc.handleAnswer,
-      handleIceCandidate: groupWebRtc.handleIceCandidate,
-      createOfferForPeer: groupWebRtc.createOfferForPeer,
-      removePeer: groupWebRtc.removePeer,
-      cleanup: groupWebRtc.cleanup,
-    };
-  }, [groupWebRtc.handleOffer, groupWebRtc.handleAnswer, groupWebRtc.handleIceCandidate, groupWebRtc.createOfferForPeer, groupWebRtc.removePeer, groupWebRtc.cleanup]);
-
-  useEffect(() => {
-    webrtcHandlersRef.current = {
-      handleOffer: webrtc.handleOffer,
-      handleAnswer: webrtc.handleAnswer,
-      handleIceCandidate: webrtc.handleIceCandidate,
-    };
-    const pending = pendingOfferRef.current;
-    if (pending && activeCall) {
-      pendingOfferRef.current = null;
-      webrtc.handleOffer(pending);
-    }
-  }, [webrtc.handleOffer, webrtc.handleAnswer, webrtc.handleIceCandidate, activeCall]);
-
-  useEffect(() => {
-    if (!activeCall) {
-      webrtc.cleanup();
-      calleeStreamRef.current?.getTracks().forEach((t) => t.stop());
-      calleeStreamRef.current = null;
-    }
-  }, [activeCall]);
-
-  useEffect(() => {
-    if (!activeGroupCall) {
-      groupWebRtc.cleanup();
-      groupCalleeStreamRef.current?.getTracks().forEach((t) => t.stop());
-      groupCalleeStreamRef.current = null;
-    }
-  }, [activeGroupCall]);
 
   useEffect(() => {
     if (!showCallParticipantPicker) return;
@@ -586,64 +396,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showGroupCallPicker]);
-
-  // Listen for incoming call events (e.g. from WebSocket) - dispatch: new CustomEvent('chat-incoming-call', { detail: { type, name, id, avatar?, call_id } })
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const d = (e as CustomEvent).detail;
-      if (d?.type && (d.type === 'audio' || d.type === 'video') && d.name) {
-        const callId = d.call_id ?? d.callId ?? d.id;
-        setActiveCall({ type: d.type, status: 'incoming', target: { name: d.name, id: d.id || d.name, avatar: d.avatar }, callId });
-      }
-    };
-    window.addEventListener('chat-incoming-call', handler);
-    return () => window.removeEventListener('chat-incoming-call', handler);
-  }, []);
-
-  // Poll pending calls only when WebSocket is disconnected (fallback), or once on tab focus
-  useEffect(() => {
-    if (activeCall) return;
-    const poll = async () => {
-      if (document.visibilityState === 'hidden') return;
-      try {
-        const pending = await apiGetPendingCalls();
-        if (Array.isArray(pending) && pending.length > 0) {
-          const incoming = pending.find((p: any) => p.direction === 'incoming' || p.status === 'incoming' || !p.initiated_by_me);
-          if (incoming) {
-            const callId = incoming.call_id ?? incoming.id ?? incoming.callId;
-            const name = incoming.caller_name ?? incoming.from ?? incoming.name ?? 'Unknown';
-            const type = (incoming.call_type ?? incoming.type ?? 'audio') === 'video' ? 'video' : 'audio';
-            setActiveCall({ type, status: 'incoming', target: { name, id: incoming.user_id ?? name, avatar: incoming.avatar }, callId });
-          }
-        }
-      } catch {
-        // ignore
-      }
-    };
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        poll(); // always poll once when tab becomes visible
-        if (!wsConnected && !intervalId) {
-          intervalId = setInterval(poll, 30000); // 30s interval only when WS is down
-        }
-      } else {
-        if (intervalId) {
-          clearInterval(intervalId);
-          intervalId = null;
-        }
-      }
-    };
-    if (document.visibilityState === 'visible') {
-      poll(); // initial fetch when tab is visible
-      if (!wsConnected) intervalId = setInterval(poll, 30000);
-    }
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [activeCall, wsConnected]);
 
   // Permission: Can create group?
   const canCreateGroup = [UserRole.MD, UserRole.ADMIN, UserRole.HR, UserRole.TEAM_LEADER].includes(currentUser.role);
@@ -2142,7 +1894,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                     try {
                       const res = await apiInitiateCall(activeUser.id || activeUser.name, 'audio');
                       const callId = res?.call_id ?? res?.id ?? res?.callId;
-                      setActiveCall({ type: 'audio', status: 'outgoing', role: 'caller', target: { name: activeUser.name, id: activeUser.id || activeUser.name, avatar: activeUser.avatar }, callId });
+                      startOutgoingCall({ name: activeUser.name, id: activeUser.id || activeUser.name, avatar: activeUser.avatar }, 'audio', callId ?? (activeUser.id || activeUser.name));
                     } catch (e: any) {
                       console.error('Initiate audio call failed:', e);
                       alert(e?.message || 'Failed to start audio call. Please try again.');
@@ -2174,7 +1926,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                     try {
                       const res = await apiInitiateCall(activeUser.id || activeUser.name, 'video');
                       const callId = res?.call_id ?? res?.id ?? res?.callId;
-                      setActiveCall({ type: 'video', status: 'outgoing', role: 'caller', target: { name: activeUser.name, id: activeUser.id || activeUser.name, avatar: activeUser.avatar }, callId });
+                      startOutgoingCall({ name: activeUser.name, id: activeUser.id || activeUser.name, avatar: activeUser.avatar }, 'video', callId ?? (activeUser.id || activeUser.name));
                     } catch (e: any) {
                       console.error('Initiate video call failed:', e);
                       alert(e?.message || 'Failed to start video call. Please try again.');
@@ -2265,15 +2017,11 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                             const res = await apiInitiateGroupCall(userIds, showGroupCallPicker);
                             const callId = res?.call_id ?? res?.id;
                             const participantUsernames = res?.participant_usernames ?? userIds;
-                            setActiveGroupCall({
-                              type: showGroupCallPicker,
-                              status: 'active',
-                              callId,
-                              creator: res?.creator ?? currentUser.name ?? currentUser.id ?? '',
-                              participants: participantUsernames,
-                              isCreator: true,
-                            });
-                            wsSend({ type: 'join_group_call', call_id: callId });
+                            const creator = res?.creator ?? currentUser.name ?? currentUser.id ?? '';
+                            if (callId != null) {
+                              startOutgoingGroupCall(showGroupCallPicker, Number(callId), creator, participantUsernames);
+                              wsSend({ type: 'join_group_call', call_id: Number(callId) });
+                            }
                           } catch (e: any) {
                             console.error('Initiate group call failed:', e);
                             alert(e?.message || 'Failed to start group call.');
@@ -2320,7 +2068,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                             const res = await apiInitiateCall(userId, showCallParticipantPicker);
                             const callId = res?.call_id ?? res?.id ?? res?.callId;
                             const targetUser = users.find((x: User) => x.name === name || x.id === userId);
-                            setActiveCall({ type: showCallParticipantPicker, status: 'outgoing', role: 'caller', target: { name, id: userId, avatar: targetUser?.avatar }, callId });
+                            startOutgoingCall({ name, id: userId, avatar: targetUser?.avatar }, showCallParticipantPicker, callId ?? userId);
                           } catch (e: any) {
                             console.error('Initiate call failed:', e);
                             alert(e?.message || 'Failed to start call. Please try again.');
@@ -3190,292 +2938,6 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       )}
 
       {/* Audio / Video call overlays - rendered via portal to overlay entire app */}
-      {activeCall?.type === 'audio' &&
-        typeof document !== 'undefined' &&
-        createPortal(
-          <AudioCall
-          targetName={activeCall.target.name}
-          targetAvatar={activeCall.target.avatar}
-          status={activeCall.status}
-          localStream={webrtc.localStream}
-          remoteStream={webrtc.remoteStream}
-          isEndingCall={isEndingCall}
-          onAccept={async () => {
-            const callId = activeCall.callId;
-            if (callId == null) {
-              alert('Call ID missing. Please try again.');
-              setActiveCall(null);
-              return;
-            }
-            const stream = await requestAndGetCallMediaStream('audio');
-            if (!stream) {
-              alert('Microphone access is required to accept this call. Please allow microphone permission and try again.');
-              return;
-            }
-            calleeStreamRef.current = stream;
-            try {
-              await apiAcceptCall(callId);
-              setActiveCall(prev => prev ? { ...prev, status: 'active' as const } : null);
-            } catch (e) {
-              console.error('Accept call failed:', e);
-              calleeStreamRef.current?.getTracks().forEach((t) => t.stop());
-              calleeStreamRef.current = null;
-              setActiveCall(null);
-            }
-          }}
-          onDecline={async () => {
-            const callId = activeCall.callId;
-            if (callId == null) {
-              console.warn('[AudioCall] Decline: callId missing');
-              setActiveCall(null);
-              return;
-            }
-            console.log('[AudioCall] Receiver declining call', { callId });
-            try {
-              await apiDeclineCall(callId);
-            } catch (e) {
-              console.error('[AudioCall] Decline call failed:', e);
-            }
-            setActiveCall(null);
-          }}
-          onEndCall={async () => {
-            const callId = activeCall.callId;
-            setIsEndingCall(true);
-            try {
-              if (callId != null) {
-                await apiEndCall(callId);
-              }
-            } catch (e) {
-              console.error('End call failed:', e);
-            } finally {
-              setActiveCall(null);
-              setIsEndingCall(false);
-            }
-          }}
-        />,
-          document.body
-        )}
-      {activeCall?.type === 'video' &&
-        typeof document !== 'undefined' &&
-        createPortal(
-          <VideoCall
-          targetName={activeCall.target.name}
-          targetAvatar={activeCall.target.avatar}
-          localUserName={currentUser?.name || currentUser?.id || 'You'}
-          localUserAvatar={currentUser?.avatar}
-          status={activeCall.status}
-          localStream={webrtc.localStream}
-          remoteStream={webrtc.remoteStream}
-          onShareScreen={webrtc.startScreenShare}
-          onStopShareScreen={webrtc.stopScreenShare}
-          isSharingScreen={webrtc.isSharingScreen}
-          isConnecting={webrtc.connectionState === 'connecting'}
-          isEndingCall={isEndingCall}
-          onAccept={async () => {
-            const callId = activeCall.callId;
-            if (callId == null) {
-              alert('Call ID missing. Please try again.');
-              setActiveCall(null);
-              return;
-            }
-            const stream = await requestAndGetCallMediaStream('video');
-            if (!stream) {
-              alert('Camera and microphone access are required to accept this video call. Please allow permissions and try again.');
-              return;
-            }
-            calleeStreamRef.current = stream;
-            try {
-              await apiAcceptCall(callId);
-              setActiveCall(prev => prev ? { ...prev, status: 'active' as const } : null);
-            } catch (e) {
-              console.error('Accept call failed:', e);
-              calleeStreamRef.current?.getTracks().forEach((t) => t.stop());
-              calleeStreamRef.current = null;
-              setActiveCall(null);
-            }
-          }}
-          onDecline={async () => {
-            const callId = activeCall.callId;
-            if (callId == null) {
-              console.warn('[VideoCall] Decline: callId missing');
-              setActiveCall(null);
-              return;
-            }
-            console.log('[VideoCall] Receiver declining call', { callId });
-            try {
-              await apiDeclineCall(callId);
-            } catch (e) {
-              console.error('[VideoCall] Decline call failed:', e);
-            }
-            setActiveCall(null);
-          }}
-          onEndCall={async () => {
-            const callId = activeCall.callId;
-            setIsEndingCall(true);
-            try {
-              if (callId != null) {
-                await apiEndCall(callId);
-              }
-            } catch (e) {
-              console.error('End call failed:', e);
-            } finally {
-              setActiveCall(null);
-              setIsEndingCall(false);
-            }
-          }}
-        />,
-          document.body
-        )}
-
-      {/* Group call overlays */}
-      {activeGroupCall?.type === 'audio' &&
-        typeof document !== 'undefined' &&
-        createPortal(
-          <GroupAudioCall
-            participants={[
-              ...activeGroupCall.participants
-                .filter((p) => p !== (currentUser?.name || currentUser?.id))
-                .map((username) => {
-                  const u = users.find((x: User) => x.name === username || x.id === username);
-                  return {
-                    username,
-                    name: u?.name || username,
-                    avatar: u?.avatar,
-                    stream: groupWebRtc.remoteStreams.get(username) ?? undefined,
-                    isLocal: false,
-                  };
-                }),
-            ]}
-            localStream={groupWebRtc.localStream}
-            status={activeGroupCall.status}
-            creatorName={users.find((x: User) => x.name === activeGroupCall.creator || x.id === activeGroupCall.creator)?.name || activeGroupCall.creator}
-            isCreator={activeGroupCall.isCreator}
-            onAccept={async () => {
-              const stream = await requestAndGetCallMediaStream('audio');
-              if (!stream) {
-                alert('Microphone access is required.');
-                return;
-              }
-              groupCalleeStreamRef.current = stream;
-              try {
-                const res = await apiJoinGroupCall(activeGroupCall.callId);
-                const participantUsernames = res?.participant_usernames ?? activeGroupCall.participants;
-                wsSend({ type: 'join_group_call', call_id: activeGroupCall.callId });
-                setActiveGroupCall((prev) => prev ? { ...prev, status: 'active', participants: participantUsernames } : null);
-              } catch (e) {
-                console.error('Join group call failed:', e);
-                groupCalleeStreamRef.current?.getTracks().forEach((t) => t.stop());
-                groupCalleeStreamRef.current = null;
-                setActiveGroupCall(null);
-              }
-            }}
-            onDecline={async () => {
-              setActiveGroupCall(null);
-            }}
-            onLeave={async () => {
-              setIsEndingGroupCall(true);
-              try {
-                await apiLeaveGroupCall(activeGroupCall!.callId);
-                wsSend({ type: 'leave_group_call', call_id: activeGroupCall!.callId });
-              } catch (e) {
-                console.error('Leave group call failed:', e);
-              } finally {
-                setActiveGroupCall(null);
-                setIsEndingGroupCall(false);
-              }
-            }}
-            onEndCall={async () => {
-              setIsEndingGroupCall(true);
-              try {
-                await apiEndGroupCall(activeGroupCall!.callId);
-              } catch (e) {
-                console.error('End group call failed:', e);
-              } finally {
-                setActiveGroupCall(null);
-                setIsEndingGroupCall(false);
-              }
-            }}
-            isEndingCall={isEndingGroupCall}
-          />,
-          document.body
-        )}
-      {activeGroupCall?.type === 'video' &&
-        typeof document !== 'undefined' &&
-        createPortal(
-          <GroupVideoCall
-            participants={[
-              ...activeGroupCall.participants
-                .filter((p) => p !== (currentUser?.name || currentUser?.id))
-                .map((username) => {
-                  const u = users.find((x: User) => x.name === username || x.id === username);
-                  return {
-                    username,
-                    name: u?.name || username,
-                    avatar: u?.avatar,
-                    stream: groupWebRtc.remoteStreams.get(username) ?? undefined,
-                    isLocal: false,
-                  };
-                }),
-            ]}
-            localStream={groupWebRtc.localStream}
-            localUserName={currentUser?.name || currentUser?.id || 'You'}
-            localUserAvatar={currentUser?.avatar}
-            status={activeGroupCall.status}
-            creatorName={users.find((x: User) => x.name === activeGroupCall.creator || x.id === activeGroupCall.creator)?.name || activeGroupCall.creator}
-            isCreator={activeGroupCall.isCreator}
-            onShareScreen={groupWebRtc.startScreenShare}
-            onStopShareScreen={groupWebRtc.stopScreenShare}
-            isSharingScreen={groupWebRtc.isSharingScreen}
-            onAccept={async () => {
-              const stream = await requestAndGetCallMediaStream('video');
-              if (!stream) {
-                alert('Camera and microphone access are required.');
-                return;
-              }
-              groupCalleeStreamRef.current = stream;
-              try {
-                const res = await apiJoinGroupCall(activeGroupCall.callId);
-                const participantUsernames = res?.participant_usernames ?? activeGroupCall.participants;
-                wsSend({ type: 'join_group_call', call_id: activeGroupCall.callId });
-                setActiveGroupCall((prev) => prev ? { ...prev, status: 'active', participants: participantUsernames } : null);
-              } catch (e) {
-                console.error('Join group call failed:', e);
-                groupCalleeStreamRef.current?.getTracks().forEach((t) => t.stop());
-                groupCalleeStreamRef.current = null;
-                setActiveGroupCall(null);
-              }
-            }}
-            onDecline={async () => {
-              setActiveGroupCall(null);
-            }}
-            onLeave={async () => {
-              setIsEndingGroupCall(true);
-              try {
-                await apiLeaveGroupCall(activeGroupCall!.callId);
-                wsSend({ type: 'leave_group_call', call_id: activeGroupCall!.callId });
-              } catch (e) {
-                console.error('Leave group call failed:', e);
-              } finally {
-                setActiveGroupCall(null);
-                setIsEndingGroupCall(false);
-              }
-            }}
-            onEndCall={async () => {
-              setIsEndingGroupCall(true);
-              try {
-                await apiEndGroupCall(activeGroupCall!.callId);
-              } catch (e) {
-                console.error('End group call failed:', e);
-              } finally {
-                setActiveGroupCall(null);
-                setIsEndingGroupCall(false);
-              }
-            }}
-            isEndingCall={isEndingGroupCall}
-          />,
-          document.body
-        )}
-
       {/* ── Forward / Share Modal ──────────────────────────────────────── */}
       {showForwardModal && forwardMsg !== null && typeof document !== 'undefined' &&
         createPortal(

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getLocalAudioStream, getLocalVideoStream, getDisplayMediaStream, applyVideoSenderBitrate } from '../utils/callMedia';
+import { updateScreenShare } from '../services/api';
 import type { CallsWsOutgoing } from './useCallsWebSocket';
 
 type CallsWsSend = (msg: CallsWsOutgoing) => void;
@@ -257,8 +258,9 @@ export function useGroupWebRTC(options: UseGroupWebRTCOptions) {
     const displayStream = new MediaStream([...stream.getAudioTracks(), screenTrack]);
     setLocalDisplayStream(displayStream);
     setIsSharingScreen(true);
+    updateScreenShare({ groupCallId: callId, isScreenShared: true }).catch(() => {});
     return true;
-  }, [callType]);
+  }, [callType, callId]);
 
   const stopScreenShare = useCallback(() => {
     const stream = streamRef.current;
@@ -278,7 +280,8 @@ export function useGroupWebRTC(options: UseGroupWebRTCOptions) {
     }
     setLocalDisplayStream(stream ?? null);
     setIsSharingScreen(false);
-  }, []);
+    updateScreenShare({ groupCallId: callId, isScreenShared: false }).catch(() => {});
+  }, [callId]);
 
   return {
     localStream: localDisplayStream ?? localStream,
