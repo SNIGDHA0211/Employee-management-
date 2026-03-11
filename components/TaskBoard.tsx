@@ -1171,6 +1171,12 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                       Due: {new Date(task.dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                     </span>
                   </div>
+                  {task.completedAt && (
+                    <div className="flex items-center gap-1.5 text-xs text-green-600 mb-3">
+                      <CheckCircle2 size={14} />
+                      <span>Completed at: {task.completedAt}</span>
+                    </div>
+                  )}
 
                   {/* Display assigner and assignee names */}
                   {/* MD: Created by. TL→Intern/Employee: Assigned by + Assigned to. Intern/Employee: Created by + Reporting to */}
@@ -1998,6 +2004,12 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ currentUser, tasks: tasksP
                     Due: {new Date(task.dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                   </span>
                 </div>
+                {task.completedAt && (
+                  <div className="flex items-center gap-1.5 text-xs text-green-600 mb-3">
+                    <CheckCircle2 size={14} />
+                    <span>Completed at: {task.completedAt}</span>
+                  </div>
+                )}
 
                 {currentUser.role === UserRole.MD && (task.createdByName || reporter?.name) && (
                   <div className="text-xs text-gray-500 mb-1.5">
@@ -2469,6 +2481,13 @@ const TaskDetailModal: React.FC<{ task: Task; onClose: () => void; currentUser: 
              <h4 className="text-gray-900 font-semibold mb-2 flex items-center"><CheckSquare className="w-4 h-4 mr-2"/> Description</h4>
             <p className="text-gray-600 leading-relaxed bg-gray-50 p-4 rounded-xl border border-gray-100">{task.description}</p>
           </div>
+
+          {task.completedAt && (
+            <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 px-4 py-2 rounded-xl border border-green-100">
+              <CheckCircle2 size={18} className="shrink-0" />
+              <span><strong>Completed at:</strong> {task.completedAt}</span>
+            </div>
+          )}
 
           {/* AI Helper Section */}
           <div className="bg-gradient-to-r from-purple-50 to-indigo-50 p-4 rounded-xl border border-purple-100">

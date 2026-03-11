@@ -3907,6 +3907,32 @@ export const getCallHistory = async (): Promise<any[]> => {
   return [];
 };
 
+/**
+ * Get missed calls count for logged-in user
+ * @endpoint GET /messaging/missedCallsCount/
+ * @returns { missed_calls_count: number }
+ */
+export const getMissedCallsCount = async (): Promise<number> => {
+  const response = await api.get('/messaging/missedCallsCount/');
+  const data = response.data;
+  const count = data?.missed_calls_count ?? data?.missed_calls ?? data?.count ?? 0;
+  return typeof count === 'number' ? count : 0;
+};
+
+/**
+ * Reset missed calls count to zero (call after user views missed calls)
+ * @endpoint POST /messaging/resetMissedCallsCount/
+ * @returns { success: boolean, missed_calls_count: number }
+ */
+export const resetMissedCallsCount = async (): Promise<{ success: boolean; missed_calls_count: number }> => {
+  const response = await api.post('/messaging/resetMissedCallsCount/');
+  const data = response.data;
+  return {
+    success: data?.success ?? true,
+    missed_calls_count: typeof data?.missed_calls_count === 'number' ? data.missed_calls_count : 0,
+  };
+};
+
 /** Fetch functional goals and actionable goals. GET /get_functions_and_actionable_goals/?function_name=NPD|MMR|RG|HC|IP */
 export const getFunctionsAndActionableGoals = async (functionName: string) => {
   const response = await api.get('/get_functions_and_actionable_goals/', {
@@ -3994,6 +4020,7 @@ export const createActionableEntry = async (payload: {
   share_with?: string | number;
   co_author?: string | number;
   shared_note?: string;
+  product?: string;
 }): Promise<any> => {
   const body: Record<string, unknown> = {
     goal: payload.goal,
@@ -4006,6 +4033,10 @@ export const createActionableEntry = async (payload: {
   }
   if (payload.co_author != null && payload.co_author !== '') {
     body.co_author = payload.co_author;
+  }
+  if (payload.product != null && payload.product !== '') {
+    body.product = payload.product;
+    body.product_name = payload.product;
   }
   const response = await api.post('/ActionableEntries/', body);
   const data = response.data;
@@ -4365,11 +4396,15 @@ export async function getClientStages(): Promise<ClientStage[]> {
   return Array.isArray(data) ? data : [];
 }
 
-/** GET /clientsapi/products/ — product list for client leads */
+/** GET /clientsapi/products/ — product list for client leads. Returns string[] (names) for dropdown use. */
 export async function getProducts(): Promise<string[]> {
-  const res = await api.get<string[]>('/clientsapi/products/');
+  const res = await api.get('/clientsapi/products/');
   const data = res.data;
-  return Array.isArray(data) ? data : [];
+  if (!Array.isArray(data)) return [];
+  // API may return objects { id, name } — normalize to string[] (names)
+  return data.map((item: any) =>
+    typeof item === 'string' ? item : (item?.name ?? item?.product_name ?? String(item?.id ?? item ?? ''))
+  ).filter(Boolean);
 }
 
 /** GET /clientsapi/profiles/ — list client lead profiles */

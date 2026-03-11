@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Pencil, UserPen, Share2, StickyNote } from 'lucide-react';
+import { getProducts } from '../../../services/api';
 import { DailyLog, ProgressStatus } from '../types';
 
 interface Employee {
@@ -12,7 +13,7 @@ interface DailyLogEntryProps {
   log: DailyLog;
   onUpdate: (updates: Partial<DailyLog>) => void | Promise<void>;
   onDelete: () => void;
-  onSubmit?: (opts?: { share_with?: string[]; co_author?: string[]; shared_note?: string }) => void | Promise<void>;
+  onSubmit?: (opts?: { share_with?: string[]; co_author?: string[]; shared_note?: string; product?: string }) => void | Promise<void>;
   isDraft?: boolean;
   isSubmitting?: boolean;
   isToday: boolean;
@@ -27,6 +28,9 @@ const DailyLogEntry: React.FC<DailyLogEntryProps> = ({ log, onUpdate, onDelete, 
   const [shareWithIds, setShareWithIds] = useState<string[]>([]);
   const [coAuthorIds, setCoAuthorIds] = useState<string[]>([]);
   const [sharedNote, setSharedNote] = useState('');
+  const [product, setProduct] = useState('');
+  const [products, setProducts] = useState<string[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
   const [editStatus, setEditStatus] = useState<ProgressStatus>(log.status);
   const [editNote, setEditNote] = useState(log.note);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
@@ -85,6 +89,16 @@ const DailyLogEntry: React.FC<DailyLogEntryProps> = ({ log, onUpdate, onDelete, 
     setIsEditing(false);
   };
 
+  useEffect(() => {
+    if (isDraft && !readOnly) {
+      setLoadingProducts(true);
+      getProducts()
+        .then(setProducts)
+        .catch(() => setProducts([]))
+        .finally(() => setLoadingProducts(false));
+    }
+  }, [isDraft, readOnly]);
+
   const eligibleUsers = users.filter((u) => {
     const eid = String((u as any).Employee_id ?? u.id ?? '');
     return eid && eid !== (currentUserId ?? '');
@@ -101,7 +115,7 @@ const DailyLogEntry: React.FC<DailyLogEntryProps> = ({ log, onUpdate, onDelete, 
   };
 
   const handleSubmitClick = () => {
-    onSubmit?.({ share_with: shareWithIds, co_author: coAuthorIds, shared_note: sharedNote.trim() || undefined });
+    onSubmit?.({ share_with: shareWithIds, co_author: coAuthorIds, shared_note: sharedNote.trim() || undefined, product: product.trim() || undefined });
   };
 
   const showReadOnly = readOnly || (isExistingEntry && !isEditing);
@@ -115,10 +129,15 @@ const DailyLogEntry: React.FC<DailyLogEntryProps> = ({ log, onUpdate, onDelete, 
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className={`text-[10px] font-black uppercase tracking-tighter px-2 py-0.5 rounded ${isToday ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
                 {log.date} {isToday && '(Today)'}
               </span>
+              {(log.productName || (isDraft && product)) && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200/80">
+                  {log.productName || product}
+                </span>
+              )}
               {canEditEntry && !readOnly && !isEditing && (
                 <button
                   onClick={handleStartEdit}
@@ -165,8 +184,23 @@ const DailyLogEntry: React.FC<DailyLogEntryProps> = ({ log, onUpdate, onDelete, 
           />
 
           {isDraft && !readOnly && (
-          <div className="mt-3 flex flex-col sm:flex-row gap-4">
-            <div className="flex-1 min-w-0">
+          <div className="mt-3 flex flex-col sm:flex-row gap-4 flex-wrap">
+            <div className="flex-1 min-w-[140px]">
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Product</label>
+              <select
+                value={product}
+                onChange={(e) => setProduct(e.target.value)}
+                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">{loadingProducts ? 'Loading products...' : 'Select product...'}</option>
+                {!loadingProducts && (Array.isArray(products) ? products : []).map((p, idx) => {
+                  const label = typeof p === 'string' ? p : String((p as any)?.name ?? (p as any)?.id ?? p ?? '');
+                  const value = typeof p === 'string' ? p : String((p as any)?.name ?? (p as any)?.id ?? p ?? '');
+                  return <option key={value || idx} value={value}>{label}</option>;
+                })}
+              </select>
+            </div>
+            <div className="flex-1 min-w-[140px]">
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Share with</label>
               <select
                 value={shareWithIds[0] ?? ''}

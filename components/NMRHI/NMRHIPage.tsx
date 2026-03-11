@@ -20,11 +20,13 @@ function entryToDailyLog(entry: any): DailyLog {
         statusName: sc.status_name ?? sc.statusName,
       }))
     : [];
+  const productName = entry.product_name ?? entry.productName ?? entry.product;
   return {
     id: String(entry.id ?? entry.Id ?? Math.random().toString(36).slice(2)),
     date: displayDate,
     note: String(note),
     status,
+    productName: productName ? String(productName) : undefined,
     coAuthorName: entry.co_author_name ?? entry.coAuthorName,
     approvedByCoauthor: entry.approved_by_coauthor ?? entry.approvedByCoauthor,
     shareChain: shareChain.length > 0 ? shareChain : undefined,
@@ -166,7 +168,7 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
     });
   };
 
-  const handleAddEntry = async (key: string, goalId: number, date: string, note: string, status: string, tempId?: string, shareWith?: string[], coAuthor?: string[], sharedNote?: string) => {
+  const handleAddEntry = async (key: string, goalId: number, date: string, note: string, status: string, tempId?: string, shareWith?: string[], coAuthor?: string[], sharedNote?: string, product?: string) => {
     if (!activeCategory) return;
     if (!goalId) {
       console.warn('[NMRHI] Cannot add entry: goalId is required');
@@ -181,6 +183,7 @@ const NMRHIPage: React.FC<NMRHIPageProps> = ({ currentUserName, currentUserId, i
         share_with: shareWith?.[0],
         co_author: coAuthor?.[0],
         shared_note: sharedNote ?? '',
+        product: product,
       });
       const createdEntry = Array.isArray(created) ? created[0] : created;
       const log = entryToDailyLog(createdEntry || { date: apiDate, status: 'PENDING', note });

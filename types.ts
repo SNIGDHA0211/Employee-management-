@@ -140,6 +140,8 @@ export interface Task {
   projectId?: string;
   dueDate: string;
   createdAt: string;
+  /** When task was completed (from API completed_At). Display when not null. */
+  completedAt?: string | null;
   comments: Comment[];
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 }

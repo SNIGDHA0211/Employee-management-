@@ -13,7 +13,7 @@ interface StrategyDetailProps {
   category: StrategyCategory;
   progress: AppProgress;
   onUpdateProgress: (key: string, updates: Partial<PointProgress>) => void;
-  onAddEntry?: (key: string, goalId: number, date: string, note: string, status: string, tempId?: string, shareWith?: string[], coAuthor?: string[], sharedNote?: string) => Promise<void>;
+  onAddEntry?: (key: string, goalId: number, date: string, note: string, status: string, tempId?: string, shareWith?: string[], coAuthor?: string[], sharedNote?: string, product?: string) => Promise<void>;
   onUpdateEntry?: (id: string, updates: { status?: string; note?: string }) => Promise<void>;
   onDeleteEntry?: (id: string) => Promise<void>;
   readOnly?: boolean;
@@ -125,7 +125,7 @@ const StrategyDetail: React.FC<StrategyDetailProps> = ({ category, progress, onU
                 progress={pointProgress}
                 isUnlocked={isActuallyUnlocked}
                 onUpdate={(updates) => onUpdateProgress(key, updates)}
-                onAddEntry={onAddEntry ? (goalId, date, note, status, tempId, shareWith, coAuthor, sharedNote) => onAddEntry(key, goalId, date, note, status, tempId, shareWith, coAuthor, sharedNote) : undefined}
+                onAddEntry={onAddEntry ? (goalId, date, note, status, tempId, shareWith, coAuthor, sharedNote, product) => onAddEntry(key, goalId, date, note, status, tempId, shareWith, coAuthor, sharedNote, product) : undefined}
                 onUpdateEntry={onUpdateEntry}
                 onDeleteEntry={onDeleteEntry}
                 readOnly={readOnly}

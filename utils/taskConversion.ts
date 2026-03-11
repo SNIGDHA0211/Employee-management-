@@ -187,6 +187,7 @@ export function convertApiTasksToTasks(
       createdByName: typeof createdByName === 'string' ? createdByName : undefined,
       dueDate,
       createdAt: apiTask.Created_at || apiTask.created_at || apiTask['Created_at'] || apiTask['created_at'] || apiTask.createdAt || new Date().toISOString(),
+      completedAt: apiTask.completed_At ?? apiTask.completed_at ?? apiTask['completed_At'] ?? apiTask['completed_at'] ?? null,
       comments: apiTask.comments || apiTask['comments'] || [],
       priority: (apiTask.priority || apiTask['priority'] || 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
       projectId: apiTask.projectId || apiTask['projectId'] || apiTask.project_id || undefined,

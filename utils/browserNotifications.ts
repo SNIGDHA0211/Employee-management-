@@ -41,26 +41,69 @@ export function getPermission(): NotificationPermission {
  */
 export async function requestPermission(): Promise<NotificationPermission> {
   if (!isNotificationSupported()) return 'denied';
-  if (Notification.permission === 'granted') return 'granted';
+  if (Notification.permission === 'granted') {
+    unlockNotificationAudio();
+    return 'granted';
+  }
   if (Notification.permission === 'denied') return 'denied';
   try {
     const perm = await Notification.requestPermission();
+    if (perm === 'granted') unlockNotificationAudio();
     return perm;
   } catch {
     return 'denied';
   }
 }
 
+/**
+ * Unlock audio for programmatic playback. Call after a user gesture.
+ * Allows repeated notification sounds to play even when tab is in background.
+ */
+function unlockNotificationAudio(): void {
+  try {
+    const audio = getNotificationAudio();
+    const prevVolume = audio.volume;
+    audio.volume = 0;
+    audio.play().then(() => {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = prevVolume;
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (AudioCtx && !cachedAudioContext) {
+      cachedAudioContext = new AudioCtx();
+      cachedAudioContext.resume().catch(() => {});
+    }
+  } catch {
+    // ignore
+  }
+}
+
 /** Path to notification sound (place file at public/assets/notification.mp3) */
 const NOTIFICATION_SOUND_URL = '/assets/notification.mp3';
 
-/** Play notification sound from asset file, fallback to Web Audio API beep */
+let cachedNotificationAudio: HTMLAudioElement | null = null;
+let cachedAudioContext: AudioContext | null = null;
+
+function getNotificationAudio(): HTMLAudioElement {
+  if (!cachedNotificationAudio) {
+    cachedNotificationAudio = new Audio(NOTIFICATION_SOUND_URL);
+    cachedNotificationAudio.volume = 0.7;
+    cachedNotificationAudio.preload = 'auto';
+  }
+  return cachedNotificationAudio;
+}
+
+/** Play notification sound. Reuses a single Audio element so repeat plays are not blocked by autoplay policy. */
 export function playNotificationSound(): void {
   try {
-    const audio = new Audio(NOTIFICATION_SOUND_URL);
-    audio.volume = 0.7;
+    const audio = getNotificationAudio();
+    audio.currentTime = 0;
     audio.play().catch(() => {
-      // Fallback to Web Audio API if file fails (e.g. autoplay policy, 404)
       playNotificationSoundFallback();
     });
   } catch {
@@ -69,20 +112,34 @@ export function playNotificationSound(): void {
 }
 
 function playNotificationSoundFallback(): void {
+  const playBeep = (ctx: AudioContext) => {
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.15);
+    } catch {
+      // ignore
+    }
+  };
   try {
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 880;
-    osc.type = 'sine';
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.15);
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    // Use cached context if unlocked (resumed on user gesture), otherwise create new and resume
+    const ctx = cachedAudioContext || new AudioCtx();
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(() => playBeep(ctx)).catch(() => {});
+    } else {
+      playBeep(ctx);
+    }
   } catch {
-    // Silently ignore
+    // ignore
   }
 }
 
@@ -92,11 +149,63 @@ function focusWindow(): void {
   window.focus();
 }
 
+let repeatingNotifIntervalId: ReturnType<typeof setInterval> | null = null;
+let activeRepeatingNotif: Notification | null = null;
+
+function stopRepeatingNotification(): void {
+  if (repeatingNotifIntervalId) {
+    clearInterval(repeatingNotifIntervalId);
+    repeatingNotifIntervalId = null;
+  }
+  activeRepeatingNotif?.close();
+  activeRepeatingNotif = null;
+}
+
 /**
- * Show a desktop notification.
+ * Show a desktop notification that repeats every 5 seconds until the user clicks it.
+ * Uses a unique tag per show so the browser displays a new popup each time (same tag would replace in-place).
+ * - Plays sound (caller responsibility)
+ * - On click: stops repeat, closes notification, focuses the tab
+ */
+export function showRepeatingDesktopNotification(payload: NotificationPayload): void {
+  if (!isNotificationSupported()) return;
+  if (Notification.permission !== 'granted') return;
+
+  stopRepeatingNotification();
+
+  const { title, message, extra } = payload;
+  const bodyParts = [extra?.from && `From ${extra.from}`, message, extra?.time].filter(Boolean);
+  const body = bodyParts.join('\n');
+
+  const showOne = () => {
+    try {
+      activeRepeatingNotif?.close();
+      playNotificationSound();
+      const n = new Notification(title, {
+        body,
+        tag: `repeating-${Date.now()}`, // unique tag so browser shows new popup each time
+        requireInteraction: true,
+        silent: false,
+      });
+      activeRepeatingNotif = n;
+      n.onclick = () => {
+        stopRepeatingNotification();
+        focusWindow();
+      };
+    } catch {
+      stopRepeatingNotification();
+    }
+  };
+
+  showOne();
+  repeatingNotifIntervalId = setInterval(showOne, 5000);
+}
+
+/**
+ * Show a desktop notification (one-shot).
  * - Plays sound
  * - On click: focuses the tab
- * - Respects permission state
+ * - Auto-dismiss after 20 seconds
  */
 export function showDesktopNotification(payload: NotificationPayload): void {
   if (!isNotificationSupported()) return;
@@ -107,9 +216,9 @@ export function showDesktopNotification(payload: NotificationPayload): void {
   const body = bodyParts.join('\n');
   const options: NotificationOptions = {
     body,
-    tag: `notification-${Date.now()}`, // unique tag to avoid stacking
+    tag: `notification-${Date.now()}`,
     requireInteraction: false,
-    silent: false, // we'll play our own sound for consistency
+    silent: false,
   };
 
   try {
@@ -120,9 +229,7 @@ export function showDesktopNotification(payload: NotificationPayload): void {
       focusWindow();
     };
 
-    setTimeout(() => n.close(), 20000); // Auto-dismiss after 20 seconds
-
-    // Sound is played by caller when notification is received
+    setTimeout(() => n.close(), 20000);
   } catch {
     // Ignore if Notification constructor fails
   }
@@ -144,10 +251,10 @@ export function parseNotificationPayload(data: unknown): NotificationPayload | n
 
 /**
  * Handle incoming WebSocket notification payload.
- * Shows desktop notification when tab is hidden.
+ * Shows repeating desktop notification until user clicks it.
  */
 export function handleWebSocketNotification(data: unknown): void {
   const payload = parseNotificationPayload(data);
   if (!payload) return;
-  showDesktopNotification(payload);
+  showRepeatingDesktopNotification(payload);
 }

@@ -6,7 +6,7 @@ import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell
 import { canAccessCustomerLeads } from './customerLeads/CustomerLeadsPage';
 import { getMotivationalQuote } from '../services/gemini';
 import { getPermission, requestPermission, isNotificationSupported } from '../utils/browserNotifications';
-import { getBirthdayCounter, postBirthdayCounter, initiateCall, initiateGroupCall, getCallHistory } from '../services/api';
+import { getBirthdayCounter, postBirthdayCounter, initiateCall, initiateGroupCall, getCallHistory, getMissedCallsCount, resetMissedCallsCount } from '../services/api';
 import { useCallContext } from '../contexts/CallContext';
 import { requestCallMediaPermissions } from '../utils/callMedia';
 
@@ -329,9 +329,10 @@ interface HeaderCallModalProps {
   users: User[];
   currentUser: User;
   onClose: () => void;
+  onViewCallHistory?: () => void;
 }
 
-const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, onClose }) => {
+const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, onClose, onViewCallHistory }) => {
   const { startOutgoingCall, startOutgoingGroupCall, wsSend } = useCallContext();
   const [view, setView] = useState<'start' | 'history'>('start');
   const [step, setStep] = useState<'type' | 'select'>('type');
@@ -373,15 +374,16 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
     if (step === 'select') setTimeout(() => searchRef.current?.focus(), 80);
   }, [step]);
 
-  // Fetch call history when view is history
+  // Fetch call history and reset missed count when view is history
   useEffect(() => {
     if (view !== 'history') return;
+    onViewCallHistory?.();
     setIsLoadingHistory(true);
     getCallHistory()
       .then(setCallHistory)
       .catch(() => setCallHistory([]))
       .finally(() => setIsLoadingHistory(false));
-  }, [view]);
+  }, [view, onViewCallHistory]);
 
   const formatCallDate = (ts: string) => {
     if (!ts) return '';
@@ -799,8 +801,33 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
   const [wishCount, setWishCount] = useState<number>(0);
   const [isSendingWishes, setIsSendingWishes] = useState(false);
   const [hasSentWishes, setHasSentWishes] = useState(false);
+  const [missedCallCount, setMissedCallCount] = useState<number>(0);
 
   const currentUserId = (user as any).Employee_id ?? user.id;
+
+  const fetchMissedCallCount = useCallback(async () => {
+    try {
+      const count = await getMissedCallsCount();
+      setMissedCallCount(count);
+    } catch {
+      setMissedCallCount(0);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMissedCallCount();
+  }, [fetchMissedCallCount]);
+
+  useEffect(() => {
+    if (!showCallModal) fetchMissedCallCount();
+  }, [showCallModal, fetchMissedCallCount]);
+
+  const handleViewCallHistory = useCallback(() => {
+    if (missedCallCount <= 0) return;
+    resetMissedCallsCount()
+      .then((res) => setMissedCallCount(res.missed_calls_count ?? 0))
+      .catch(() => {});
+  }, [missedCallCount]);
 
   useEffect(() => {
     if (!showBirthdayWish || birthdayUsers.length === 0) return;
@@ -903,7 +930,12 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
           aria-label="Start a call"
           title="Start a call"
         >
-          <Phone size={20} className="text-gray-600 hover:text-brand-600" />
+          <Phone size={20} className={`text-gray-600 hover:text-brand-600 ${missedCallCount > 0 ? 'animate-shake-attention' : ''}`} />
+          {missedCallCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full z-[1]">
+              {missedCallCount > 99 ? '99+' : missedCallCount}
+            </span>
+          )}
         </button>
 
         {showCallModal && typeof document !== 'undefined' && (
@@ -911,6 +943,7 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
             users={users}
             currentUser={user}
             onClose={() => setShowCallModal(false)}
+            onViewCallHistory={handleViewCallHistory}
           />
         )}
 

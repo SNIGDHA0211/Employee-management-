@@ -11,6 +11,7 @@ export interface DailyLog {
   date: string;
   note: string;
   status: ProgressStatus;
+  productName?: string;
   coAuthorName?: string;
   approvedByCoauthor?: boolean;
   shareChain?: ShareChainItem[];

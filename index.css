@@ -8,3 +8,20 @@
 html, body, #root {
   min-height: 100%;
 }
+
+@keyframes shake-attention {
+  0%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(-18deg); }
+  20% { transform: rotate(18deg); }
+  30% { transform: rotate(-14deg); }
+  40% { transform: rotate(14deg); }
+  50% { transform: rotate(-10deg); }
+  60% { transform: rotate(10deg); }
+  70% { transform: rotate(-6deg); }
+  80% { transform: rotate(6deg); }
+}
+
+.animate-shake-attention {
+  animation: shake-attention 0.5s ease-in-out infinite;
+  transform-origin: center center;
+}
