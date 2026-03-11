@@ -798,6 +798,7 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
 
   const [wishCount, setWishCount] = useState<number>(0);
   const [isSendingWishes, setIsSendingWishes] = useState(false);
+  const [hasSentWishes, setHasSentWishes] = useState(false);
 
   const currentUserId = (user as any).Employee_id ?? user.id;
 
@@ -817,15 +818,16 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
   }, [showBirthdayWish, birthdayUsers.length]);
 
   const handleSendWishes = async () => {
-    if (birthdayUsers.length === 0 || isSendingWishes) return;
+    if (birthdayUsers.length === 0 || isSendingWishes || hasSentWishes) return;
     setIsSendingWishes(true);
     try {
       const usernames = birthdayUsers.map((u: User) => String((u as any).Employee_id ?? u.id ?? u.name)).filter(Boolean);
       const res = await postBirthdayCounter(usernames);
       const first = res.updated?.[0];
       setWishCount(first?.birthday_counter ?? 0);
+      setHasSentWishes(true);
     } catch {
-      /* ignore */
+      /* allow retry on error */
     } finally {
       setIsSendingWishes(false);
     }
@@ -858,11 +860,11 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
               </div>
               <button
                 onClick={handleSendWishes}
-                disabled={isSendingWishes}
+                disabled={isSendingWishes || hasSentWishes}
                 className="flex-shrink-0 flex items-center gap-1.5 bg-white text-purple-600 px-3 py-1.5 rounded-lg font-semibold text-sm hover:bg-purple-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <Gift size={14} />
-                <span>{isSendingWishes ? 'Sending...' : 'Send Wishes'}</span>
+                <span>{hasSentWishes ? 'Wishes Sent' : isSendingWishes ? 'Sending...' : 'Send Wishes'}</span>
               </button>
             </div>
           ) : (
@@ -969,6 +971,7 @@ export const BirthdayBanner: React.FC<{ users: User[], currentUser: User }> = ({
   const [showConfetti, setShowConfetti] = useState(false);
   const [wishCount, setWishCount] = useState<number>(0);
   const [isSendingWishes, setIsSendingWishes] = useState(false);
+  const [hasSentWishes, setHasSentWishes] = useState(false);
 
   const currentUserId = (currentUser as any).Employee_id ?? currentUser.id;
 
@@ -992,15 +995,16 @@ export const BirthdayBanner: React.FC<{ users: User[], currentUser: User }> = ({
   }, [birthdayUsers.length]);
 
   const handleSendWishes = async () => {
-    if (birthdayUsers.length === 0 || isSendingWishes) return;
+    if (birthdayUsers.length === 0 || isSendingWishes || hasSentWishes) return;
     setIsSendingWishes(true);
     try {
       const usernames = birthdayUsers.map((u) => String((u as any).Employee_id ?? u.id ?? u.name)).filter(Boolean);
       const res = await postBirthdayCounter(usernames);
       const first = res.updated?.[0];
       setWishCount(first?.birthday_counter ?? 0);
+      setHasSentWishes(true);
     } catch {
-      /* ignore */
+      /* allow retry on error */
     } finally {
       setIsSendingWishes(false);
     }
@@ -1048,11 +1052,11 @@ export const BirthdayBanner: React.FC<{ users: User[], currentUser: User }> = ({
         </div>
         <button 
           onClick={handleSendWishes}
-          disabled={isSendingWishes}
+          disabled={isSendingWishes || hasSentWishes}
           className="bg-white text-purple-600 px-6 py-2 rounded-full font-bold shadow-md hover:scale-105 transition-transform flex items-center space-x-2 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
         >
            <Gift size={18} />
-           <span>{isSendingWishes ? 'Sending...' : 'Send Wishes'}</span>
+           <span>{hasSentWishes ? 'Wishes Sent' : isSendingWishes ? 'Sending...' : 'Send Wishes'}</span>
         </button>
       </div>
     </div>
