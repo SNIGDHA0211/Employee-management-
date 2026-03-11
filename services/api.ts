@@ -3851,6 +3851,36 @@ export const endGroupCall = async (callId: string | number): Promise<any> => {
 };
 
 /**
+ * Fire endCall request during tab close. Uses fetch with keepalive so it can complete after unload.
+ */
+export const sendEndCallOnTabClose = (callId: string | number): void => {
+  if (typeof window === 'undefined') return;
+  const token = getAuthToken();
+  const url = `${API_BASE_URL}/messaging/endCall/`;
+  const body = JSON.stringify({
+    call_id: typeof callId === 'string' && /^\d+$/.test(callId) ? parseInt(callId, 10) : callId,
+  });
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  fetch(url, { method: 'POST', headers, body, keepalive: true }).catch(() => {});
+};
+
+/**
+ * Fire leaveGroupCall request during tab close. Uses fetch with keepalive so it can complete after unload.
+ */
+export const sendLeaveGroupCallOnTabClose = (callId: string | number): void => {
+  if (typeof window === 'undefined') return;
+  const token = getAuthToken();
+  const url = `${API_BASE_URL}/messaging/leaveGroupCall/`;
+  const body = JSON.stringify({
+    call_id: typeof callId === 'string' && /^\d+$/.test(callId) ? parseInt(callId, 10) : callId,
+  });
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  fetch(url, { method: 'POST', headers, body, keepalive: true }).catch(() => {});
+};
+
+/**
  * List active group calls for current user
  * @endpoint GET /messaging/activeGroupCalls/
  */

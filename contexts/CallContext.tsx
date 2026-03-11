@@ -16,6 +16,8 @@ import {
   joinGroupCall as apiJoinGroupCall,
   leaveGroupCall as apiLeaveGroupCall,
   endGroupCall as apiEndGroupCall,
+  sendEndCallOnTabClose,
+  sendLeaveGroupCallOnTabClose,
 } from '../services/api';
 import { requestAndGetCallMediaStream } from '../utils/callMedia';
 
@@ -74,6 +76,21 @@ export function CallProvider({ currentUser, users, children }: CallProviderProps
 
   activeCallRef.current = activeCall;
   activeGroupCallRef.current = activeGroupCall;
+
+  useEffect(() => {
+    const handler = () => {
+      const call = activeCallRef.current;
+      const group = activeGroupCallRef.current;
+      if (call?.callId != null) sendEndCallOnTabClose(call.callId);
+      if (group?.callId != null && group.status === 'active') sendLeaveGroupCallOnTabClose(group.callId);
+    };
+    window.addEventListener('beforeunload', handler);
+    window.addEventListener('pagehide', handler);
+    return () => {
+      window.removeEventListener('beforeunload', handler);
+      window.removeEventListener('pagehide', handler);
+    };
+  }, []);
 
   const webrtcHandlersRef = useRef<{
     handleOffer: (d: any) => void;
