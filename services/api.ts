@@ -614,11 +614,12 @@ export const markNotificationAsRead = async (id: number): Promise<{ status: stri
 
 /**
  * Get birthday wish count for a user.
- * @endpoint GET /eventsapi/events/birthdaycounter/{userid}/
+ * @endpoint GET /eventsapi/events/birthdaycounter/<username>/
+ * @param username Username (or user id) of the user
  * @returns { birthday_counter: number }
  */
-export const getBirthdayCounter = async (userId: string): Promise<{ birthday_counter: number }> => {
-  const response = await api.get(`/eventsapi/events/birthdaycounter/${encodeURIComponent(userId)}/`);
+export const getBirthdayCounter = async (username: string): Promise<{ birthday_counter: number }> => {
+  const response = await api.get(`/eventsapi/events/birthdaycounter/${encodeURIComponent(username)}/`);
   const data = response.data;
   return {
     birthday_counter: typeof data?.birthday_counter === 'number' ? data.birthday_counter : 0,
@@ -626,15 +627,24 @@ export const getBirthdayCounter = async (userId: string): Promise<{ birthday_cou
 };
 
 /**
- * Increment birthday wish count (e.g. when user sends wishes).
- * @endpoint POST /eventsapi/events/birthdaycounter/{userid}/
- * @returns { birthday_counter: number }
+ * Update birthday counter when sending wishes.
+ * @endpoint POST /eventsapi/events/birthdaycounter/
+ * @param usernames Usernames (or user ids) of the people whose birthday it is
+ * @body { users: string[] }
+ * @returns { updated: [{ username, birthday_counter }], invalidated_cache: boolean }
  */
-export const postBirthdayCounter = async (userId: string): Promise<{ birthday_counter: number }> => {
-  const response = await api.post(`/eventsapi/events/birthdaycounter/${encodeURIComponent(userId)}/`);
+export const postBirthdayCounter = async (
+  usernames: string[]
+): Promise<{ updated: Array<{ username: string; birthday_counter: number }>; invalidated_cache: boolean }> => {
+  const response = await api.post('/eventsapi/events/birthdaycounter/', { users: usernames });
   const data = response.data;
+  const updated = Array.isArray(data?.updated) ? data.updated : [];
   return {
-    birthday_counter: typeof data?.birthday_counter === 'number' ? data.birthday_counter : 0,
+    updated: updated.map((u: any) => ({
+      username: String(u?.username ?? ''),
+      birthday_counter: typeof u?.birthday_counter === 'number' ? u.birthday_counter : 0,
+    })),
+    invalidated_cache: Boolean(data?.invalidated_cache),
   };
 };
 

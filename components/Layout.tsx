@@ -802,24 +802,28 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
   const currentUserId = (user as any).Employee_id ?? user.id;
 
   useEffect(() => {
-    if (!showBirthdayWish || !currentUserId) return;
+    if (!showBirthdayWish || birthdayUsers.length === 0) return;
     const fetchCount = async () => {
       try {
-        const res = await getBirthdayCounter(currentUserId);
+        const id = (birthdayUsers[0] as any)?.Employee_id ?? birthdayUsers[0]?.id;
+        if (!id) return;
+        const res = await getBirthdayCounter(String(id));
         setWishCount(res.birthday_counter);
       } catch {
         setWishCount(0);
       }
     };
     fetchCount();
-  }, [showBirthdayWish, currentUserId]);
+  }, [showBirthdayWish, birthdayUsers.length]);
 
   const handleSendWishes = async () => {
     if (birthdayUsers.length === 0 || isSendingWishes) return;
     setIsSendingWishes(true);
     try {
-      const res = await postBirthdayCounter(currentUserId);
-      setWishCount(res.birthday_counter);
+      const usernames = birthdayUsers.map((u: User) => String((u as any).Employee_id ?? u.id ?? u.name)).filter(Boolean);
+      const res = await postBirthdayCounter(usernames);
+      const first = res.updated?.[0];
+      setWishCount(first?.birthday_counter ?? 0);
     } catch {
       /* ignore */
     } finally {
@@ -973,24 +977,28 @@ export const BirthdayBanner: React.FC<{ users: User[], currentUser: User }> = ({
   }, [birthdayUsers.length]);
 
   useEffect(() => {
-    if (birthdayUsers.length === 0 || !currentUserId) return;
+    if (birthdayUsers.length === 0) return;
     const fetchCount = async () => {
       try {
-        const res = await getBirthdayCounter(currentUserId);
+        const id = (birthdayUsers[0] as any)?.Employee_id ?? birthdayUsers[0]?.id;
+        if (!id) return;
+        const res = await getBirthdayCounter(String(id));
         setWishCount(res.birthday_counter);
       } catch {
         setWishCount(0);
       }
     };
     fetchCount();
-  }, [birthdayUsers.length, currentUserId]);
+  }, [birthdayUsers.length]);
 
   const handleSendWishes = async () => {
     if (birthdayUsers.length === 0 || isSendingWishes) return;
     setIsSendingWishes(true);
     try {
-      const res = await postBirthdayCounter(currentUserId);
-      setWishCount(res.birthday_counter);
+      const usernames = birthdayUsers.map((u) => String((u as any).Employee_id ?? u.id ?? u.name)).filter(Boolean);
+      const res = await postBirthdayCounter(usernames);
+      const first = res.updated?.[0];
+      setWishCount(first?.birthday_counter ?? 0);
     } catch {
       /* ignore */
     } finally {
