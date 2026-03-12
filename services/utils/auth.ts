@@ -62,12 +62,14 @@ export const isValidToken = (token: string | null): boolean => {
 };
 
 /**
- * Clear all authentication data
+ * Clear all authentication data and session state
  */
 export const clearAuthData = (): void => {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem('current_user');
+  localStorage.removeItem('active_tab');
 };
 
 

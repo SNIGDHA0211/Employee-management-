@@ -15,6 +15,7 @@ import api, {
   markNotificationAsRead,
   viewTasks as apiViewTasks,
   viewAssignedTasks as apiViewAssignedTasks,
+  getAlerts,
 } from './services/api';
 import { getNMRHIAllowedCategories } from './components/NMRHI/constants';
 import { convertApiTasksToTasks } from './utils/taskConversion';
@@ -23,6 +24,7 @@ import { clearAuthData } from './services/utils/auth';
 import { Sidebar, Header } from './components/Layout';
 import { CallProvider } from './contexts/CallContext';
 import { MeetCard } from './components/MeetCard';
+import { CreateAlertModal } from './components/CreateAlertModal';
 import { TaskBoard } from './components/TaskBoard';
 import { ChatSystem } from './components/ChatSystem';
 import { StatCard, ProjectCard, PerformanceChart, BossRevenueChart, DistributionChart } from './components/DashboardWidgets';
@@ -693,6 +695,9 @@ export default function App() {
   const [filterValue, setFilterValue] = useState<string>('');
   const [showUserProfileSidebar, setShowUserProfileSidebar] = useState(false);
   const [showMeetCard, setShowMeetCard] = useState(false);
+  const [showCreateAlertModal, setShowCreateAlertModal] = useState(false);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [alertsRefreshTrigger, setAlertsRefreshTrigger] = useState(0);
   const [meetingRefreshTrigger, setMeetingRefreshTrigger] = useState(0);
   const [assetsRefreshTrigger, setAssetsRefreshTrigger] = useState(0);
   const [vendorsRefreshTrigger, setVendorsRefreshTrigger] = useState(0);
@@ -960,6 +965,20 @@ export default function App() {
       clearInterval(interval);
     };
   }, [currentUser?.id]);
+
+  // Fetch alerts for header display
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const fetchAlerts = async () => {
+      try {
+        const list = await getAlerts();
+        setAlerts(Array.isArray(list) ? list : []);
+      } catch {
+        setAlerts([]);
+      }
+    };
+    fetchAlerts();
+  }, [currentUser?.id, alertsRefreshTrigger]);
 
   // Branches - cached via React Query, only when dashboard active
   const { data: branchesData, isLoading: isLoadingBranches } = useBranchesQuery(
@@ -1938,7 +1957,7 @@ export default function App() {
       />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={currentUser} users={users} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onMeetClick={() => setShowMeetCard(true)} meetingRefreshTrigger={meetingRefreshTrigger} notificationMeetings={notificationMeetings} notificationsToday={notificationsToday} onMarkNotificationRead={async (id) => { try { await markNotificationAsRead(id); setNotificationsToday((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))); } catch { /* ignore */ } }} />
+        <Header user={currentUser} users={users} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onMeetClick={() => setShowMeetCard(true)} onPlusClick={() => setShowCreateAlertModal(true)} meetingRefreshTrigger={meetingRefreshTrigger} notificationMeetings={notificationMeetings} notificationsToday={notificationsToday} alerts={alerts} onMarkNotificationRead={async (id) => { try { await markNotificationAsRead(id); setNotificationsToday((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))); } catch { /* ignore */ } }} onAlertsRefresh={() => setAlertsRefreshTrigger((t) => t + 1)} />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-4 md:p-6">
           {renderContent()}
         </main>
@@ -2001,6 +2020,16 @@ export default function App() {
         </div>
       )}
 
+      {/* Create Alert Modal - from header plus button */}
+      {showCreateAlertModal && currentUser && (
+        <CreateAlertModal
+          onClose={() => setShowCreateAlertModal(false)}
+          employees={users}
+          defaultResolvedBy={String((currentUser as any).Employee_id ?? currentUser.id ?? '')}
+          onSuccess={() => setAlertsRefreshTrigger((t) => t + 1)}
+        />
+      )}
+
       {/* Meet Card - from header Meet button */}
       {showMeetCard && currentUser && (
         <MeetCard
@@ -2010,7 +2039,6 @@ export default function App() {
           }}
           currentUser={currentUser}
           rooms={meetRooms}
-          employees={meetEmployees}
         />
       )}
 

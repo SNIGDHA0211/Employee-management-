@@ -85,12 +85,24 @@ const processQueue = (error: any, token: string | null = null) => {
   failedQueue = [];
 };
 
+/** Logout user and redirect to login page */
+const logoutAndRedirectToLogin = () => {
+  clearAuthData();
+  if (typeof window !== 'undefined') {
+    window.location.replace('/');
+  }
+};
+
 // Add response interceptor to handle authentication errors and token refresh
 api.interceptors.response.use(
-  (response) => {
-    return response;
-  },
+  (response) => response,
   async (error) => {
+    // 403 Forbidden – redirect to login
+    if (error.response?.status === 403) {
+      logoutAndRedirectToLogin();
+      return Promise.reject(error);
+    }
+
     // Handle network errors (CORS, connection refused, etc.)
     if (
       error.code === "ERR_NETWORK" ||
@@ -202,26 +214,18 @@ api.interceptors.response.use(
               return api(originalRequest);
             }
           } catch (refreshError) {
-            // Refresh failed - clear auth and redirect to login
+            // Refresh failed - clear auth, reject (no redirect; redirect only on "login required")
             processQueue(refreshError, null);
             isRefreshing = false;
             clearAuthData();
-
-            // Redirect to login page
-            if (window.location.pathname !== "/login") {
-              window.location.href = "/login";
-            }
             return Promise.reject(refreshError);
           }
         } else {
-          // No refresh token - clear auth and redirect
+          // No refresh token - clear auth, reject (no redirect)
           processQueue(error, null);
           isRefreshing = false;
           clearAuthData();
-
-          if (window.location.pathname !== "/login") {
-            window.location.href = "/login";
-          }
+          return Promise.reject(error);
         }
       }
     }
@@ -2325,10 +2329,21 @@ export const getBookSlotsToday = async (): Promise<any[]> => {
   }
 };
 
+/** Meeting push (short meeting schedule) item - GET/POST response */
+export interface MeetingPushItem {
+  id: number;
+  product_name: string;
+  room_name: string;
+  meeting_type: string;
+  time: number;
+  is_active: boolean;
+  created_at: string;
+}
+
 /**
  * Get meeting push list. GET /eventsapi/meetingpush/
  */
-export const getMeetingPush = async (): Promise<any[]> => {
+export const getMeetingPush = async (): Promise<MeetingPushItem[]> => {
   const response = await api.get("/eventsapi/meetingpush/");
   const data = response.data;
   const list = Array.isArray(data) ? data : data?.results ?? data?.data ?? [];
@@ -2337,15 +2352,21 @@ export const getMeetingPush = async (): Promise<any[]> => {
 
 /**
  * Create a meeting via meeting push. POST /eventsapi/meetingpush/
- * Body: { users, meeting_type, time (minutes), meeting_room }
+ * Body: { product, meeting_type, time (minutes), meeting_room }
  */
 export const meetingPush = async (payload: {
-  users: string[];
+  product: string;
   meeting_type: 'individual' | 'group';
   time: number;
   meeting_room: string;
-}): Promise<any> => {
-  const response = await api.post("/eventsapi/meetingpush/", payload);
+}): Promise<MeetingPushItem> => {
+  const body = {
+    product: payload.product.trim(),
+    meeting_type: payload.meeting_type,
+    time: payload.time,
+    meeting_room: payload.meeting_room,
+  };
+  const response = await api.post("/eventsapi/meetingpush/", body);
   return response.data;
 };
 
@@ -4535,4 +4556,74 @@ export async function adjustLeaveBalance(payload: AdjustLeaveBalancePayload): Pr
 export async function addEmergencyLeave(payload: EmergencyLeavePayload): Promise<LeaveRequest> {
   const res = await api.post<LeaveRequest>('/leave/hr/emergency/', payload);
   return res.data;
+}
+
+/** POST /alertsapi/alerts/ — create a new alert */
+export interface CreateAlertBody {
+  alert_title: string;
+  alert_type: string;
+  alert_severity: 'high' | 'medium' | 'low';
+  resolved_by: string | number;
+  closed_by?: string;
+  details?: string;
+  status?: 'PENDING' | 'INPROCESS' | 'COMPLETED';
+}
+
+export interface CreateAlertResponse {
+  id: number;
+  alert_title: string;
+  alert_type: string;
+  alert_severity: string;
+  creator_name?: string;
+  details?: string;
+  created_at?: string;
+  close_at?: string | null;
+  resolved_by_name?: string;
+  closed_by?: string | null;
+  status?: string;
+}
+
+export async function createAlert(body: CreateAlertBody): Promise<CreateAlertResponse> {
+  const res = await api.post<CreateAlertResponse>('/alertsapi/alerts/', body);
+  return res.data;
+}
+
+/** GET /alertsapi/alerts/ — list all alerts */
+export interface AlertItem {
+  id: number;
+  alert_title: string;
+  alert_type?: string;
+  alert_severity?: string;
+  creator_name?: string;
+  details?: string;
+  created_at?: string;
+  close_at?: string | null;
+  resolved_by_name?: string;
+  closed_by?: string | null;
+  status?: string;
+}
+
+export async function getAlerts(): Promise<AlertItem[]> {
+  const res = await api.get<AlertItem[]>('/alertsapi/alerts/');
+  const data = res.data;
+  return Array.isArray(data) ? data : [];
+}
+
+/** PATCH /alertsapi/alerts/{id}/ — update alert (status, severity, etc.) — only creator or resolved_by can update */
+export interface UpdateAlertBody {
+  status?: 'PENDING' | 'INPROCESS' | 'COMPLETED';
+  alert_severity?: 'high' | 'medium' | 'low';
+  alert_title?: string;
+  details?: string;
+  closed_by?: string;
+}
+
+export async function updateAlert(id: number, body: UpdateAlertBody): Promise<AlertItem> {
+  const res = await api.patch<AlertItem>(`/alertsapi/alerts/${id}/`, body);
+  return res.data;
+}
+
+/** DELETE /alertsapi/alerts/{id}/ — delete alert — only creator or resolved_by can delete */
+export async function deleteAlert(id: number): Promise<void> {
+  await api.delete(`/alertsapi/alerts/${id}/`);
 }

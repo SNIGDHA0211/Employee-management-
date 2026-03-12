@@ -2,11 +2,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { User, UserRole, formatRoleForDisplay } from '../types';
-import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart, Phone, VideoIcon, Search, Check, PhoneCall, Mic, ClipboardList, UserPlus, PhoneIncoming, PhoneOutgoing } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, FolderKanban, MessageSquare, Menu, Bell, Gift, Sun, Cake, CalendarDays, Briefcase, ChevronRight, UserCheck, FileText, Target, Package, Receipt, Wallet, Building2, Calendar, X, Video, Heart, Phone, VideoIcon, Search, Check, PhoneCall, Mic, ClipboardList, UserPlus, PhoneIncoming, PhoneOutgoing, Plus } from 'lucide-react';
 import { canAccessCustomerLeads } from './customerLeads/CustomerLeadsPage';
 import { getMotivationalQuote } from '../services/gemini';
 import { getPermission, requestPermission, isNotificationSupported } from '../utils/browserNotifications';
-import { getBirthdayCounter, postBirthdayCounter, initiateCall, initiateGroupCall, getCallHistory, getMissedCallsCount, resetMissedCallsCount } from '../services/api';
+import { getBirthdayCounter, postBirthdayCounter, initiateCall, initiateGroupCall, getCallHistory, getMissedCallsCount, resetMissedCallsCount, AlertItem } from '../services/api';
+import { AlertDetailModal } from './AlertDetailModal';
 import { useCallContext } from '../contexts/CallContext';
 import { requestCallMediaPermissions } from '../utils/callMedia';
 
@@ -282,7 +283,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
   );
 };
 
-type NotificationItem = { id: number; type_of_notification: number; from_user: string; receipient: string; message: string; is_read: boolean; created_at: string };
+type NotificationItem = { id: number; type_of_notification?: number; notification_type?: string; from_user: string; receipient: string; message: string; is_read: boolean; created_at: string };
 
 /** Tracks when notification scrolls into view - reports to onSeen for marking read when panel closes */
 const NotificationEntry: React.FC<{
@@ -309,6 +310,7 @@ const NotificationEntry: React.FC<{
     return () => observer.disconnect();
   }, [isPanelOpen, n.id, n.is_read, onSeen, scrollContainerRef]);
 
+  const typeLabel = n.notification_type ?? (n.type_of_notification != null ? `Type ${n.type_of_notification}` : null);
   return (
     <div
       ref={entryRef}
@@ -318,6 +320,9 @@ const NotificationEntry: React.FC<{
         <p className="text-xs font-medium text-brand-600 shrink-0">{n.from_user}</p>
         <p className="text-[10px] text-gray-400 shrink-0">{n.created_at}</p>
       </div>
+      {typeLabel && (
+        <p className="text-[9px] font-semibold uppercase tracking-wider text-brand-500 mb-0.5">{typeLabel.replace(/_/g, ' ')}</p>
+      )}
       <p className="text-sm text-gray-800 break-words whitespace-pre-wrap">{n.message}</p>
     </div>
   );
@@ -731,10 +736,11 @@ const HeaderCallModal: React.FC<HeaderCallModalProps> = ({ users, currentUser, o
 
 // ─── Header ────────────────────────────────────────────────────────────────
 
-export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () => void; onMeetClick?: () => void; meetingRefreshTrigger?: number; notificationMeetings?: any[]; notificationsToday?: NotificationItem[]; onMarkNotificationRead?: (id: number) => void | Promise<void> }> = ({ user, users = [], toggleSidebar, onMeetClick, notificationMeetings = [], notificationsToday = [], onMarkNotificationRead }) => {
+export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () => void; onMeetClick?: () => void; onPlusClick?: () => void; meetingRefreshTrigger?: number; notificationMeetings?: any[]; notificationsToday?: NotificationItem[]; alerts?: AlertItem[]; onMarkNotificationRead?: (id: number) => void | Promise<void>; onAlertsRefresh?: () => void }> = ({ user, users = [], toggleSidebar, onMeetClick, onPlusClick, notificationMeetings = [], notificationsToday = [], alerts = [], onMarkNotificationRead, onAlertsRefresh }) => {
   const [quote, setQuote] = useState("Loading thought...");
   const [showMeetingDropdown, setShowMeetingDropdown] = useState(false);
   const [showCallModal, setShowCallModal] = useState(false);
+  const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(null);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | null>(null);
   const meetings = notificationMeetings ?? [];
   const notifications = notificationsToday ?? [];
@@ -866,7 +872,25 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
         <button onClick={toggleSidebar} className="p-2 hover:bg-gray-100 rounded-lg md:hidden flex-shrink-0">
           <Menu size={24} />
         </button>
-        <div className="hidden md:flex items-center flex-1 min-w-0" style={{ maxWidth: '100%' }}>
+        <div className="hidden md:flex items-center flex-1 min-w-0 gap-2" style={{ maxWidth: '100%' }}>
+          {alerts.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
+              {alerts.map((a) => {
+                const isCompleted = (a.status ?? '').toUpperCase() === 'COMPLETED';
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setSelectedAlert(a)}
+                    className={`px-3 py-1 rounded-lg text-white text-xs font-semibold cursor-pointer ${isCompleted ? 'alert-glow-green bg-green-500 border border-green-600 hover:bg-green-600' : 'alert-glow bg-red-500 border border-red-600 hover:bg-red-600'}`}
+                    title="Click to view details"
+                  >
+                    {a.alert_title}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {showBirthdayWish ? (
             <div className="flex items-center gap-3 w-full max-w-full bg-gradient-to-r from-pink-500/90 via-purple-500/90 to-indigo-500/90 text-white px-4 py-2 rounded-lg shadow-md border border-white/20">
               <Cake size={20} className="flex-shrink-0 text-pink-100" />
@@ -913,6 +937,15 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
             <span>Enable notifications</span>
           </button>
         )}
+        <button
+          type="button"
+          onClick={onPlusClick ?? (() => {})}
+          className="flex items-center justify-center w-9 h-9 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors shrink-0"
+          aria-label="Add"
+          title="Add"
+        >
+          <Plus size={18} strokeWidth={2.5} />
+        </button>
         {user.role === UserRole.MD && onMeetClick && (
           <button
             type="button"
@@ -944,6 +977,20 @@ export const Header: React.FC<{ user: User; users?: User[]; toggleSidebar: () =>
             currentUser={user}
             onClose={() => setShowCallModal(false)}
             onViewCallHistory={handleViewCallHistory}
+          />
+        )}
+
+        {selectedAlert && (
+          <AlertDetailModal
+            alert={selectedAlert}
+            currentUserName={user?.name ?? ''}
+            currentUserNames={(() => {
+              const uid = (user as any)?.Employee_id ?? user?.id;
+              const match = users.find((u) => (u as any).Employee_id === uid || u.id === uid);
+              return match?.name ? [match.name] : [];
+            })()}
+            onClose={() => setSelectedAlert(null)}
+            onSuccess={onAlertsRefresh}
           />
         )}
 

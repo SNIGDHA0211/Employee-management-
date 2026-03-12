@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { X, Video, Users, MapPin, Clock, Search } from 'lucide-react';
-import { meetingPush } from '../services/api';
+import React, { useState, useEffect } from 'react';
+import { X, Video, Package, MapPin, Clock } from 'lucide-react';
+import { meetingPush, getProducts } from '../services/api';
 import type { User } from '../types';
 import { useRequestLock } from '../hooks/useRequestLock';
 
@@ -9,7 +9,6 @@ interface MeetCardProps {
   onMeetingCreated?: () => void;
   currentUser?: User | null;
   rooms?: Array<{ id: number; name: string }>;
-  employees?: Array<{ id: string; name: string }>;
 }
 
 const CALL_IN_OPTIONS = [
@@ -21,48 +20,40 @@ const CALL_IN_OPTIONS = [
   { label: '1 hr', value: 60 },
 ];
 
-export const MeetCard: React.FC<MeetCardProps> = ({ onClose, onMeetingCreated, currentUser, rooms = [], employees = [] }) => {
+export const MeetCard: React.FC<MeetCardProps> = ({ onClose, onMeetingCreated, currentUser, rooms = [] }) => {
   const [selectedRoom, setSelectedRoom] = useState('');
   const [callInMinutes, setCallInMinutes] = useState(10);
-  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
-  const [memberSearch, setMemberSearch] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState('');
+  const [products, setProducts] = useState<string[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { withLock, isPending } = useRequestLock();
 
-  const filteredEmployees = useMemo(() => {
-    const q = memberSearch.trim().toLowerCase();
-    if (!q) return employees;
-    return employees.filter((emp) => emp.name.toLowerCase().includes(q));
-  }, [employees, memberSearch]);
+  useEffect(() => {
+    setLoadingProducts(true);
+    getProducts()
+      .then(setProducts)
+      .catch(() => setProducts([]))
+      .finally(() => setLoadingProducts(false));
+  }, []);
 
   useEffect(() => {
     if (rooms.length > 0 && !selectedRoom) setSelectedRoom(rooms[0].name);
   }, [rooms, selectedRoom]);
 
-  const toggleMember = (id: string) => {
-    setSelectedMembers((prev) =>
-      prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
-    );
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (selectedMembers.length === 0 && !currentUser?.id) {
-      setError('Please select at least one member.');
-      return;
-    }
-    const members = selectedMembers.length > 0 ? selectedMembers : currentUser?.id ? [currentUser.id] : [];
-    if (members.length === 0) {
-      setError('Please select at least one member.');
+    if (!selectedProduct.trim()) {
+      setError('Please select a product.');
       return;
     }
 
     await withLock(async () => {
       try {
         await meetingPush({
-          users: members,
-          meeting_type: members.length > 1 ? 'group' : 'individual',
+          product: selectedProduct.trim(),
+          meeting_type: 'individual',
           time: callInMinutes,
           meeting_room: selectedRoom,
         });
@@ -138,44 +129,25 @@ export const MeetCard: React.FC<MeetCardProps> = ({ onClose, onMeetingCreated, c
             </select>
           </div>
 
-          {/* Select Members */}
+          {/* Product */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <Users size={14} className="inline mr-1" />
-              Select Members
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              <Package size={14} className="inline mr-1" />
+              Product
             </label>
-            <div className="relative mb-2">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search by name..."
-                value={memberSearch}
-                onChange={(e) => setMemberSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500 text-sm"
-              />
-            </div>
-            <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-xl p-3 bg-gray-50 space-y-1.5">
-              {employees.length === 0 ? (
-                <p className="text-sm text-gray-500 py-2">Loading members...</p>
-              ) : filteredEmployees.length === 0 ? (
-                <p className="text-sm text-gray-500 py-2">No matching members</p>
-              ) : (
-                filteredEmployees.map((emp) => (
-                  <label
-                    key={emp.id}
-                    className="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-white cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedMembers.includes(emp.id)}
-                      onChange={() => toggleMember(emp.id)}
-                      className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                    />
-                    <span className="text-sm">{emp.name}</span>
-                  </label>
-                ))
-              )}
-            </div>
+            <select
+              value={selectedProduct}
+              onChange={(e) => setSelectedProduct(e.target.value)}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+              disabled={loadingProducts}
+            >
+              <option value="">{loadingProducts ? 'Loading products...' : 'Select product'}</option>
+              {products.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
           </div>
 
           {error && (

@@ -92,6 +92,24 @@ export function CallProvider({ currentUser, users, children }: CallProviderProps
     };
   }, []);
 
+  // Push history when call starts so back button can end the call
+  const hasPushedCallStateRef = useRef(false);
+  const endedByBackButtonRef = useRef(false);
+  useEffect(() => {
+    if (activeCall || activeGroupCall) {
+      if (!hasPushedCallStateRef.current) {
+        hasPushedCallStateRef.current = true;
+        endedByBackButtonRef.current = false;
+        window.history.pushState({ inCall: true }, '', window.location.href);
+      }
+    } else {
+      if (hasPushedCallStateRef.current && !endedByBackButtonRef.current) {
+        window.history.back();
+      }
+      hasPushedCallStateRef.current = false;
+    }
+  }, [activeCall, activeGroupCall]);
+
   const webrtcHandlersRef = useRef<{
     handleOffer: (d: any) => void;
     handleAnswer: (d: any) => void;
@@ -186,6 +204,37 @@ export function CallProvider({ currentUser, users, children }: CallProviderProps
       }
     },
   });
+
+  // Back button: end/decline call when user presses back during a call
+  useEffect(() => {
+    const handlePopState = () => {
+      endedByBackButtonRef.current = true;
+      const call = activeCallRef.current;
+      const group = activeGroupCallRef.current;
+      if (call?.callId != null) {
+        if (call.status === 'incoming') {
+          apiDeclineCall(call.callId).catch(() => {}).finally(() => setActiveCall(null));
+        } else {
+          apiEndCall(call.callId).catch(() => {}).finally(() => setActiveCall(null));
+        }
+      } else if (group?.callId != null) {
+        if (group.status === 'active') {
+          if (group.isCreator) {
+            apiEndGroupCall(group.callId).catch(() => {}).finally(() => setActiveGroupCall(null));
+          } else {
+            apiLeaveGroupCall(group.callId).catch(() => {}).finally(() => {
+              wsSend({ type: 'leave_group_call', call_id: group.callId });
+              setActiveGroupCall(null);
+            });
+          }
+        } else {
+          setActiveGroupCall(null);
+        }
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [wsSend]);
 
   const webrtc = useWebRTC({
     enabled: !!activeCall && !!wsSend && !activeGroupCall,
