@@ -23,6 +23,7 @@ import {
   LinkAttachment,
 } from '../services/api';
 import { useCallContext } from '../contexts/CallContext';
+import { useChatWebSocket } from '../hooks/useChatWebSocket';
 import { requestCallMediaPermissions } from '../utils/callMedia';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 import { MessageContent } from './chat/MessageContent';
@@ -352,6 +353,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
   const [stagedAttachment, setStagedAttachment] = useState<StagedAttachment | null>(null);
   const [isProcessingAttachment, setIsProcessingAttachment] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkTitle, setLinkTitle] = useState('');
@@ -362,6 +364,8 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [directChats, setDirectChats] = useState<Record<string, string>>({}); // Map user ID/name to chat_id
   const [directChatUnseenCounts, setDirectChatUnseenCounts] = useState<Record<string, number>>({}); // Map user name (from "with") to unseen_count
+  const [directChatUnseenByChatId, setDirectChatUnseenByChatId] = useState<Record<string, number>>({}); // chat_id -> unseen
+  const [groupUnseenByGroupId, setGroupUnseenByGroupId] = useState<Record<string, number>>({}); // group_id -> unseen
   const [directChatLastMessageAt, setDirectChatLastMessageAt] = useState<Record<string, string>>({}); // Map user name (from "with") to last_message_at
   const [isStartingChat, setIsStartingChat] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -373,9 +377,11 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
   const groupCallPickerRef = useRef<HTMLDivElement>(null);
   const [showGroupCallPicker, setShowGroupCallPicker] = useState<'audio' | 'video' | null>(null);
   const [selectedGroupCallUserIds, setSelectedGroupCallUserIds] = useState<Set<string>>(new Set());
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // delay before sendTypingStop
+  const typingExpireRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map()); // auto-hide received typing
 
   useEffect(() => {
-    if (!showCallParticipantPicker) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (callPickerRef.current && !callPickerRef.current.contains(e.target as Node)) {
         setShowCallParticipantPicker(null);
@@ -456,31 +462,44 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           const chats = chatResult.chats_info || [];
           const chatMap: Record<string, string> = {};
           const unseenMap: Record<string, number> = {};
+          const directUnseenByChatId: Record<string, number> = {};
           const lastMsgMap: Record<string, string> = {};
           chats.forEach((chat: any) => {
-            const chatWith = chat.with || '';
+            const chatWithRaw = chat.with;
+            const chatWith = typeof chatWithRaw === 'string' ? chatWithRaw.trim() : '';
             let chatId = chat.chat_id ? String(chat.chat_id).trim() : '';
             const unseen = typeof chat.unseen_count === 'number' ? chat.unseen_count : (chat.unseen_count != null ? Number(chat.unseen_count) : 0);
             const lastMsgAt = chat.last_message_at || '';
-            if (chatWith && chatId) {
-              chatMap[chatWith] = chatId;
-              unseenMap[chatWith] = unseen;
-              if (lastMsgAt) lastMsgMap[chatWith] = lastMsgAt;
-              // Exact-match only — partial matching causes wrong chat_id to be mapped to wrong user
-              const matchingUser = users.find((u: User) =>
-                u.name === chatWith || u.id === chatWith || String(u.id) === chatWith
-              );
-              if (matchingUser) {
-                chatMap[matchingUser.name] = chatId;
-                chatMap[matchingUser.id] = chatId;
-                unseenMap[matchingUser.name] = unseen;
-                if (lastMsgAt) lastMsgMap[matchingUser.name] = lastMsgAt;
-                if ((matchingUser as any).Employee_id) chatMap[(matchingUser as any).Employee_id] = chatId;
+            if (chatId) {
+              directUnseenByChatId[chatId] = unseen;
+              if (chatWith) {
+                chatMap[chatWith] = chatId;
+                unseenMap[chatWith] = unseen;
+                if (lastMsgAt) lastMsgMap[chatWith] = lastMsgAt;
+                const matchingUser = users.find((u: User) =>
+                  u.name === chatWith || u.name === chatWithRaw || u.id === chatWith || String(u.id) === chatWith
+                );
+                if (matchingUser) {
+                  chatMap[matchingUser.name] = chatId;
+                  chatMap[matchingUser.id] = chatId;
+                  unseenMap[matchingUser.name] = unseen;
+                  if (lastMsgAt) lastMsgMap[matchingUser.name] = lastMsgAt;
+                  if ((matchingUser as any).Employee_id) chatMap[(matchingUser as any).Employee_id] = chatId;
+                }
               }
+            }
+          });
+          const groupUnseenById: Record<string, number> = {};
+          groups.forEach((g: any) => {
+            const gid = g.group_id != null ? String(g.group_id).trim() : '';
+            if (gid) {
+              groupUnseenById[gid] = typeof g.unseen_count === 'number' ? g.unseen_count : (g.unseen_count != null ? Number(g.unseen_count) : 0);
             }
           });
           setDirectChats(prev => ({ ...prev, ...chatMap }));
           setDirectChatUnseenCounts(prev => ({ ...prev, ...unseenMap }));
+          setDirectChatUnseenByChatId(prev => ({ ...prev, ...directUnseenByChatId }));
+          setGroupUnseenByGroupId(prev => ({ ...prev, ...groupUnseenById }));
           setDirectChatLastMessageAt(prev => ({ ...prev, ...lastMsgMap }));
           setApiGroups(groups.map((g: any) => ({
             group_id: g.group_id,
@@ -847,19 +866,30 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
         const chats = chatData.chats_info || [];
         const chatMap: Record<string, string> = {};
         const unseenMap: Record<string, number> = {};
+        const directUnseenByChatId: Record<string, number> = {};
+        const groupUnseenById: Record<string, number> = {};
         const lastMsgMap: Record<string, string> = {};
+        groups.forEach((g: any) => {
+          const gid = g.group_id != null ? String(g.group_id).trim() : '';
+          if (gid) groupUnseenById[gid] = typeof g.unseen_count === 'number' ? g.unseen_count : (g.unseen_count != null ? Number(g.unseen_count) : 0);
+        });
         chats.forEach((chat: any) => {
-          const chatWith = chat.with || '';
+          const chatWith = typeof chat.with === 'string' ? chat.with.trim() : '';
           const chatId = chat.chat_id ? String(chat.chat_id).trim() : '';
           const unseen = typeof chat.unseen_count === 'number' ? chat.unseen_count : (chat.unseen_count != null ? Number(chat.unseen_count) : 0);
-          if (chatWith && chatId) {
-            chatMap[chatWith] = chatId;
-            unseenMap[chatWith] = unseen;
-            if (chat.last_message_at) lastMsgMap[chatWith] = chat.last_message_at;
+          if (chatId) {
+            directUnseenByChatId[chatId] = unseen;
+            if (chatWith) {
+              chatMap[chatWith] = chatId;
+              unseenMap[chatWith] = unseen;
+              if (chat.last_message_at) lastMsgMap[chatWith] = chat.last_message_at;
+            }
           }
         });
         setDirectChats(prev => ({ ...prev, ...chatMap }));
         setDirectChatUnseenCounts(prev => ({ ...prev, ...unseenMap }));
+        setDirectChatUnseenByChatId(prev => ({ ...prev, ...directUnseenByChatId }));
+        setGroupUnseenByGroupId(prev => ({ ...prev, ...groupUnseenById }));
         setDirectChatLastMessageAt(prev => ({ ...prev, ...lastMsgMap }));
         
         // Also update apiGroups for compatibility
@@ -936,6 +966,146 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
     return null;
   };
+
+  // Current chat ID for WebSocket subscription (group or DM)
+  const currentChatId = activeGroup
+    ? ((activeGroup as any).groupId ?? getGroupId(activeGroup))
+    : activeUser
+      ? findChatIdForUser(activeUser)
+      : null;
+
+  const currentChatIdRef = useRef<string | number | null>(null);
+  currentChatIdRef.current = currentChatId;
+
+  const matchChatId = (a: string | number | null | undefined, b: string | number | null | undefined): boolean => {
+    if (a == null || b == null) return false;
+    const sa = String(a).trim();
+    const sb = String(b).trim();
+    if (sa === sb) return true;
+    const numA = sa.replace(/^[A-Za-z]+/, '');
+    const numB = sb.replace(/^[A-Za-z]+/, '');
+    if (numA && numB && numA === numB) return true;
+    return false;
+  };
+
+  const {
+    subscribe,
+    unsubscribe,
+    sendTypingStart,
+    sendTypingStop,
+    sendMarkSeen,
+    isConnected: isChatWsConnected,
+  } = useChatWebSocket({
+    enabled: !!currentUser?.id,
+    onNewMessage: (data: { chat_id: string | number; message?: any; payload?: any; sender?: string; text?: string }) => {
+      const currentId = currentChatIdRef.current;
+      const isCurrentChat = matchChatId(data.chat_id, currentId);
+      if (!isCurrentChat) {
+        // Message for another chat: increment unseen
+        const cid = data.chat_id != null ? String(data.chat_id).trim() : '';
+        if (cid) {
+          const isGroup = /^G/i.test(cid); // Group IDs start with G (e.g. G83849), DMs with C (e.g. C67812849)
+          if (isGroup) {
+            setGroupUnseenByGroupId(prev => ({ ...prev, [cid]: (prev[cid] ?? 0) + 1 }));
+          } else {
+            setDirectChatUnseenByChatId(prev => ({ ...prev, [cid]: (prev[cid] ?? 0) + 1 }));
+          }
+        }
+        return;
+      }
+      const m = data.message ?? (data as any).payload ?? (typeof data.message === 'string' ? { message: data.message, sender: data.sender } : data);
+      if (!m) return;
+      const content = typeof m === 'string' ? m : (m.message ?? m.text ?? '');
+      const apiMsg = {
+        id: typeof m === 'object' ? m.id : undefined,
+        sender: typeof m === 'object' ? (m.sender_name ?? m.sender ?? '') : (data.sender ?? ''),
+        message: content,
+        date: typeof m === 'object' ? (m.date ?? new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }).replace(/\//g, '/')) : new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }).replace(/\//g, '/'),
+        time: typeof m === 'object' ? (m.time ?? new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })) : new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
+        attachment_id: typeof m === 'object' ? m.attachment_id : undefined,
+        attachment: typeof m === 'object' ? m.attachment : undefined,
+      };
+      setApiMessages((prev: any[]) => [...prev, apiMsg]);
+    },
+    // Chat list is loaded only on mount (when Messages tab opens) or site reload - not on every chat_updated
+    onChatUpdated: () => {},
+    onUserTyping: (data: { chat_id: string | number; user_id: string; user_name: string; is_typing: boolean }) => {
+      if (!matchChatId(data.chat_id, currentChatIdRef.current)) return;
+      const name = data.user_name;
+      if (data.is_typing) {
+        const prev = typingExpireRef.current.get(name);
+        if (prev) clearTimeout(prev);
+        typingExpireRef.current.set(
+          name,
+          setTimeout(() => {
+            typingExpireRef.current.delete(name);
+            setTypingUsers((p) => p.filter((u) => u !== name));
+          }, 3000)
+        );
+        setTypingUsers((prev) => (prev.includes(name) ? prev : [...prev, name]));
+      } else {
+        const t = typingExpireRef.current.get(name);
+        if (t) { clearTimeout(t); typingExpireRef.current.delete(name); }
+        setTypingUsers((prev) => prev.filter((u) => u !== name));
+      }
+    },
+  });
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingExpireRef.current.forEach((t) => clearTimeout(t));
+      typingExpireRef.current.clear();
+    };
+  }, []);
+
+  // Typing indicator: send typing_start when user types, typing_stop when idle (800ms after last keystroke)
+  useEffect(() => {
+    if (!currentChatId || !isChatWsConnected) return;
+    if (input.trim()) {
+      sendTypingStart(currentChatId);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        sendTypingStop(currentChatId);
+        typingTimeoutRef.current = null;
+      }, 800);
+    } else {
+      sendTypingStop(currentChatId);
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+    }
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+    };
+  }, [input, currentChatId, isChatWsConnected, sendTypingStart, sendTypingStop]);
+
+  useEffect(() => {
+    if (currentChatId && isChatWsConnected) {
+      subscribe(currentChatId);
+      sendMarkSeen(currentChatId);
+      setTypingUsers([]);
+      typingExpireRef.current.forEach((t) => clearTimeout(t));
+      typingExpireRef.current.clear();
+      const cid = String(currentChatId).trim();
+      if (cid) {
+        const isGroup = /^G/i.test(cid);
+        if (isGroup) {
+          setGroupUnseenByGroupId(prev => ({ ...prev, [cid]: 0 }));
+        } else {
+          setDirectChatUnseenByChatId(prev => ({ ...prev, [cid]: 0 }));
+        }
+      }
+      return () => {
+        unsubscribe(currentChatId);
+        sendTypingStop(currentChatId);
+      };
+    }
+  }, [currentChatId, isChatWsConnected, subscribe, unsubscribe, sendTypingStop, sendMarkSeen]);
 
   // Handle user click - open direct message
   const handleUserClick = async (user: User) => {
@@ -1351,11 +1521,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
 
   const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (fileInputRef.current) fileInputRef.current.value = '';
-
+  const processAndStageFile = async (file: File) => {
     if (file.size > MAX_FILE_BYTES) {
       setStagedAttachment({
         kind: 'file',
@@ -1366,11 +1532,9 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
       });
       return;
     }
-
     const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
     setStagedAttachment({ kind: 'file', file, preview, uploaded: null, error: null });
     setIsProcessingAttachment(true);
-
     try {
       const uploaded = await apiUploadFile(file);
       setStagedAttachment((prev) =>
@@ -1384,6 +1548,41 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
     } finally {
       setIsProcessingAttachment(false);
     }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    await processAndStageFile(file);
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const files = e.clipboardData?.files;
+    if (!files?.length || stagedAttachment || isProcessingAttachment) return;
+    const file = files[0];
+    e.preventDefault();
+    await processAndStageFile(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!stagedAttachment && !isProcessingAttachment) setIsDraggingOver(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDraggingOver(false);
+  };
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    const files = e.dataTransfer?.files;
+    if (!files?.length || stagedAttachment || isProcessingAttachment) return;
+    await processAndStageFile(files[0]);
   };
 
   const handleAddLink = async () => {
@@ -1751,11 +1950,15 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                          })()}
                        </p>
                      </div>
-                 {(group.unseen_count ?? 0) > 0 && (
-                   <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-semibold shrink-0">
-                     {(group.unseen_count ?? 0) > 99 ? '99+' : group.unseen_count}
-                   </span>
-                 )}
+                 {(() => {
+                   const gid = (group as any).groupId ?? getGroupId(group);
+                   const unseen = gid != null ? (groupUnseenByGroupId[String(gid)] ?? group.unseen_count ?? 0) : (group.unseen_count ?? 0);
+                   return unseen > 0 ? (
+                     <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-semibold shrink-0">
+                       {unseen > 99 ? '99+' : unseen}
+                     </span>
+                   ) : null;
+                 })()}
                   </div>
                 </div>
               ))
@@ -1809,11 +2012,15 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
                         </p>
                         <p className="text-xs text-gray-500 truncate">{user.email || user.designation || user.role}</p>
                       </div>
-                      {(directChatUnseenCounts[user.name] ?? 0) > 0 && (
-                        <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-semibold shrink-0">
-                          {(directChatUnseenCounts[user.name] ?? 0) > 99 ? '99+' : directChatUnseenCounts[user.name]}
-                        </span>
-                      )}
+                      {(() => {
+                        const chatId = findChatIdForUser(user);
+                        const unseen = chatId ? (directChatUnseenByChatId[chatId] ?? directChatUnseenCounts[user.name] ?? 0) : (directChatUnseenCounts[user.name] ?? 0);
+                        return unseen > 0 ? (
+                          <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-semibold shrink-0">
+                            {unseen > 99 ? '99+' : unseen}
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                  </div>
                   );
@@ -2399,8 +2606,24 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Typing indicator - bottom of chat */}
+        {typingUsers.length > 0 && (
+          <div className="px-4 py-2 bg-brand-50/50 border-t border-gray-100 text-sm text-gray-600 italic">
+            {typingUsers.length === 1
+              ? `${typingUsers[0]} is typing...`
+              : typingUsers.length === 2
+                ? `${typingUsers[0]} and ${typingUsers[1]} are typing...`
+                : `${typingUsers.slice(0, -1).join(', ')} and ${typingUsers[typingUsers.length - 1]} are typing...`}
+          </div>
+        )}
+
         {/* Input */}
-        <div className="p-3 sm:p-4 bg-white border-t border-gray-200 relative">
+        <div
+          className={`p-3 sm:p-4 bg-white border-t border-gray-200 relative transition-colors ${isDraggingOver ? 'ring-2 ring-brand-500 ring-inset bg-brand-50/50' : ''}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
 
           {/* ── Attachment preview tray ── */}
           {stagedAttachment && (
@@ -2568,6 +2791,7 @@ export const ChatSystem: React.FC<ChatSystemProps> = ({ currentUser, groups, mes
               type="text" 
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onPaste={handlePaste}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();

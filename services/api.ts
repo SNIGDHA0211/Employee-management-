@@ -23,6 +23,17 @@ export const getCallsWebSocketUrl = (): string => {
   return 'wss://employee-management-system-1-jwyn.onrender.com/ws/calls/';
 };
 
+/** WebSocket URL for real-time chat (messages, typing, seen receipts) */
+export const getChatWebSocketUrl = (): string => {
+  if (typeof window === 'undefined') return 'wss://employee-management-system-1-jwyn.onrender.com/ws/chat/';
+  const envUrl = (import.meta as any).env?.VITE_CHAT_WS_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
+  const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ||
+    window.location.hostname.startsWith('192.168.') || window.location.hostname.startsWith('10.') || window.location.hostname.startsWith('172.');
+  if (isDev) return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat/`;
+  return 'wss://employee-management-system-1-jwyn.onrender.com/ws/chat/';
+};
+
 //https://employee-management-system-1-jwyn.onrender.com
 //http://192.168.42.111:8000
 //http://192.168.41.69:8000

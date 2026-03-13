@@ -91,14 +91,15 @@ export function convertApiTasksToTasks(
         }
         const rawName = item?.assignee ?? item?.Assignee ?? item?.name ?? item?.Name;
         const assigneeName = typeof rawName === 'string' ? rawName.trim() : (rawName && typeof rawName === 'object' && (rawName as any).name ? String((rawName as any).name) : '');
-        if (assigneeName) {
+        const trimmedName = assigneeName.trim();
+        if (trimmedName) {
           const foundUser = users.find(u =>
-            u.name === assigneeName ||
-            u.name?.toLowerCase() === assigneeName.toLowerCase() ||
-            u.email === assigneeName ||
-            String((u as any).Employee_id) === assigneeName
+            (u.name && u.name.trim()) === trimmedName ||
+            u.name?.toLowerCase() === trimmedName.toLowerCase() ||
+            u.email === trimmedName ||
+            String((u as any).Employee_id) === trimmedName
           );
-          const resolved = foundUser?.id ?? (foundUser ? (foundUser as any).Employee_id : null) ?? assigneeName;
+          const resolved = foundUser?.id ?? (foundUser ? (foundUser as any).Employee_id : null) ?? trimmedName;
           resolvedIds.push(String(resolved));
         }
       }
@@ -133,11 +134,13 @@ export function convertApiTasksToTasks(
       apiTask.assigner || apiTask['assigner'] || apiTask.assigned_by || apiTask['assigned_by'] || undefined;
 
     let reporterId = rawReporterId;
-    if (rawReporterId && typeof rawReporterId === 'string' && !rawReporterId.includes('-') && !rawReporterId.match(/^\d+$/)) {
+    const reporterName = typeof rawReporterId === 'string' ? rawReporterId.trim() : '';
+    if (reporterName && !reporterName.includes('-') && !reporterName.match(/^\d+$/)) {
       const foundReporter = users.find(u =>
-        u.name === rawReporterId ||
-        u.name.toLowerCase() === rawReporterId.toLowerCase() ||
-        u.email === rawReporterId
+        u.name === reporterName ||
+        (u.name && u.name.trim() === reporterName) ||
+        (u.name && u.name.toLowerCase() === reporterName.toLowerCase()) ||
+        u.email === reporterName
       );
       if (foundReporter) reporterId = foundReporter.id;
     }
@@ -191,6 +194,7 @@ export function convertApiTasksToTasks(
       comments: apiTask.comments || apiTask['comments'] || [],
       priority: (apiTask.priority || apiTask['priority'] || 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
       projectId: apiTask.projectId || apiTask['projectId'] || apiTask.project_id || undefined,
+      unseen_count: typeof apiTask.unseen_count === 'number' ? apiTask.unseen_count : (apiTask.unseen_count != null ? Number(apiTask.unseen_count) : undefined),
     };
   });
 

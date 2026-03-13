@@ -144,6 +144,8 @@ export interface Task {
   completedAt?: string | null;
   comments: Comment[];
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  /** Unread count from API (viewTasks/viewAssignedTasks) */
+  unseen_count?: number;
 }
 
 export interface Comment {

@@ -606,77 +606,74 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
               key={lead.id}
               className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 hover:border-brand-200/60"
             >
-              {/* Status badge - top */}
-              <div className="flex justify-between items-center px-4 pt-3 pb-2 border-b border-gray-100">
-                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border ${getStatusStyle(lead.status)}`}>
-                  {lead.status}
-                </span>
+              {/* Header: LEAD pill + title + client - stacked like reference */}
+              <div className="px-4 pt-3 pb-3 border-b border-gray-100">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-brand-600 text-white shrink-0">
+                    Lead
+                  </span>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border shrink-0 ${getStatusStyle(lead.status)}`}>
+                    {lead.status}
+                  </span>
+                </div>
+                <h3 className="font-bold text-gray-900 text-base leading-snug line-clamp-2 mb-1">{lead.title}</h3>
+                <p className="text-xs text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-0">
+                  <span className="flex items-center gap-1.5">
+                    <UserIcon size={12} className="text-gray-500 shrink-0" />
+                    {lead.customerName}
+                  </span>
+                  {lead.customerContact && (
+                    <span className="flex items-center gap-1.5">
+                      <Phone size={12} className="text-gray-500 shrink-0" />
+                      {lead.customerContact}
+                    </span>
+                  )}
+                </p>
               </div>
 
-              <div className="p-4 space-y-3">
-                {/* Company Name */}
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-brand-600 mb-0.5">Company Name</p>
-                  <h3 className="font-bold text-gray-900 text-sm leading-snug line-clamp-2">{lead.title}</h3>
-                </div>
-
-                {/* Client name */}
-                <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-slate-50 border-l-2 border-slate-200">
-                  <UserIcon size={14} className="text-slate-500 flex-shrink-0 mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">Client</p>
-                    <span className="text-xs font-medium text-slate-800 truncate block">{lead.customerName}</span>
+              <div className="p-4 space-y-4">
+                {/* Contact Information - grouped section like reference */}
+                {(lead.representativeContactNumber || lead.representativeName || lead.gstNumber) && (
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-800 mb-2">Contact Information</h4>
+                    <div className="space-y-2">
+                      {(lead.representativeContactNumber || lead.representativeName) && (
+                        <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-gray-50 border border-gray-100">
+                          <UserIcon size={14} className="text-violet-500 flex-shrink-0 mt-0.5" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-0.5">Representative</p>
+                            {lead.representativeName && <span className="text-xs font-medium text-gray-800 block">{lead.representativeName}</span>}
+                            {lead.representativeContactNumber && <span className="text-xs font-medium text-gray-600 block">{lead.representativeContactNumber}</span>}
+                          </div>
+                        </div>
+                      )}
+                      {lead.gstNumber && (
+                        <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-gray-50 border border-gray-100">
+                          <Receipt size={14} className="text-violet-500 flex-shrink-0 mt-0.5" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-0.5">GST No.</p>
+                            <span className="text-xs font-medium text-gray-800 truncate block">{lead.gstNumber}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Client address */}
                 {lead.customerAddress && (
-                  <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-slate-50/80 border-l-2 border-slate-200">
-                    <MapPin size={14} className="text-slate-500 flex-shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-gray-50 border border-gray-100">
+                    <MapPin size={14} className="text-violet-500 flex-shrink-0 mt-0.5" />
                     <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">Address</p>
-                      <span className="text-xs font-medium text-slate-800 line-clamp-2 block">{lead.customerAddress}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Client contact */}
-                {lead.customerContact && (
-                  <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-slate-50/80 border-l-2 border-slate-200">
-                    <Phone size={14} className="text-slate-500 flex-shrink-0 mt-0.5" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">Contact</p>
-                      <span className="text-xs font-medium text-slate-800 truncate block">{lead.customerContact}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Representative contact */}
-                {(lead.representativeContactNumber || lead.representativeName) && (
-                  <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-slate-50/80 border-l-2 border-slate-200">
-                    <PhoneCall size={14} className="text-slate-500 flex-shrink-0 mt-0.5" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">Representative</p>
-                      {lead.representativeName && <span className="text-xs font-medium text-slate-800 truncate block">{lead.representativeName}</span>}
-                      {lead.representativeContactNumber && <span className="text-xs font-medium text-slate-600 truncate block">{lead.representativeContactNumber}</span>}
-                    </div>
-                  </div>
-                )}
-
-                {/* GST number */}
-                {lead.gstNumber && (
-                  <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-slate-50/80 border-l-2 border-slate-200">
-                    <Receipt size={14} className="text-slate-500 flex-shrink-0 mt-0.5" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-0.5">GST No.</p>
-                      <span className="text-xs font-medium text-slate-800 truncate block">{lead.gstNumber}</span>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-0.5">Address</p>
+                      <span className="text-xs font-medium text-gray-800 line-clamp-2 block">{lead.customerAddress}</span>
                     </div>
                   </div>
                 )}
 
                 {/* Product */}
                 {lead.product && (
-                  <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-amber-50/80 border-l-2 border-amber-200">
+                  <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-amber-50/80 border border-amber-100">
                     <Package size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
                     <div className="min-w-0 flex-1">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700/80 mb-0.5">Product</p>
@@ -688,42 +685,45 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                   </div>
                 )}
 
-                {/* Assigned employees */}
-                {lead.assignedEmployees && lead.assignedEmployees.length > 0 && (
-                  <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-violet-50/80 border-l-2 border-violet-200">
-                    <UserPlus size={14} className="text-violet-600 flex-shrink-0 mt-0.5" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-700/80 mb-1">Assigned to</p>
-                      <ul className="text-xs font-medium text-violet-900 space-y-0.5">
-                        {lead.assignedEmployees.map((emp, idx) => {
-                          const empIdStr = (emp.id && String(emp.id) !== 'undefined') ? String(emp.id).trim() : '';
-                          const fromMap = empIdStr ? employeeIdToName[empIdStr] : undefined;
-                          const raw = fromMap ?? emp.name ?? emp.id;
-                          const displayName = (raw && String(raw) !== 'undefined' ? String(raw).trim() : '—') || '—';
-                          return (
-                            <li key={emp.id || `emp-${idx}`} className="truncate">{displayName}</li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  </div>
-                )}
-
-                {/* More / Less: toggle description & notes */}
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedCardId((id) => (id === lead.id ? null : lead.id))}
-                    className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 hover:underline transition-colors"
-                  >
-                    {expandedCardId === lead.id ? (
-                      <> <ChevronUp size={14} /> Less</>
-                    ) : (
-                      <> <ChevronDown size={14} /> More</>
-                    )}
-                  </button>
-                  {expandedCardId === lead.id && (
+                {/* Expanded: description, notes & assigned to (toggled by More in footer) */}
+                {expandedCardId === lead.id && (
                     <div className="mt-2 space-y-3">
+                      {/* Assigned To - shown in More */}
+                      {lead.assignedEmployees && lead.assignedEmployees.length > 0 && (
+                        <div>
+                          <h4 className="text-xs font-bold text-gray-800 mb-2 flex items-center gap-1.5">
+                            <UserPlus size={14} className="text-violet-500" />
+                            Assigned To
+                          </h4>
+                          <div className="py-2 px-3 rounded-lg bg-violet-50/80 border border-violet-100">
+                            <div className="flex items-center gap-2 mb-2">
+                              <UserIcon size={14} className="text-violet-500 flex-shrink-0" />
+                              {(() => {
+                                const first = lead.assignedEmployees[0];
+                                const empIdStr = (first?.id && String(first.id) !== 'undefined') ? String(first.id).trim() : '';
+                                const fromMap = empIdStr ? employeeIdToName[empIdStr] : undefined;
+                                const displayName = (fromMap ?? first?.name ?? first?.id ?? '—') || '—';
+                                return <span className="text-xs font-semibold text-gray-800">{displayName}</span>;
+                              })()}
+                            </div>
+                            {lead.assignedEmployees.length > 1 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {lead.assignedEmployees.slice(1).map((emp, idx) => {
+                                  const empIdStr = (emp.id && String(emp.id) !== 'undefined') ? String(emp.id).trim() : '';
+                                  const fromMap = empIdStr ? employeeIdToName[empIdStr] : undefined;
+                                  const raw = fromMap ?? emp.name ?? emp.id;
+                                  const displayName = (raw && String(raw) !== 'undefined' ? String(raw).trim() : '—') || '—';
+                                  return (
+                                    <span key={emp.id || `emp-${idx}`} className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-800 border border-violet-200">
+                                      {displayName}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {/* Description - full */}
                       {lead.description && (
                         <div className="py-2 px-3 rounded-lg bg-blue-50/60 border-l-2 border-blue-200">
@@ -823,20 +823,27 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                       </div>
                     </div>
                   )}
-                </div>
 
-                {/* Meta: date & created by */}
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[10px] text-gray-400">
-                  <span className="flex items-center gap-1">
-                    <Clock size={10} />
-                    {safeFormatDate(lead.createdAt, 'dd MMM yyyy, HH:mm')}
-                  </span>
-                  <span>By: <strong className="text-brand-600">{employeeIdToName[String(lead.createdBy).trim()] ?? lead.createdBy}</strong></span>
-                </div>
               </div>
 
-              {/* Status & footer */}
-              <div className="px-4 pb-4 pt-3 flex justify-between items-center border-t border-gray-100">
+              {/* Footer: Created By (left) + More (right) - like reference */}
+              <div className="px-4 py-3 flex justify-between items-center border-t border-gray-100 bg-gray-50/50">
+                <span className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                  <Clock size={12} className="text-gray-400" />
+                  Created By: <strong className="text-brand-600">{employeeIdToName[String(lead.createdBy).trim()] ?? lead.createdBy}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExpandedCardId((id) => (id === lead.id ? null : lead.id))}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-colors"
+                >
+                  {expandedCardId === lead.id ? 'Less' : 'More'}
+                  {expandedCardId === lead.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+              </div>
+
+              {/* Status dropdown - below footer */}
+              <div className="px-4 pb-4 pt-2 flex justify-between items-center border-t border-gray-100">
                 <div className="relative">
                   <button
                     onClick={() => setOpenStatusDropdown(openStatusDropdown === lead.id ? null : lead.id)}
