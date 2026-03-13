@@ -355,6 +355,7 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
             
             const dashName = extractNameFromDashboard(employeeDashboard, dashboardEmployeeId, username);
             const fallbackName = userProfile.name && !/^\d+$/.test(String(userProfile.name).trim()) ? userProfile.name : '';
+            const dashDept = employeeDashboard?.['Department'] || employeeDashboard?.department || '';
             userProfile = {
               ...userProfile,
               id: dashboardEmployeeId, // Set to Employee_id from dashboard (preserved as string)
@@ -363,6 +364,7 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
               role: mappedRole,
               designation: employeeDashboard?.['Designation'] || employeeDashboard?.designation || userProfile.designation,
               branch: (employeeDashboard?.['Branch'] || employeeDashboard?.branch || userProfile.branch) as any,
+              department: dashDept ? String(dashDept).trim() : userProfile.department,
               joinDate: employeeDashboard?.['Date_of_join'] || employeeDashboard?.['Joining Date'] || employeeDashboard?.joinDate || userProfile.joinDate,
               birthDate: employeeDashboard?.['Date_of_birth'] || employeeDashboard?.['Date of Birth'] || employeeDashboard?.birthDate || userProfile.birthDate,
               avatar: (() => {
@@ -411,6 +413,7 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
           const email = employeeDashboard?.['Email_id'] || employeeDashboard?.['Email Address'] || employeeDashboard?.email || (username.includes('@') ? username : `${username}@planeteye.com`);
           const designation = employeeDashboard?.['Designation'] || employeeDashboard?.designation || '';
           const branch = employeeDashboard?.['Branch'] || employeeDashboard?.branch || '';
+          const department = employeeDashboard?.['Department'] || employeeDashboard?.department || '';
           const joinDate = employeeDashboard?.['Date_of_join'] || employeeDashboard?.['Joining Date'] || employeeDashboard?.joinDate || new Date().toISOString().split('T')[0];
           const birthDate = employeeDashboard?.['Date_of_birth'] || employeeDashboard?.['Date of Birth'] || employeeDashboard?.birthDate || '1995-01-01';
           const avatar = (() => {
@@ -476,6 +479,7 @@ const LoginPage: React.FC<{ onLogin: (u: User) => void }> = ({ onLogin }) => {
             joinDate: joinDate,
             birthDate: birthDate,
             branch: branch as any,
+            department: department ? String(department).trim() : undefined,
           } as User & { Employee_id?: string };
           
           // Add Employee_id separately to avoid TypeScript error
@@ -1304,6 +1308,9 @@ export default function App() {
         const updates: Partial<User> = {};
         if (match.numberOfDaysFromJoining != null) updates.numberOfDaysFromJoining = match.numberOfDaysFromJoining;
         if (needsNameEnrichment && hasValidName) updates.name = match.name;
+        // Merge department and function from employees list (needed for Client Leads access, NMRHI, etc.)
+        if (match.department != null && String(match.department).trim() !== '') updates.department = String(match.department).trim();
+        if ((match as any).function != null && String((match as any).function).trim() !== '') (updates as any).function = String((match as any).function).trim();
         return Object.keys(updates).length ? { ...prev, ...updates } : prev;
       });
     }

@@ -218,7 +218,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, activeTab, setActiveTab,
             </div>
           )}
 
-          {/* Client Leads - MD with MMR or RG function */}
+          {/* Client Leads - MD or employees with Sales, Marketing, Business strategy */}
           {canAccessCustomerLeads(user) && (
             <div className="mt-2">
               <button

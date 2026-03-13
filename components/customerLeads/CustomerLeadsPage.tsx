@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { User } from '../../types';
-import { getProducts, createClientProfile, getClientProfiles, getClientStages, updateClientProfile, addConversations, updateConversation, type ClientProfileResponse, type ClientStage } from '../../services/api';
+import { getProducts, createClientProfile, getClientProfiles, getClientStages, updateClientProfile, addConversations, updateConversation, type ClientProfileResponse, type ClientStage, type ConversationMedium } from '../../services/api';
 import { useEmployeesQuery } from '../../hooks/useEmployees';
 import { Plus, ChevronDown, ChevronUp, User as UserIcon, Package, Clock, ListPlus, StickyNote, UserPlus, Search, BarChart2, MapPin, Phone, PhoneCall, Receipt, Pencil, Check, X } from 'lucide-react';
 import { format, startOfMonth, parseISO } from 'date-fns';
@@ -8,7 +8,13 @@ import { format, startOfMonth, parseISO } from 'date-fns';
 function safeFormatDate(dateStr: string | undefined, formatStr: string, fallback = '—'): string {
   if (!dateStr) return fallback;
   try {
-    const d = parseISO(dateStr);
+    let d: Date;
+    const m = String(dateStr).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) {
+      d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10), m[4] ? parseInt(m[4], 10) : 0, m[5] ? parseInt(m[5], 10) : 0, m[6] ? parseInt(m[6], 10) : 0);
+    } else {
+      d = parseISO(dateStr);
+    }
     if (!(d instanceof Date) || isNaN(d.getTime())) return fallback;
     return format(d, formatStr);
   } catch {
@@ -22,6 +28,7 @@ export interface CustomerLeadNote {
   text: string;
   createdAt: string;
   createdBy?: string;
+  medium?: string | null;
 }
 
 export interface AssignedEmployee {
@@ -53,17 +60,19 @@ interface CustomerLeadsPageProps {
   users: User[];
 }
 
-const CLIENT_LEADS_ALLOWED_DEPARTMENTS = ['marketing', 'sales', 'business strategy', 'business_strategy'];
-const EMPLOYEE_SEARCH_ALLOWED_DEPARTMENTS = ['marketing', 'sales', 'business strategy', 'business_strategy'];
-const EMPLOYEE_SEARCH_ALLOWED_FUNCTIONS = ['mmr', 'rg']; // case-insensitive match within function string
+const CLIENT_LEADS_ALLOWED_DEPARTMENTS = ['marketing', 'sales', 'business strategy', 'business_strategy', 'buisness strategy'];
+const ADD_LEAD_EMPLOYEE_DEPARTMENTS = ['marketing', 'sales', 'business strategy', 'business_strategy', 'buisness strategy'];
 
 export function canAccessCustomerLeads(user: User): boolean {
   if (!user) return false;
   const role = String(user.role || '').toUpperCase().trim();
   if (role === 'MD') return true;
-  const dept = String(user.department || '').toLowerCase().trim();
+  const dept = String(user.department || '').toLowerCase().trim().replace(/_/g, ' ');
   return CLIENT_LEADS_ALLOWED_DEPARTMENTS.some(
-    allowed => dept === allowed || dept.includes(allowed)
+    allowed => {
+      const norm = allowed.toLowerCase().replace(/_/g, ' ');
+      return dept === norm || dept.includes(norm);
+    }
   );
 }
 
@@ -104,11 +113,12 @@ function mapApiProfileToLead(item: ClientProfileResponse): CustomerLead {
     const safeName = (nameVal && String(nameVal) !== 'undefined' ? String(nameVal) : idStr) || '—';
     return { id: idStr, name: safeName };
   });
-  const notes: CustomerLeadNote[] = (item.notes ?? []).map((n) => ({
+  const notes: CustomerLeadNote[] = (item.notes ?? []).map((n: any) => ({
     id: String(n.id),
     text: n.note ?? '',
     createdAt: n.created_at,
     ...(n.created_by && { createdBy: n.created_by }),
+    ...(n.medium != null && { medium: n.medium }),
   }));
   return {
     id: String(item.id),
@@ -175,18 +185,18 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [showGraphs, setShowGraphs] = useState(true);
 
-  // Employee search: MD always included; others need Marketing/Sales/Business Strategy + function MMR or Rg
-  const eligibleEmployeesForSearch = useMemo(() => {
+  // Add Client Lead: filter employees by department Sales, Marketing, Business Strategy (MD always included)
+  const eligibleEmployeesForAddLead = useMemo(() => {
     return users.filter((u) => {
       const role = String(u.role || '').toUpperCase().trim();
       if (role === 'MD') return true;
-      const dept = String(u.department || '').toLowerCase().trim();
-      const hasDept = EMPLOYEE_SEARCH_ALLOWED_DEPARTMENTS.some(
-        (d) => dept === d || dept.includes(d.replace(/_/g, ' '))
+      const dept = String(u.department || '').toLowerCase().trim().replace(/_/g, ' ');
+      return ADD_LEAD_EMPLOYEE_DEPARTMENTS.some(
+        (allowed) => {
+          const norm = allowed.toLowerCase().replace(/_/g, ' ');
+          return dept === norm || dept.includes(norm);
+        }
       );
-      const fn = String(u.function || '').toLowerCase();
-      const hasFunction = EMPLOYEE_SEARCH_ALLOWED_FUNCTIONS.some((f) => fn.includes(f));
-      return hasDept && hasFunction;
     });
   }, [users]);
 
@@ -261,20 +271,37 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
     setFormError(null);
   };
 
-  const addNote = async (leadId: string) => {
+  const [selectedMediumByLead, setSelectedMediumByLead] = useState<Record<string, ConversationMedium>>({});
+
+  const addNote = async (leadId: string, medium?: ConversationMedium) => {
     const text = (newNoteInput[leadId] || '').trim();
     if (!text) return;
     const lead = leads.find((l) => l.id === leadId);
     if (!lead) return;
     const prevNotes = lead.notes;
-    const optimisticNote: CustomerLeadNote = { text, createdAt: new Date().toISOString() };
+    const mediumToUse = medium ?? selectedMediumByLead[leadId];
+    const optimisticNote: CustomerLeadNote = {
+      text,
+      createdAt: new Date().toISOString(),
+      ...(mediumToUse && { medium: mediumToUse }),
+      ...(currentUser?.id && { createdBy: String(currentUser.id) }),
+    };
     setLeads((prev) =>
       prev.map((l) => (l.id === leadId ? { ...l, notes: [...l.notes, optimisticNote] } : l))
     );
     setNewNoteInput((prev) => ({ ...prev, [leadId]: '' }));
+    setSelectedMediumByLead((prev) => { const n = { ...prev }; delete n[leadId]; return n; });
     try {
-      await addConversations(leadId, [text]);
-      await fetchLeads();
+      const res = await addConversations(leadId, text, mediumToUse);
+      setLeads((prev) =>
+        prev.map((l) => {
+          if (l.id !== leadId) return l;
+          const notes = [...l.notes];
+          const last = notes[notes.length - 1];
+          if (last && !last.id) notes[notes.length - 1] = { ...last, id: String(res.id) };
+          return { ...l, notes };
+        })
+      );
     } catch {
       setLeads((prev) =>
         prev.map((l) => (l.id === leadId ? { ...l, notes: prevNotes } : l))
@@ -314,7 +341,6 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
     setEditingNoteText('');
     try {
       await updateConversation(leadId, noteId, editingNoteText.trim());
-      await fetchLeads();
     } catch {
       setLeads((prev) =>
         prev.map((l) =>
@@ -754,7 +780,7 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                                           className="w-full text-xs border border-emerald-200 rounded-md px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
                                           autoFocus
                                         />
-                                        <div className="flex gap-1">
+                                        <div className="flex flex-wrap gap-1.5">
                                           <button
                                             type="button"
                                             onClick={saveEditNote}
@@ -775,9 +801,20 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                                       </div>
                                     ) : (
                                       <>
-                                        <span className="block whitespace-pre-wrap">{note.text}</span>
+                                        <span className="block">
+                                          {note.medium && (
+                                            <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-medium border mr-1.5 shrink-0 ${
+                                              note.medium === 'Calls' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                              note.medium === 'Trial' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                              note.medium === 'Demand' ? 'bg-violet-50 text-violet-700 border-violet-200' :
+                                              note.medium === 'Pitch' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
+                                              'bg-gray-100 text-gray-700 border-gray-200'
+                                            }`}>{note.medium}</span>
+                                          )}
+                                          <span className="whitespace-pre-wrap">{note.text}</span>
+                                        </span>
                                         <span className="text-[10px] text-emerald-600/80 mt-0.5 block flex items-center gap-2">
-                                          {safeFormatDate(note.createdAt, 'dd MMM yyyy, HH:mm')}
+                                          Created at: {safeFormatDate(note.createdAt, 'dd MMM yyyy, HH:mm')}
                                           {note.createdBy && (
                                             <span className="text-emerald-500/90"> • by {employeeIdToName[String(note.createdBy).trim()] ?? note.createdBy}</span>
                                           )}
@@ -802,23 +839,54 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                         ) : (
                           <p className="text-xs text-gray-400 italic">No notes yet</p>
                         )}
-                        <div className="flex items-center gap-2 mt-2">
-                          <input
-                            type="text"
-                            value={newNoteInput[lead.id] ?? ''}
-                            onChange={(e) => setNewNoteInput((prev) => ({ ...prev, [lead.id]: e.target.value }))}
-                            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addNote(lead.id))}
-                            placeholder="Add note..."
-                            className="flex-1 text-xs border border-emerald-200 rounded-md px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 focus:outline-none hover:border-emerald-300 transition-colors duration-200"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => addNote(lead.id)}
-                            className="p-1.5 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors flex-shrink-0"
-                            title="Add note"
-                          >
-                            <ListPlus size={14} />
-                          </button>
+                        <div className="mt-2 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={newNoteInput[lead.id] ?? ''}
+                              onChange={(e) => setNewNoteInput((prev) => ({ ...prev, [lead.id]: e.target.value }))}
+                              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addNote(lead.id))}
+                              placeholder="Add note..."
+                              className="flex-1 text-xs border border-emerald-200 rounded-md px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 focus:outline-none hover:border-emerald-300 transition-colors duration-200"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => addNote(lead.id)}
+                              className="p-1.5 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors flex-shrink-0"
+                              title="Add note"
+                            >
+                              <ListPlus size={14} />
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {([
+                              { label: 'Call', medium: 'Calls' as ConversationMedium, cls: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100', clsActive: 'bg-blue-600 text-white border-blue-700 hover:bg-blue-700' },
+                              { label: 'Trial', medium: 'Trial' as ConversationMedium, cls: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100', clsActive: 'bg-amber-600 text-white border-amber-700 hover:bg-amber-700' },
+                              { label: 'Demand', medium: 'Demand' as ConversationMedium, cls: 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100', clsActive: 'bg-violet-600 text-white border-violet-700 hover:bg-violet-700' },
+                              { label: 'Pitch', medium: 'Pitch' as ConversationMedium, cls: 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100', clsActive: 'bg-cyan-600 text-white border-cyan-700 hover:bg-cyan-700' },
+                            ] as const).map(({ label, medium, cls, clsActive }) => {
+                              const isSelected = selectedMediumByLead[lead.id] === medium;
+                              return (
+                                <button
+                                  key={label}
+                                  type="button"
+                                  onClick={() => setSelectedMediumByLead((prev) => ({ ...prev, [lead.id]: medium }))}
+                                  className={`px-2 py-1 rounded text-[10px] font-medium border transition-colors ${isSelected ? clsActive : cls}`}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                            {selectedMediumByLead[lead.id] && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedMediumByLead((prev) => { const n = { ...prev }; delete n[lead.id]; return n; })}
+                                className="px-2 py-1 rounded text-[10px] font-medium border border-gray-300 text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1002,15 +1070,15 @@ export const CustomerLeadsPage: React.FC<CustomerLeadsPageProps> = ({ currentUse
                   {(() => {
                     const q = employeeSearchQuery.trim().toLowerCase();
                     const filtered = q
-                      ? eligibleEmployeesForSearch.filter((u) => {
+                      ? eligibleEmployeesForAddLead.filter((u) => {
                           const name = (u.name || '').toLowerCase();
                           const email = (u.email || '').toLowerCase();
                           const id = (u.id || '').toLowerCase();
                           return name.includes(q) || email.includes(q) || id.includes(q);
                         })
-                      : eligibleEmployeesForSearch;
+                      : eligibleEmployeesForAddLead;
                     if (filtered.length === 0) {
-                      return <p className="text-xs text-gray-500 py-2">{q ? 'No employees match your search.' : 'No employees with function MMR/Rg in Marketing, Sales or Business Strategy.'}</p>;
+                      return <p className="text-xs text-gray-500 py-2">{q ? 'No employees match your search.' : 'No employees in Sales, Marketing or Business Strategy.'}</p>;
                     }
                     return filtered.map((u) => (
                       <label key={u.id} className="flex items-center gap-2 p-2 rounded-md hover:bg-white cursor-pointer">

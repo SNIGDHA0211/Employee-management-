@@ -4492,9 +4492,39 @@ export async function createClientProfile(body: CreateClientProfileBody): Promis
   return res.data;
 }
 
-/** POST /clientsapi/profiles/{id}/conversations/ — add multiple notes */
-export async function addConversations(profileId: number | string, notes: string[]): Promise<any> {
-  const res = await api.post(`/clientsapi/profiles/${profileId}/conversations/`, { notes });
+/** GET /clientsapi/profiles/{profile_id}/conversations/ — fetch profile conversations (notes) */
+export interface ProfileConversation {
+  id: number;
+  note: string;
+  created_by: string;
+  created_at: string;
+  medium?: 'Calls' | 'Trial' | 'Demand' | 'Pitch';
+}
+
+export async function getProfileConversations(profileId: number | string): Promise<ProfileConversation[]> {
+  const res = await api.get<ProfileConversation[]>(`/clientsapi/profiles/${profileId}/conversations/`);
+  const data = res.data;
+  return Array.isArray(data) ? data : [];
+}
+
+/** POST /clientsapi/profiles/{profile_id}/conversations/ — add note(s) with medium */
+export type ConversationMedium = 'Calls' | 'Trial' | 'Demand' | 'Pitch';
+
+export interface AddConversationResponse {
+  id: number;
+  message: string;
+}
+
+export async function addConversations(
+  profileId: number | string,
+  note: string | string[],
+  medium?: ConversationMedium
+): Promise<AddConversationResponse> {
+  const body: { note: string | string[]; medium?: ConversationMedium } = {
+    note: Array.isArray(note) ? note : note,
+    ...(medium && { medium }),
+  };
+  const res = await api.post<AddConversationResponse>(`/clientsapi/profiles/${profileId}/conversations/`, body);
   return res.data;
 }
 
